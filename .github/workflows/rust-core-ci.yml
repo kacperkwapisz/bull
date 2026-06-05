@@ -22,16 +22,23 @@ defaults:
 
 jobs:
   build-test:
-    name: Build, test, and lint
+    # Run against both stable and the crate's declared MSRV so CI proves the
+    # core compiles and tests pass under the minimum supported toolchain
+    # (rust-version in Rust/core/Cargo.toml), not just a newer stable compiler.
+    name: Build & test (Rust ${{ matrix.toolchain }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, "1.94"] # keep "1.94" in sync with Cargo.toml rust-version
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal
+          rustup default ${{ matrix.toolchain }}
           rustup component add clippy
           rustc --version
           cargo --version
@@ -50,9 +57,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             Rust/core/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Rust/core/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('Rust/core/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
 
       - name: Build
         run: cargo build --all-targets --locked
@@ -62,6 +69,8 @@ jobs:
 
       # Clippy runs for visibility but does not gate the build: the crate
       # currently carries pre-existing style warnings that are out of scope for
-      # this workflow. Real defects are caught by the test suite above.
+      # this workflow. Real defects are caught by the test suite above. It runs
+      # only on stable since clippy lints vary by toolchain version.
       - name: Clippy (non-blocking)
+        if: matrix.toolchain == 'stable'
         run: cargo clippy --all-targets --locked || true
