@@ -71,6 +71,15 @@ jobs:
       # currently carries pre-existing style warnings that are out of scope for
       # this workflow. Real defects are caught by the test suite above. It runs
       # only on stable since clippy lints vary by toolchain version.
-      - name: Clippy (non-blocking)
+      #
+      # `-D warnings` makes clippy exit non-zero on any warning (plain clippy
+      # exits 0 even with warnings), so the `||` branch surfaces them as a
+      # GitHub annotation while the full clippy output stays in the log. The
+      # job is not failed. Once the pre-existing warning backlog is cleared,
+      # drop the `|| echo ...` so this becomes a hard gate that blocks
+      # regressions.
+      - name: Clippy (non-blocking, surfaces warnings as annotations)
         if: matrix.toolchain == 'stable'
-        run: cargo clippy --all-targets --locked || true
+        run: |
+          cargo clippy --all-targets --locked -- -D warnings \
+            || echo "::warning::Clippy reported warnings (non-blocking; see clippy output above)"
