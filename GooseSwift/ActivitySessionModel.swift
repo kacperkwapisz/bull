@@ -113,13 +113,15 @@ final class ActivitySessionModel: ObservableObject {
 
   private func scheduleTimer() {
     timer?.invalidate()
-    let newTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+    // 1 Hz is sufficient for a workout stopwatch; 60 Hz caused constant @Published updates
+    // that triggered SwiftUI re-renders 60×/s on the main thread.
+    let newTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
       guard let self else {
         return
       }
       self.tick(now: Date(), heartRate: self.heartRateProvider?())
     }
-    newTimer.tolerance = 0.002
+    newTimer.tolerance = 0.05
     RunLoop.main.add(newTimer, forMode: .common)
     timer = newTimer
   }
