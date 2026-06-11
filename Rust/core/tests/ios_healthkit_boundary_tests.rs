@@ -135,6 +135,7 @@ fn ios_health_metric_display_filters_forbidden_metric_sources() {
     let utilities = swift_source(&swift_root, "HealthDataStore+Utilities.swift");
     let activity_snapshots = swift_source(&swift_root, "HealthDataStore+ActivitySnapshots.swift");
     let snapshots = swift_source(&swift_root, "HealthDataStore+Snapshots.swift");
+    let store = swift_source(&swift_root, "HealthDataStore.swift");
 
     for token in [
         "localHealthMetricRowIsDisplaySafe",
@@ -154,31 +155,42 @@ fn ios_health_metric_display_filters_forbidden_metric_sources() {
         );
     }
 
+    // Display-safety filtering is applied exactly once at ingestion: when
+    // `packetInputReports` is stored, `rebuildDisplaySafeMetrics()` filters each
+    // family with `localHealthMetricRowIsDisplaySafe` into a per-family cache.
+    // The Health UI getters then read the pre-filtered rows via
+    // `displaySafeMetrics(family:)`, so forbidden sources can never reach the UI.
     assert!(
-        activity_snapshots.contains(".filter { Self.localHealthMetricRowIsDisplaySafe($0) }"),
-        "daily recovery metrics must be filtered before Health UI selection"
+        store.contains("didSet { rebuildDisplaySafeMetrics() }"),
+        "packetInputReports must re-filter display-safe metrics whenever it is stored"
     );
     assert!(
-        snapshots.contains(".filter { Self.localHealthMetricRowIsDisplaySafe($0) }"),
-        "daily activity metrics must be filtered before Health UI selection"
+        store.contains(".filter { Self.localHealthMetricRowIsDisplaySafe($0) }"),
+        "ingestion must filter metric rows for forbidden platform sources"
     );
     assert!(
-        activity_snapshots.contains(".filter { localHealthMetricRowIsDisplaySafe($0) }"),
-        "preferred stored metric selection must defensively filter caller-provided rows"
+        activity_snapshots.contains("displaySafeMetrics(family: \"daily_recovery\")"),
+        "daily recovery metrics must be served from the display-safe ingestion cache"
     );
     assert!(
-        activity_snapshots.contains("guard localHealthMetricRowIsDisplaySafe(metric) else"),
-        "stored metric trend rows must skip unsafe metric provenance"
+        snapshots.contains("displaySafeMetrics(family: \"daily_activity\")"),
+        "daily activity metrics must be served from the display-safe ingestion cache"
+    );
+    assert!(
+        snapshots.contains("displaySafeMetrics(family: \"hourly_activity\")"),
+        "hourly activity metrics must be served from the display-safe ingestion cache"
     );
 }
 
 fn swift_source_root() -> PathBuf {
+    // The Swift app lives at `<repo-root>/BullSwift`. `CARGO_MANIFEST_DIR`
+    // points at `<repo-root>/Rust/core`, so two `parent()` hops reach the repo
+    // root and the Swift sources sit directly under it.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("core crate has parent")
         .parent()
         .expect("bull project has parent")
-        .join("bull-swift")
         .join("BullSwift")
 }
 
