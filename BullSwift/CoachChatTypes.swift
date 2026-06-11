@@ -55,37 +55,28 @@ struct CoachChatMessage: Identifiable, Equatable, Codable {
 }
 
 enum CoachModelPreset: String, CaseIterable, Identifiable {
-  case gpt55Low
-  case gpt55Medium
-  case gpt55High
+  case coach
+  case deeperInsight
 
   var id: String { rawValue }
 
-  static let defaultValue: CoachModelPreset = .gpt55Medium
+  static let defaultValue: CoachModelPreset = .coach
 
   var title: String {
     switch self {
-    case .gpt55Low:
-      return "GPT-5.5 Low"
-    case .gpt55Medium:
-      return "GPT-5.5 Medium"
-    case .gpt55High:
-      return "GPT-5.5 High"
+    case .coach:
+      return "Coach"
+    case .deeperInsight:
+      return "Deeper insight"
     }
   }
 
-  var modelID: String {
-    "gpt-5.5"
-  }
-
-  var effort: String {
+  var apiTier: String {
     switch self {
-    case .gpt55Low:
-      return "low"
-    case .gpt55Medium:
-      return "medium"
-    case .gpt55High:
-      return "high"
+    case .coach:
+      return "default"
+    case .deeperInsight:
+      return "deep"
     }
   }
 }

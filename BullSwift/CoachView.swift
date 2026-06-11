@@ -4,7 +4,7 @@ struct CoachView: View {
   @EnvironmentObject private var model: BullAppModel
   @EnvironmentObject private var router: AppRouter
   @ObservedObject var healthStore: HealthDataStore
-  @StateObject private var chat = OpenAICoachChatModel()
+  @StateObject private var chat = CoachChatModel()
   @State private var promptDraft = ""
   @State private var appliedCoachPromptRequestID = 0
   @State private var showingChat = false
@@ -34,7 +34,7 @@ struct CoachView: View {
       NavigationStack {
         chatSheetContent
           .bullScreenBackground()
-          .navigationTitle(chat.isSignedIn ? "Coach Chat" : "Coach Sign In")
+          .navigationTitle(chat.isSignedIn ? "Coach Chat" : "Set up Coach")
           .navigationBarTitleDisplayMode(.inline)
           .toolbarBackground(.hidden, for: .navigationBar)
           .toolbar {
@@ -58,12 +58,11 @@ struct CoachView: View {
       chat.refreshAuth()
       applyRequestedCoachPromptIfNeeded()
     }
-    .onChange(of: router.codexEmbeddedLoginRequestID) { _, requestID in
+    .onChange(of: router.coachSetupRequestID) { _, requestID in
       guard requestID > 0, !chat.isSignedIn else {
         return
       }
       showingChat = true
-      chat.startOAuthSignIn()
     }
     .onChange(of: router.coachPromptRequestID) { _, _ in
       applyRequestedCoachPromptIfNeeded()
@@ -83,16 +82,17 @@ struct CoachView: View {
     } else {
       CoachSignInScreen(
         loginStatus: chat.loginStatus,
-        deviceCode: chat.deviceCode,
+        needsConsent: chat.needsConsent,
         errorMessage: chat.errorMessage,
-        signIn: chat.startOAuthSignIn
+        acceptConsent: chat.acceptConsent,
+        setup: chat.setupCoach
       )
     }
   }
 
   private var chatStatus: String {
     if chat.isSignedIn {
-      return chat.streamState.isStreaming ? "Streaming" : "Signed in"
+      return chat.streamState.isStreaming ? "Streaming" : "Ready"
     }
     return chat.loginStatus
   }
@@ -500,7 +500,7 @@ private struct CoachOverviewChatCard: View {
         .background((signedIn ? Color.blue : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
       VStack(alignment: .leading, spacing: 3) {
-        Text(signedIn ? "Chat ready" : "Chat signed out")
+        Text(signedIn ? "Ask Coach" : "Set up Coach")
           .font(.headline)
         Text(status.isEmpty ? "Local Coach works without chat" : status)
           .font(.caption)
@@ -510,7 +510,7 @@ private struct CoachOverviewChatCard: View {
 
       Spacer(minLength: 8)
 
-      Button(signedIn ? "Open" : "Sign In", action: action)
+      Button(signedIn ? "Open" : "Set up", action: action)
         .font(.caption.weight(.semibold))
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -629,7 +629,7 @@ private extension View {
 }
 
 private struct CoachProfileMenu: View {
-  @ObservedObject var chat: OpenAICoachChatModel
+  @ObservedObject var chat: CoachChatModel
 
   var body: some View {
     Menu {

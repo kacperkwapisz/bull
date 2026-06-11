@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CoachChatScreen: View {
-  @ObservedObject var chat: OpenAICoachChatModel
+  @ObservedObject var chat: CoachChatModel
   @ObservedObject var healthStore: HealthDataStore
   @ObservedObject var appModel: BullAppModel
   @Binding var draft: String

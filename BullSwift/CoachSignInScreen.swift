@@ -2,9 +2,12 @@ import SwiftUI
 
 struct CoachSignInScreen: View {
   let loginStatus: String
-  let deviceCode: CodexLoginDeviceCode?
+  let needsConsent: Bool
   let errorMessage: String?
-  let signIn: () -> Void
+  let acceptConsent: () -> Void
+  let setup: () -> Void
+
+  @State private var consentChecked = false
 
   var body: some View {
     ScrollView {
@@ -16,9 +19,9 @@ struct CoachSignInScreen: View {
             .frame(width: 42, height: 42)
             .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-          Text("Sign in to Coach")
+          Text("Set up Coach")
             .font(.title2.bold())
-          Text("Sign in to stream Coach replies and local Bull tool calls.")
+          Text("Bull Coach uses your local metrics and sends questions plus bounded tool summaries to the Bull Coach API for guidance.")
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -28,18 +31,16 @@ struct CoachSignInScreen: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
         VStack(alignment: .leading, spacing: 12) {
-          CoachStatusLine(title: "Sign in", value: loginStatus)
+          CoachStatusLine(title: "Status", value: loginStatus)
 
-          if let deviceCode {
-            VStack(alignment: .leading, spacing: 8) {
-              Text(deviceCode.userCode)
-                .font(.title2.monospacedDigit().weight(.bold))
-              Link(deviceCode.verificationURL.absoluteString, destination: deviceCode.verificationURL)
-                .font(.footnote.weight(.semibold))
+          if needsConsent {
+            Toggle(isOn: $consentChecked) {
+              Text("I understand Coach may send health-related context to Bull’s AI service. This is not medical advice.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .toggleStyle(.switch)
           }
 
           if let errorMessage, !errorMessage.isEmpty {
@@ -49,13 +50,14 @@ struct CoachSignInScreen: View {
               .fixedSize(horizontal: false, vertical: true)
           }
 
-          Button(action: signIn) {
-            Label("Continue", systemImage: "person.crop.circle.badge.checkmark")
+          Button(action: primaryAction) {
+            Label(needsConsent ? "Continue" : "Enable Coach", systemImage: "checkmark.seal")
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .disabled(needsConsent && !consentChecked)
 
-          Text("Coach sends the question plus bounded local tool output after approval. Tokens are stored in Keychain.")
+          Text("Tokens stay in Keychain on this device. Tools only read local Bull data.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -66,6 +68,13 @@ struct CoachSignInScreen: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
     }
+  }
+
+  private func primaryAction() {
+    if needsConsent {
+      acceptConsent()
+    }
+    setup()
   }
 }
 
