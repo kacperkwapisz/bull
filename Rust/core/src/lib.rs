@@ -4,6 +4,7 @@ pub mod activity_candidates;
 pub mod activity_identity;
 pub mod activity_sessions;
 pub mod algorithm_compare;
+pub mod baselines;
 pub mod bridge;
 pub mod calibration;
 pub mod capture_correlation;

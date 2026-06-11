@@ -3543,6 +3543,152 @@ impl BullStore {
             .map_err(BullError::from)
     }
 
+    /// Return every `daily_recovery_metrics` row ordered ascending by `date_key`,
+    /// used by the EWMA baseline engine to replay history into running state.
+    pub fn daily_recovery_metrics_all_ordered(&self) -> BullResult<Vec<DailyRecoveryMetricRow>> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                daily_metric_id,
+                date_key,
+                timezone,
+                start_time_unix_ms,
+                end_time_unix_ms,
+                resting_hr_bpm,
+                hrv_rmssd_ms,
+                respiratory_rate_rpm,
+                oxygen_saturation_percent,
+                skin_temperature_delta_c,
+                source_kind,
+                confidence,
+                inputs_json,
+                quality_flags_json,
+                provenance_json,
+                created_at,
+                updated_at
+            FROM daily_recovery_metrics
+            ORDER BY date_key ASC, daily_metric_id ASC
+            "#,
+        )?;
+        let rows = statement.query_map([], daily_recovery_metric_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Idempotent EWMA baseline update: record a night's raw recovery metrics for
+    /// `date_key` under a BEGIN EXCLUSIVE transaction.
+    ///
+    /// No dedicated EWMA table is introduced — baseline state is always
+    /// reconstructed via `EwmaBaseline::fold_history`. This call simply records the
+    /// night's raw metric values so they become part of the source used by later
+    /// `fold_history` calls.
+    ///
+    /// Returns `Ok(false)` (skipped) if a row for `date_key` already exists with
+    /// non-NULL hrv/rhr values; `Ok(true)` if a new or NULL-row update was written.
+    pub fn ewma_baseline_update(
+        &self,
+        date_key: &str,
+        hrv_rmssd: f64,
+        rhr_bpm: f64,
+    ) -> BullResult<bool> {
+        validate_required("date_key", date_key)?;
+        if !hrv_rmssd.is_finite() {
+            return Err(BullError::message("hrv_rmssd must be a finite number"));
+        }
+        if !rhr_bpm.is_finite() {
+            return Err(BullError::message("rhr_bpm must be a finite number"));
+        }
+
+        // BEGIN EXCLUSIVE to prevent concurrent double-update on the same date.
+        self.conn.execute_batch("BEGIN EXCLUSIVE TRANSACTION")?;
+        let result = self.ewma_baseline_update_inner(date_key, hrv_rmssd, rhr_bpm);
+        match result {
+            Ok(wrote) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(wrote)
+            }
+            Err(err) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(err)
+            }
+        }
+    }
+
+    fn ewma_baseline_update_inner(
+        &self,
+        date_key: &str,
+        hrv_rmssd: f64,
+        rhr_bpm: f64,
+    ) -> BullResult<bool> {
+        // Check if a row already exists for this date_key (idempotency guard).
+        let existing: Option<(Option<f64>, Option<f64>)> = self
+            .conn
+            .query_row(
+                "SELECT hrv_rmssd_ms, resting_hr_bpm FROM daily_recovery_metrics WHERE date_key = ?1 LIMIT 1",
+                rusqlite::params![date_key],
+                |row| Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<f64>>(1)?)),
+            )
+            .optional()
+            .map_err(BullError::from)?;
+
+        if let Some((existing_hrv, existing_rhr)) = existing {
+            // Only apply the date guard when both columns are already non-NULL.
+            // A NULL row (e.g. from a prior unavailable-status insert) must NOT
+            // permanently block the EWMA write — those values are new data.
+            let both_non_null = existing_hrv.is_some() && existing_rhr.is_some();
+            if both_non_null {
+                // Row exists with real values — idempotent no-op / date guard.
+                return Ok(false);
+            }
+            // Row exists but with NULL metrics — fall through and UPDATE it below.
+        }
+
+        let daily_metric_id = format!("ewma-{}", date_key);
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        // Update an existing NULL-metrics row rather than inserting a duplicate.
+        let null_row_id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT daily_metric_id FROM daily_recovery_metrics WHERE date_key = ?1 AND (hrv_rmssd_ms IS NULL OR resting_hr_bpm IS NULL) LIMIT 1",
+                rusqlite::params![date_key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(BullError::from)?;
+
+        if let Some(row_id) = null_row_id {
+            self.conn.execute(
+                "UPDATE daily_recovery_metrics SET hrv_rmssd_ms = ?1, resting_hr_bpm = ?2 WHERE daily_metric_id = ?3",
+                rusqlite::params![hrv_rmssd, rhr_bpm, row_id],
+            )?;
+            return Ok(true);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO daily_recovery_metrics (
+                daily_metric_id,
+                date_key,
+                timezone,
+                start_time_unix_ms,
+                end_time_unix_ms,
+                hrv_rmssd_ms,
+                resting_hr_bpm,
+                source_kind,
+                confidence,
+                inputs_json,
+                quality_flags_json,
+                provenance_json
+            ) VALUES (?1, ?2, 'UTC', ?3, ?3, ?4, ?5, 'local_estimate', 1.0, '{}', '[]', '{}')
+            "#,
+            rusqlite::params![daily_metric_id, date_key, now_ms, hrv_rmssd, rhr_bpm],
+        )?;
+        Ok(true)
+    }
+
     pub fn insert_metric_provenance(&self, input: MetricProvenanceInput<'_>) -> BullResult<bool> {
         validate_metric_provenance_input(self, &input)?;
         if let Some(existing) = self.metric_provenance(input.provenance_id)? {

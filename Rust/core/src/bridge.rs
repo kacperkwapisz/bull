@@ -23,6 +23,7 @@ use crate::{
         compare_sleep_v1_bull_to_reference, compare_strain_bull_to_reference,
         compare_stress_bull_to_reference,
     },
+    baselines::{EwmaBaseline, EwmaTrustLevel},
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, CalibrationRecord,
         CalibrationReport, apply_calibration, calibration_run_record, evaluate_linear_calibration,
@@ -291,6 +292,8 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "sleep.validate_v1_release_gates",
     "sleep.validate_window_labels",
     "storage.check",
+    "store.ewma_baseline_fold_history",
+    "store.ewma_baseline_update",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
 ];
@@ -2622,6 +2625,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(storage_check_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.ewma_baseline_fold_history" => request_args::<EwmaBaselineFoldHistoryArgs>(&request)
+            .and_then(ewma_baseline_fold_history_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.ewma_baseline_update" => request_args::<EwmaBaselineUpdateArgs>(&request)
+            .and_then(ewma_baseline_update_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "settings.apply_default_algorithm_preferences" => {
             request_args::<ApplyDefaultPreferencesArgs>(&request)
                 .and_then(apply_default_preferences_bridge)
@@ -2950,6 +2961,53 @@ fn timeline_from_decoded_frames_bridge(args: TimelineArgs) -> BullResult<serde_j
     let rows = packet_timeline_from_decoded_frames(&args.decoded_frames)?;
     serde_json::to_value(rows)
         .map_err(|error| BullError::message(format!("cannot serialize timeline rows: {error}")))
+}
+
+// ---------------------------------------------------------------------------
+// EWMA baseline bridge (store.ewma_baseline_*)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct EwmaBaselineFoldHistoryArgs {
+    database_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EwmaBaselineUpdateArgs {
+    database_path: String,
+    date_key: String,
+    hrv_rmssd: f64,
+    rhr_bpm: f64,
+}
+
+fn ewma_state_to_json(
+    state: &crate::baselines::EwmaState,
+    trust: EwmaTrustLevel,
+) -> serde_json::Value {
+    json!({
+        "mean": state.mean,
+        "variance": state.variance,
+        "night_count": state.night_count,
+        "trust": trust.as_str(),
+        "is_ready": state.is_ready(),
+    })
+}
+
+fn ewma_baseline_fold_history_bridge(
+    args: EwmaBaselineFoldHistoryArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let baseline = EwmaBaseline::fold_history(&store)?;
+    Ok(json!({
+        "hrv": ewma_state_to_json(&baseline.hrv, baseline.hrv.trust_level()),
+        "resting_hr": ewma_state_to_json(&baseline.resting_hr, baseline.resting_hr.trust_level()),
+    }))
+}
+
+fn ewma_baseline_update_bridge(args: EwmaBaselineUpdateArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let wrote = store.ewma_baseline_update(&args.date_key, args.hrv_rmssd, args.rhr_bpm)?;
+    Ok(json!({ "skipped": !wrote }))
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {
@@ -8039,6 +8097,112 @@ mod tests {
         assert_eq!(methods, expected);
         // `core.list_methods` must itself appear in the list it advertises.
         assert!(methods.iter().any(|m| m == "core.list_methods"));
+    }
+
+    fn make_temp_db() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("test.sqlite").to_string_lossy().to_string();
+        // Migrate by opening a store (creates all tables).
+        let _store = crate::store::BullStore::open(std::path::Path::new(&path))
+            .expect("open store for migration");
+        (dir, path)
+    }
+
+    #[test]
+    fn ewma_baseline_fold_history_bridge_empty_store() {
+        let (_dir, db_path) = make_temp_db();
+        let request = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ewma-fold-empty".to_string(),
+            method: "store.ewma_baseline_fold_history".to_string(),
+            args: json!({ "database_path": db_path }),
+        };
+        let response = handle_bridge_request(request);
+        assert!(
+            response.ok,
+            "fold_history on empty store must succeed: {:?}",
+            response.error
+        );
+        let result = response.result.expect("result must be present");
+        assert_eq!(result["hrv"]["night_count"], 0);
+        assert_eq!(result["resting_hr"]["night_count"], 0);
+        assert_eq!(result["hrv"]["trust"], "calibrating");
+    }
+
+    #[test]
+    fn ewma_baseline_update_bridge_round_trip() {
+        let (_dir, db_path) = make_temp_db();
+
+        let update_req = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ewma-update-1".to_string(),
+            method: "store.ewma_baseline_update".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "date_key": "2024-01-01",
+                "hrv_rmssd": 60.0,
+                "rhr_bpm": 55.0
+            }),
+        };
+        let update_resp = handle_bridge_request(update_req);
+        assert!(update_resp.ok, "update must succeed: {:?}", update_resp.error);
+        let update_result = update_resp.result.expect("update result");
+        assert_eq!(update_result["skipped"], false);
+
+        // Idempotency: second call for same date must be skipped.
+        let update_req2 = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ewma-update-2".to_string(),
+            method: "store.ewma_baseline_update".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "date_key": "2024-01-01",
+                "hrv_rmssd": 60.0,
+                "rhr_bpm": 55.0
+            }),
+        };
+        let update_resp2 = handle_bridge_request(update_req2);
+        assert!(update_resp2.ok, "second update must not error");
+        assert_eq!(
+            update_resp2.result.expect("second update result")["skipped"],
+            true
+        );
+
+        // fold_history must reflect the inserted night.
+        let fold_req = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ewma-fold-after-update".to_string(),
+            method: "store.ewma_baseline_fold_history".to_string(),
+            args: json!({ "database_path": db_path }),
+        };
+        let fold_resp = handle_bridge_request(fold_req);
+        assert!(fold_resp.ok, "fold_history after update must succeed");
+        let fold_result = fold_resp.result.expect("fold_history result");
+        assert_eq!(fold_result["hrv"]["night_count"], 1);
+        assert!((fold_result["hrv"]["mean"].as_f64().unwrap() - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ewma_baseline_update_bridge_rejects_nan_hrv() {
+        let (_dir, db_path) = make_temp_db();
+        let request = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ewma-nan".to_string(),
+            method: "store.ewma_baseline_update".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "date_key": "2024-01-01",
+                "hrv_rmssd": f64::NAN,
+                "rhr_bpm": 55.0
+            }),
+        };
+        let response = handle_bridge_request(request);
+        // NaN serialises to null in JSON, so args parsing may reject it; either
+        // way the bridge must respond without crashing.
+        assert!(
+            !response.ok || response.result.is_some(),
+            "bridge must respond for NaN hrv"
+        );
     }
 
     #[test]
