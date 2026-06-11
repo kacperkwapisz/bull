@@ -74,6 +74,7 @@ jobs:
             -e JWT_SECRET \
             -e COACH_UPSTREAM_API_KEY \
             -e COACH_DEV_AUTH_BYPASS \
+            -e HYPER_SKIP_LISTEN=1 \
             bull-coach-api:ci
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:13000/health | grep -q '"ok":true'; then

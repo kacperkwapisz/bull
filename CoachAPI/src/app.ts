@@ -33,6 +33,6 @@ const app = new Hyper()
 
 export default app
 
-if (!process.env.HYPER_SKIP_LISTEN) {
+if (process.env.HYPER_SKIP_LISTEN !== "1") {
   app.listen(Number(env.PORT))
 }

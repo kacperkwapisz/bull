@@ -9,7 +9,7 @@ RUN bun install --frozen-lockfile --production
 FROM base AS release
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV HYPER_SKIP_LISTEN=
+ENV HYPER_SKIP_LISTEN=1
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock tsconfig.json hyper.config.json hyper.lock.json ./
