@@ -4,13 +4,24 @@ import { z } from "zod"
 import type { Env } from "../lib/env.ts"
 import { streamUpstreamChat } from "../services/upstream-chat.ts"
 import {
+  createChatToResponsesMapper,
   formatResponsesSseLine,
-  mapChatChunkToResponsesEvents,
 } from "../services/sse-map-chat-to-responses.ts"
+
+const toolCallSchema = z.object({
+  id: z.string(),
+  type: z.literal("function").optional(),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string(),
+  }),
+})
 
 const messageSchema = z.object({
   role: z.enum(["user", "assistant", "system", "tool"]),
-  content: z.string(),
+  content: z.string().optional().default(""),
+  tool_calls: z.array(toolCallSchema).optional(),
+  tool_call_id: z.string().optional(),
 })
 
 const coachBody = z.object({
@@ -41,6 +52,7 @@ export function coachRoutes(env: Env) {
             toolChoice: body.tool_mode,
             ...(body.tools !== undefined ? { tools: body.tools } : {}),
           }
+          const mapChatChunkToResponsesEvents = createChatToResponsesMapper()
           for await (const dataLine of streamUpstreamChat(env, upstreamRequest)) {
             for (const event of mapChatChunkToResponsesEvents(dataLine)) {
               yield formatResponsesSseLine(event)

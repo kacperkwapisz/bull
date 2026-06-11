@@ -41,7 +41,7 @@ struct CoachChatScreen: View {
           }
 
           ForEach(chat.messages) { message in
-            CoachMessageBubble(message: message)
+            CoachMessageBubble(message: message, showToolActivity: chat.showToolActivity)
               .id(message.id)
           }
 

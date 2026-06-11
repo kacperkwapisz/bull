@@ -4,9 +4,22 @@ import type { Env } from "../lib/env.ts"
 
 export type ModelTier = "default" | "deep"
 
+export interface UpstreamToolCall {
+  id: string
+  type?: "function" | undefined
+  function: { name: string; arguments: string }
+}
+
+export interface UpstreamChatMessage {
+  role: "user" | "assistant" | "system" | "tool"
+  content: string
+  tool_calls?: UpstreamToolCall[] | undefined
+  tool_call_id?: string | undefined
+}
+
 export interface UpstreamChatRequest {
   modelTier: ModelTier
-  messages: { role: "user" | "assistant" | "system" | "tool"; content: string }[]
+  messages: UpstreamChatMessage[]
   tools?: Record<string, unknown>[]
   toolChoice?: "auto" | "required" | "none"
 }
@@ -50,6 +63,39 @@ function normalizeToolsForOpenAICompat(tools: Record<string, unknown>[] | undefi
   })
 }
 
+/**
+ * Assembles the OpenAI-compatible message array: a single leading system
+ * message (callers' system turns are merged, falling back to the Coach
+ * instructions) followed by the conversation, preserving the multi-turn tool
+ * protocol fields (`tool_calls` on assistant turns, `tool_call_id` on results).
+ */
+export function buildUpstreamMessages(
+  messages: UpstreamChatMessage[],
+): Record<string, unknown>[] {
+  const systemMessages = messages.filter((m) => m.role === "system")
+  const nonSystem = messages.filter((m) => m.role !== "system")
+  const instructions =
+    systemMessages.map((m) => m.content).join("\n\n").trim() || COACH_SYSTEM_INSTRUCTIONS
+
+  return [
+    { role: "system", content: instructions },
+    ...nonSystem.map((m) => {
+      const out: Record<string, unknown> = { role: m.role, content: m.content ?? "" }
+      if (m.tool_calls?.length) {
+        out.tool_calls = m.tool_calls.map((call) => ({
+          id: call.id,
+          type: call.type ?? "function",
+          function: { name: call.function.name, arguments: call.function.arguments },
+        }))
+      }
+      if (m.tool_call_id) {
+        out.tool_call_id = m.tool_call_id
+      }
+      return out
+    }),
+  ]
+}
+
 export async function* streamUpstreamChat(
   env: Env,
   request: UpstreamChatRequest,
@@ -58,15 +104,7 @@ export async function* streamUpstreamChat(
   const url = `${base}/chat/completions`
   const model = resolveModel(env, request.modelTier)
 
-  const systemMessages = request.messages.filter((m) => m.role === "system")
-  const nonSystem = request.messages.filter((m) => m.role !== "system")
-  const instructions =
-    systemMessages.map((m) => m.content).join("\n\n").trim() || COACH_SYSTEM_INSTRUCTIONS
-
-  const messages: { role: string; content: string }[] = [
-    { role: "system", content: instructions },
-    ...nonSystem.map((m) => ({ role: m.role, content: m.content })),
-  ]
+  const messages = buildUpstreamMessages(request.messages)
 
   const body: Record<string, unknown> = {
     model,

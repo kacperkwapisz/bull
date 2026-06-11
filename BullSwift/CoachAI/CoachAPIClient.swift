@@ -40,7 +40,7 @@ enum CoachAPIError: Error, LocalizedError {
 
 enum CoachAPIRequestBuilder {
   static func makeBody(
-    messages: [[String: String]],
+    messages: [[String: Any]],
     modelTier: CoachModelPreset,
     toolMode: ToolMode
   ) -> [String: Any] {
@@ -65,8 +65,31 @@ enum CoachAPIRequestBuilder {
     case none
   }
 
-  static func message(role: String, text: String) -> [String: String] {
+  static func message(role: String, text: String) -> [String: Any] {
     ["role": role, "content": text]
+  }
+
+  /// Assistant turn that requested tool calls, in OpenAI multi-turn shape.
+  static func assistantToolCallMessage(_ calls: [CoachAIToolCall]) -> [String: Any] {
+    [
+      "role": "assistant",
+      "content": "",
+      "tool_calls": calls.map { call -> [String: Any] in
+        [
+          "id": call.callID,
+          "type": "function",
+          "function": [
+            "name": call.name,
+            "arguments": call.arguments.isEmpty ? "{}" : call.arguments,
+          ],
+        ]
+      },
+    ]
+  }
+
+  /// Tool result message correlated back to the originating call.
+  static func toolResultMessage(callID: String, output: String) -> [String: Any] {
+    ["role": "tool", "tool_call_id": callID, "content": output]
   }
 }
 

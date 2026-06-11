@@ -85,6 +85,3 @@
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>
-```
-
-The scheme file has been written. Now I should verify it was created and update documentation to reflect that the shared scheme now injects the local Coach API URL.

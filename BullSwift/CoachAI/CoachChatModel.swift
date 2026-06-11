@@ -9,8 +9,10 @@ final class CoachChatModel: ObservableObject {
   @Published private(set) var streamState: CoachStreamState = .idle
   @Published private(set) var errorMessage: String?
   @Published private(set) var needsConsent = false
+  @Published private(set) var showToolActivity: Bool
 
   private static let modelPresetDefaultsKey = "bull.coach.modelPreset"
+  private static let showToolActivityDefaultsKey = "bull.coach.showToolActivity"
   private static let seedPromptText = "What should we look at today?"
   private var accessToken: String?
   private var sendTask: Task<Void, Never>?
@@ -19,6 +21,7 @@ final class CoachChatModel: ObservableObject {
   init() {
     let storedRawValue = UserDefaults.standard.string(forKey: Self.modelPresetDefaultsKey)
     modelPreset = storedRawValue.flatMap(CoachModelPreset.init(rawValue:)) ?? .defaultValue
+    showToolActivity = UserDefaults.standard.bool(forKey: Self.showToolActivityDefaultsKey)
     messages = Self.normalizedPersistedMessages(CoachConversationStore.load())
     if !messages.isEmpty {
       persistConversation()
@@ -57,6 +60,11 @@ final class CoachChatModel: ObservableObject {
   func selectModelPreset(_ preset: CoachModelPreset) {
     modelPreset = preset
     UserDefaults.standard.set(preset.rawValue, forKey: Self.modelPresetDefaultsKey)
+  }
+
+  func setShowToolActivity(_ isOn: Bool) {
+    showToolActivity = isOn
+    UserDefaults.standard.set(isOn, forKey: Self.showToolActivityDefaultsKey)
   }
 
   func startNewConversation() {
@@ -180,8 +188,15 @@ final class CoachChatModel: ObservableObject {
     healthStore: HealthDataStore,
     appModel: BullAppModel
   ) async throws {
-    var conversationMessages = [CoachAPIRequestBuilder.message(role: "user", text: contextualPrompt)]
-    var toolMode: CoachAPIRequestBuilder.ToolMode = .required
+    var conversationMessages: [[String: Any]] = [
+      CoachAPIRequestBuilder.message(role: "user", text: contextualPrompt)
+    ]
+    // Let the model decide whether to pull a local snapshot. Forcing a tool
+    // call on every turn breaks greetings / off-topic / thanks (no sensible
+    // tool to call) and makes the upstream reject with "tool choice is
+    // required, but model did not call a tool". The system prompt already
+    // tells Coach to load data before making metric claims.
+    var toolMode: CoachAPIRequestBuilder.ToolMode = .auto
 
     for round in 0..<2 {
       var completedToolCalls: [CoachAIToolCall] = []
@@ -209,29 +224,23 @@ final class CoachChatModel: ObservableObject {
         return
       }
 
-      let toolSummary = completedToolCalls.map { call -> String in
+      // Record the assistant's tool-call turn, then each tool result, using the
+      // OpenAI multi-turn tool protocol so the model can correlate results to
+      // their originating call ids on the follow-up completion.
+      conversationMessages.append(
+        CoachAPIRequestBuilder.assistantToolCallMessage(completedToolCalls)
+      )
+      for call in completedToolCalls {
         let output = CoachToolRegistry.execute(call: call, healthStore: healthStore, appModel: appModel)
         updateToolEvent(id: call.id, in: assistantID) { event in
           event.status = "Returned"
           event.resultSummary = summarizeToolOutput(output)
           event.name = CoachToolRegistry.displayTitle(for: call.name)
         }
-        return "Tool \(call.name) output:\n\(output)"
-      }.joined(separator: "\n\n")
-
-      conversationMessages.append(
-        CoachAPIRequestBuilder.message(
-          role: "user",
-          text: """
-          \(toolSummary)
-
-          Use the tool outputs above to answer this original Coach question now. Do not request more tools.
-
-          Original question:
-          \(prompt)
-          """
+        conversationMessages.append(
+          CoachAPIRequestBuilder.toolResultMessage(callID: call.callID, output: output)
         )
-      )
+      }
       toolMode = .none
     }
 

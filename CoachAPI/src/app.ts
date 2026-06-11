@@ -35,5 +35,8 @@ const app = new Hyper()
 export default app
 
 if (process.env.HYPER_SKIP_LISTEN !== "1") {
-  app.listen(Number(env.PORT))
+  // Bind to all interfaces by default so on-device clients can reach the API
+  // over the local/Tailscale network (Bun's "localhost" default resolves to the
+  // IPv6 loopback ::1, which is unreachable from a phone). Override with HOST.
+  app.listen({ port: Number(env.PORT), hostname: process.env.HOST ?? "0.0.0.0" })
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CoachMessageBubble: View {
   let message: CoachChatMessage
+  var showToolActivity: Bool = false
 
   var body: some View {
     HStack(alignment: .bottom) {
@@ -26,7 +27,7 @@ struct CoachMessageBubble: View {
           }
         }
 
-        if !message.toolEvents.isEmpty {
+        if showToolActivity, !message.toolEvents.isEmpty {
           VStack(spacing: 8) {
             ForEach(message.toolEvents) { event in
               CoachToolCallRow(event: event)

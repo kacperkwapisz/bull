@@ -417,7 +417,7 @@ private struct DeviceBatteryPackTile: View {
     guard present, let percent = ble.batteryPackPercent else {
       return "Battery pack not attached"
     }
-    let charging = isCharging ? ", charging the strap" : ""
+    let charging = strapIsCharging ? ", charging the strap" : ""
     return "Battery pack \(percent) percent\(charging)"
   }
 }

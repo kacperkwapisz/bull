@@ -754,6 +754,13 @@ private struct CoachProfileMenu: View {
         }
       }
 
+      Toggle(isOn: Binding(
+        get: { chat.showToolActivity },
+        set: { chat.setShowToolActivity($0) }
+      )) {
+        Label("Show Tool Activity", systemImage: "wrench.and.screwdriver")
+      }
+
       Button(role: .destructive) {
         chat.startNewConversation()
       } label: {
