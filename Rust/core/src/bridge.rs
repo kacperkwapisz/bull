@@ -2501,6 +2501,27 @@ pub extern "C" fn bull_core_version_json() -> *mut c_char {
     json_to_c_string(core_version_payload())
 }
 
+/// Handle a JSON-encoded bridge request from the host platform.
+///
+/// Returns a newly-allocated, null-terminated UTF-8 C string containing a
+/// JSON-encoded response. The caller takes ownership of the returned pointer
+/// and **must** release it by passing it to [`bull_bridge_free_string`].
+/// Mixing this allocation with `free(3)` or any other deallocator is
+/// undefined behaviour.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - `request_json` is either null **or** a valid pointer to a
+///   null-terminated UTF-8 C string that remains valid (and unmodified by
+///   other threads) for the duration of this call.
+/// - The buffer referenced by `request_json` is not aliased by any mutable
+///   reference for the duration of this call.
+///
+/// A null `request_json` is handled defensively and returns a structured
+/// error response rather than dereferencing the pointer. Invalid UTF-8 in the
+/// input is likewise reported as a structured error.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bull_bridge_handle_json(request_json: *const c_char) -> *mut c_char {
     if request_json.is_null() {
@@ -2525,6 +2546,24 @@ pub unsafe extern "C" fn bull_bridge_handle_json(request_json: *const c_char) ->
     string_to_c_string(handle_bridge_request_json(request))
 }
 
+/// Free a C string previously returned by any `bull_bridge_*` or
+/// `bull_core_*` function.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - `value` is either null **or** a pointer that was returned by a Bull
+///   bridge entry point (e.g. [`bull_bridge_handle_json`] or
+///   `bull_core_version_json`) and has not yet been freed.
+/// - The pointer is not aliased by any other live reference and is not used
+///   after this call returns.
+///
+/// Passing a pointer that was not produced by the Bull core (for example,
+/// one allocated by `malloc(3)` on the host) is undefined behaviour, because
+/// the Rust allocator backing [`CString`] is not guaranteed to match the
+/// host's allocator. A null pointer is handled as a no-op. Calling this
+/// function twice on the same pointer is a double-free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bull_bridge_free_string(value: *mut c_char) {
     if value.is_null() {
