@@ -193,6 +193,9 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "activity.list_sessions_with_metrics",
     "activity.metrics_for_session_in_window",
     "activity.update_session",
+    "biometrics.insert_v24_batch",
+    "biometrics.spo2_from_raw",
+    "biometrics.v24_between",
     "calibration.apply",
     "calibration.evaluate_dataset",
     "calibration.evaluate_stored_labels",
@@ -2668,6 +2671,18 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(gravity_rows_between_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.insert_v24_batch" => request_args::<InsertV24BatchArgs>(&request)
+            .and_then(insert_v24_biometric_batch_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.v24_between" => request_args::<V24BetweenArgs>(&request)
+            .and_then(v24_biometric_samples_between_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.spo2_from_raw" => request_args::<Spo2FromRawArgs>(&request)
+            .and_then(spo2_from_raw_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "exercise.detect_sessions" => request_args::<DetectExerciseSessionsArgs>(&request)
             .and_then(exercise_detect_sessions_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3195,6 +3210,183 @@ fn gravity_rows_between_bridge(args: GravityRowsBetweenArgs) -> BullResult<serde
         .map(|r| json!({"ts": r.ts, "x": r.x, "y": r.y, "z": r.z}))
         .collect();
     Ok(json!({ "rows": json_rows }))
+}
+
+// ---------------------------------------------------------------------------
+// V24 biometric bridge (biometrics.insert_v24_batch / v24_between / spo2_from_raw)
+// ---------------------------------------------------------------------------
+
+/// SpO2 from raw red/IR (uncalibrated ratio-of-ratios linear approximation).
+/// Returns None when the result is outside the plausible range [70, 100] %.
+fn spo2_from_raw_uncalibrated(red: u16, ir: u16) -> Option<f64> {
+    if ir == 0 {
+        return None;
+    }
+    let r = (red as f64) / (ir as f64);
+    let spo2 = 110.0 - 25.0 * r;
+    if !(70.0..=100.0).contains(&spo2) {
+        return None;
+    }
+    Some(spo2)
+}
+
+/// Skin temperature (uncalibrated linear approximation): raw=930 -> 33 C,
+/// 30 ADC units per C. Returns None outside the plausible range [25, 40] C.
+fn skin_temp_celsius_from_raw(raw: u16) -> Option<f64> {
+    let celsius = (raw as f64 - 930.0) / 30.0 + 33.0;
+    if !(25.0..=40.0).contains(&celsius) {
+        return None;
+    }
+    Some(celsius)
+}
+
+#[derive(Debug, Deserialize)]
+struct Spo2RawArg {
+    ts: f64,
+    red: u16,
+    ir: u16,
+    contact: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkinTempRawArg {
+    ts: f64,
+    raw: u16,
+    contact: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RespRawArg {
+    ts: f64,
+    raw: u16,
+    contact: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SigQualityArg {
+    ts: f64,
+    quality: u16,
+    contact: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct InsertV24BatchArgs {
+    database_path: String,
+    device_id: String,
+    #[serde(default)]
+    spo2: Vec<Spo2RawArg>,
+    #[serde(default)]
+    skin_temp: Vec<SkinTempRawArg>,
+    #[serde(default)]
+    resp: Vec<RespRawArg>,
+    #[serde(default)]
+    sig_quality: Vec<SigQualityArg>,
+}
+
+#[derive(Debug, Deserialize)]
+struct V24BetweenArgs {
+    database_path: String,
+    device_id: String,
+    start_ts: f64,
+    end_ts: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Spo2FromRawArgs {
+    red: u16,
+    ir: u16,
+}
+
+fn insert_v24_biometric_batch_bridge(args: InsertV24BatchArgs) -> BullResult<serde_json::Value> {
+    use crate::store::V24BiometricBatch;
+
+    let store = open_bridge_store(&args.database_path)?;
+    let mut warnings: Vec<String> = Vec::new();
+
+    let spo2_tuples: Vec<(f64, i64, i64, i64)> = args
+        .spo2
+        .iter()
+        .filter_map(|row| match spo2_from_raw_uncalibrated(row.red, row.ir) {
+            Some(_) => Some((row.ts, row.red as i64, row.ir as i64, row.contact)),
+            None => {
+                warnings.push(format!(
+                    "spo2_plausibility_reject: ts={} red={} ir={} (out of range [70,100]%)",
+                    row.ts, row.red, row.ir
+                ));
+                None
+            }
+        })
+        .collect();
+
+    let skin_temp_tuples: Vec<(f64, i64, i64)> = args
+        .skin_temp
+        .iter()
+        .filter_map(|row| match skin_temp_celsius_from_raw(row.raw) {
+            Some(_) => Some((row.ts, row.raw as i64, row.contact)),
+            None => {
+                warnings.push(format!(
+                    "skin_temp_plausibility_reject: ts={} raw={} (celsius outside [25,40])",
+                    row.ts, row.raw
+                ));
+                None
+            }
+        })
+        .collect();
+
+    let resp_tuples: Vec<(f64, i64, i64)> = args
+        .resp
+        .iter()
+        .map(|row| (row.ts, row.raw as i64, row.contact))
+        .collect();
+
+    let sig_quality_tuples: Vec<(f64, i64, i64)> = args
+        .sig_quality
+        .iter()
+        .map(|row| (row.ts, row.quality as i64, row.contact))
+        .collect();
+
+    let batch = V24BiometricBatch {
+        spo2: spo2_tuples,
+        skin_temp: skin_temp_tuples,
+        resp: resp_tuples,
+        sig_quality: sig_quality_tuples,
+    };
+
+    store.insert_v24_biometric_batch(&args.device_id, &batch)?;
+    Ok(json!({ "inserted": true, "warnings": warnings }))
+}
+
+fn v24_biometric_samples_between_bridge(args: V24BetweenArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let window = store.v24_biometric_samples_between(&args.device_id, args.start_ts, args.end_ts)?;
+    let spo2: Vec<serde_json::Value> = window
+        .spo2
+        .iter()
+        .map(|r| json!({"ts": r.ts, "red": r.red, "ir": r.ir, "contact": r.contact}))
+        .collect();
+    let skin_temp: Vec<serde_json::Value> = window
+        .skin_temp
+        .iter()
+        .map(|r| json!({"ts": r.ts, "raw": r.raw, "contact": r.contact}))
+        .collect();
+    let resp: Vec<serde_json::Value> = window
+        .resp
+        .iter()
+        .map(|r| json!({"ts": r.ts, "raw": r.raw, "contact": r.contact}))
+        .collect();
+    let sig_quality: Vec<serde_json::Value> = window
+        .sig_quality
+        .iter()
+        .map(|r| json!({"ts": r.ts, "quality": r.quality, "contact": r.contact}))
+        .collect();
+    Ok(json!({ "spo2": spo2, "skin_temp": skin_temp, "resp": resp, "sig_quality": sig_quality }))
+}
+
+fn spo2_from_raw_bridge(args: Spo2FromRawArgs) -> BullResult<serde_json::Value> {
+    match spo2_from_raw_uncalibrated(args.red, args.ir) {
+        Some(spo2_pct) => Ok(json!({"spo2_pct": spo2_pct, "quality_flag": "uncalibrated"})),
+        None => Ok(json!({"spo2_pct": null, "quality_flag": "uncalibrated", "rejected": true})),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -8502,6 +8694,53 @@ mod tests {
             "epochs must be empty for an empty gravity table"
         );
         assert!(result["stage_minutes"].is_object());
+    }
+
+    #[test]
+    fn v24_insert_and_query_round_trip_with_plausibility_gate() {
+        let (_dir, db_path) = make_temp_db();
+        let insert = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "v24-insert".to_string(),
+            method: "biometrics.insert_v24_batch".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                // First spo2 row is plausible (r=0.4 -> 100%); second is implausible (rejected).
+                "spo2": [
+                    {"ts": 10.0, "red": 400, "ir": 1000, "contact": 1},
+                    {"ts": 11.0, "red": 5000, "ir": 1000, "contact": 1}
+                ],
+                "skin_temp": [{"ts": 10.0, "raw": 930, "contact": 1}],
+                "resp": [{"ts": 10.0, "raw": 1200, "contact": 1}],
+                "sig_quality": [{"ts": 10.0, "quality": 80, "contact": 1}]
+            }),
+        };
+        let resp = handle_bridge_request(insert);
+        assert!(resp.ok, "insert must succeed: {:?}", resp.error);
+        let result = resp.result.expect("insert result");
+        assert_eq!(result["inserted"], true);
+        // The implausible spo2 row should have produced a warning.
+        assert!(!result["warnings"].as_array().unwrap().is_empty());
+
+        let query = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "v24-query".to_string(),
+            method: "biometrics.v24_between".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "start_ts": 0.0,
+                "end_ts": 100.0
+            }),
+        };
+        let qresp = handle_bridge_request(query);
+        assert!(qresp.ok, "query must succeed: {:?}", qresp.error);
+        let w = qresp.result.expect("query result");
+        assert_eq!(w["spo2"].as_array().unwrap().len(), 1); // only the plausible row stored
+        assert_eq!(w["skin_temp"].as_array().unwrap().len(), 1);
+        assert_eq!(w["resp"].as_array().unwrap().len(), 1);
+        assert_eq!(w["sig_quality"].as_array().unwrap().len(), 1);
     }
 
     #[test]

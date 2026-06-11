@@ -539,6 +539,48 @@ pub struct RespSampleRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Spo2SampleRow {
+    pub device_id: String,
+    pub ts: f64,
+    pub red: i64,
+    pub ir: i64,
+    pub contact: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkinTempSampleRow {
+    pub device_id: String,
+    pub ts: f64,
+    pub raw: i64,
+    pub contact: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SigQualitySampleRow {
+    pub device_id: String,
+    pub ts: f64,
+    pub quality: i64,
+    pub contact: i64,
+}
+
+/// Raw V24 biometric samples to persist, grouped by stream.
+#[derive(Debug, Clone, Default)]
+pub struct V24BiometricBatch {
+    pub spo2: Vec<(f64, i64, i64, i64)>,   // (ts, red, ir, contact)
+    pub skin_temp: Vec<(f64, i64, i64)>,   // (ts, raw, contact)
+    pub resp: Vec<(f64, i64, i64)>,        // (ts, raw, contact)
+    pub sig_quality: Vec<(f64, i64, i64)>, // (ts, quality, contact)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct V24BiometricWindow {
+    pub spo2: Vec<Spo2SampleRow>,
+    pub skin_temp: Vec<SkinTempSampleRow>,
+    pub resp: Vec<RespSampleRow>,
+    pub sig_quality: Vec<SigQualitySampleRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExerciseSessionRow {
     pub device_id: String,
     pub start_ts: f64,
@@ -3888,6 +3930,121 @@ impl BullStore {
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Persist a batch of raw uncalibrated V24 biometric samples (SpO2, skin
+    /// temperature, respiration, signal quality) decoded from the device's own
+    /// packets. Duplicate (device_id, ts) rows per stream are ignored.
+    pub fn insert_v24_biometric_batch(
+        &self,
+        device_id: &str,
+        batch: &V24BiometricBatch,
+    ) -> BullResult<()> {
+        validate_required("device_id", device_id)?;
+        self.immediate_transaction(|store| {
+            for &(ts, red, ir, contact) in &batch.spo2 {
+                store.conn.execute(
+                    "INSERT OR IGNORE INTO spo2_samples (device_id, ts, red, ir, contact) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![device_id, ts, red, ir, contact],
+                )?;
+            }
+            for &(ts, raw, contact) in &batch.skin_temp {
+                store.conn.execute(
+                    "INSERT OR IGNORE INTO skin_temp_samples (device_id, ts, raw, contact) VALUES (?1, ?2, ?3, ?4)",
+                    params![device_id, ts, raw, contact],
+                )?;
+            }
+            for &(ts, raw, contact) in &batch.resp {
+                store.conn.execute(
+                    "INSERT OR IGNORE INTO resp_samples (device_id, ts, raw, contact) VALUES (?1, ?2, ?3, ?4)",
+                    params![device_id, ts, raw, contact],
+                )?;
+            }
+            for &(ts, quality, contact) in &batch.sig_quality {
+                store.conn.execute(
+                    "INSERT OR IGNORE INTO sig_quality_samples (device_id, ts, quality, contact) VALUES (?1, ?2, ?3, ?4)",
+                    params![device_id, ts, quality, contact],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Return all V24 biometric streams for a device in [ts_start, ts_end),
+    /// each ordered by ts ascending.
+    pub fn v24_biometric_samples_between(
+        &self,
+        device_id: &str,
+        ts_start: f64,
+        ts_end: f64,
+    ) -> BullResult<V24BiometricWindow> {
+        validate_required("device_id", device_id)?;
+        if ts_end < ts_start {
+            return Err(BullError::message("ts_end must be >= ts_start"));
+        }
+        let spo2 = {
+            let mut stmt = self.conn.prepare(
+                "SELECT device_id, ts, red, ir, contact FROM spo2_samples WHERE device_id=?1 AND ts>=?2 AND ts<?3 ORDER BY ts",
+            )?;
+            stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+                Ok(Spo2SampleRow {
+                    device_id: row.get(0)?,
+                    ts: row.get(1)?,
+                    red: row.get(2)?,
+                    ir: row.get(3)?,
+                    contact: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let skin_temp = {
+            let mut stmt = self.conn.prepare(
+                "SELECT device_id, ts, raw, contact FROM skin_temp_samples WHERE device_id=?1 AND ts>=?2 AND ts<?3 ORDER BY ts",
+            )?;
+            stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+                Ok(SkinTempSampleRow {
+                    device_id: row.get(0)?,
+                    ts: row.get(1)?,
+                    raw: row.get(2)?,
+                    contact: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let resp = {
+            let mut stmt = self.conn.prepare(
+                "SELECT device_id, ts, raw, contact FROM resp_samples WHERE device_id=?1 AND ts>=?2 AND ts<?3 ORDER BY ts",
+            )?;
+            stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+                Ok(RespSampleRow {
+                    device_id: row.get(0)?,
+                    ts: row.get(1)?,
+                    raw: row.get(2)?,
+                    contact: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let sig_quality = {
+            let mut stmt = self.conn.prepare(
+                "SELECT device_id, ts, quality, contact FROM sig_quality_samples WHERE device_id=?1 AND ts>=?2 AND ts<?3 ORDER BY ts",
+            )?;
+            stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+                Ok(SigQualitySampleRow {
+                    device_id: row.get(0)?,
+                    ts: row.get(1)?,
+                    quality: row.get(2)?,
+                    contact: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(V24BiometricWindow {
+            spo2,
+            skin_temp,
+            resp,
+            sig_quality,
+        })
     }
 
     /// Insert one detected exercise session. Duplicate (device_id, start_ts)
