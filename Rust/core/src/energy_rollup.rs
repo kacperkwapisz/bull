@@ -1746,3 +1746,68 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     i64::from(era) * 146_097 + i64::from(doe) - 719_468
 }
+/// Mifflin-St Jeor resting metabolic rate (kcal/day).
+/// sex: `"male"` → intercept +5; `"female"` → -161; otherwise -78 (mean intercept).
+pub fn rmr_mifflin_st_jeor(weight_kg: f64, height_cm: f64, age: f64, sex: Option<&str>) -> f64 {
+    let intercept = match sex {
+        Some(s) if s.eq_ignore_ascii_case("male") => 5.0_f64,
+        Some(s) if s.eq_ignore_ascii_case("female") => -161.0_f64,
+        _ => -78.0_f64,
+    };
+    10.0 * weight_kg + 6.25 * height_cm - 5.0 * age + intercept
+}
+
+/// Keytel (2005) active energy expenditure (kcal/min).
+/// `hr` is capped at `hrmax`; result is clamped `>= 0.0`.
+/// sex: `"male"` → male formula; `"female"` → female formula; otherwise mean of the two.
+/// The Keytel formulas produce kJ/min; dividing by 4.1868 converts to kcal/min (1 kcal = 4.1868 kJ).
+pub fn keytel_active_kcal_per_min(
+    hr: f64,
+    weight_kg: f64,
+    age: f64,
+    sex: Option<&str>,
+    hrmax: f64,
+) -> f64 {
+    let effective_hr = hr.min(hrmax);
+    let raw = match sex {
+        Some(s) if s.eq_ignore_ascii_case("male") => {
+            -55.0969 + 0.6309 * effective_hr + 0.1988 * weight_kg + 0.2017 * age
+        }
+        Some(s) if s.eq_ignore_ascii_case("female") => {
+            -20.4022 + 0.4472 * effective_hr - 0.1263 * weight_kg + 0.0740 * age
+        }
+        _ => {
+            let male_raw = -55.0969 + 0.6309 * effective_hr + 0.1988 * weight_kg + 0.2017 * age;
+            let female_raw = -20.4022 + 0.4472 * effective_hr - 0.1263 * weight_kg + 0.0740 * age;
+            (male_raw + female_raw) / 2.0
+        }
+    };
+    // Keytel formulas produce kJ/min; divide by 251.04 to get kcal/min
+    // (1 kcal/min = 4.1868 kJ/min × 60 s/min = 251.04 kJ per kcal·min unit).
+    (raw / 251.04_f64).max(0.0)
+}
+
+/// Harris-Benedict resting metabolic rate (kcal/day).
+/// `height_cm` is converted to metres inside (coefficient × height_cm/100).
+/// sex: `"male"` → male formula; `"female"` → female formula; otherwise mean.
+pub fn harris_benedict_rmr_kcal_day(
+    weight_kg: f64,
+    height_cm: f64,
+    age: f64,
+    sex: Option<&str>,
+) -> f64 {
+    let height_m = height_cm / 100.0;
+    match sex {
+        Some(s) if s.eq_ignore_ascii_case("male") => {
+            88.362 + 13.397 * weight_kg + 479.9 * height_m - 5.677 * age
+        }
+        Some(s) if s.eq_ignore_ascii_case("female") => {
+            447.593 + 9.247 * weight_kg + 309.8 * height_m - 4.330 * age
+        }
+        _ => {
+            let male = 88.362 + 13.397 * weight_kg + 479.9 * height_m - 5.677 * age;
+            let female = 447.593 + 9.247 * weight_kg + 309.8 * height_m - 4.330 * age;
+            (male + female) / 2.0
+        }
+    }
+}

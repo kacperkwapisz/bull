@@ -695,6 +695,7 @@ fn strain_input(index: usize) -> StrainInput {
             5.0 - (index % 5) as f64,
         ],
         input_ids: Vec::new(),
+        ..Default::default()
     }
 }
 

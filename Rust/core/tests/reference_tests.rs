@@ -145,6 +145,7 @@ fn reference_strain_edwards_load_matches_hand_derived_values() {
         max_hr_bpm: 180.0,
         hr_zone_minutes: vec![10.0, 20.0, 30.0, 0.0, 0.0],
         input_ids: vec!["hand-derived.strain".to_string()],
+        ..Default::default()
     });
 
     let output = result.output.unwrap();
@@ -170,6 +171,7 @@ fn reference_strain_edwards_load_rejects_bad_zone_shape() {
         max_hr_bpm: 180.0,
         hr_zone_minutes: vec![10.0, 20.0],
         input_ids: Vec::new(),
+        ..Default::default()
     });
 
     assert!(result.output.is_none());
@@ -272,6 +274,7 @@ fn reference_definition_and_run_persist_to_sqlite() {
         max_hr_bpm: 180.0,
         hr_zone_minutes: vec![10.0, 20.0, 30.0, 0.0, 0.0],
         input_ids: vec!["fixture.synthetic.strain".to_string()],
+        ..Default::default()
     });
     let strain_record =
         strain_reference_run_record("reference-strain-run-1", &strain_result).unwrap();

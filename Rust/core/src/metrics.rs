@@ -16,6 +16,8 @@ pub const BULL_SLEEP_V1_ID: &str = "bull.sleep.v1";
 pub const BULL_SLEEP_V1_VERSION: &str = "0.1.0";
 pub const BULL_STRAIN_V0_ID: &str = "bull.strain.v0";
 pub const BULL_STRAIN_V0_VERSION: &str = "0.1.0";
+pub const BULL_STRAIN_V1_ID: &str = "bull.strain.v1";
+pub const BULL_STRAIN_V1_VERSION: &str = "0.1.0";
 pub const BULL_RECOVERY_V0_ID: &str = "bull.recovery.v0";
 pub const BULL_RECOVERY_V0_VERSION: &str = "0.1.0";
 pub const BULL_STRESS_V0_ID: &str = "bull.stress.v0";
@@ -387,7 +389,7 @@ impl Default for SleepInput {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct StrainInput {
     pub start_time: String,
     pub end_time: String,
@@ -398,6 +400,10 @@ pub struct StrainInput {
     pub hr_zone_minutes: Vec<f64>,
     #[serde(default)]
     pub input_ids: Vec<String>,
+    #[serde(default)]
+    pub profile_sex: Option<String>,
+    #[serde(default)]
+    pub profile_age: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1637,6 +1643,311 @@ pub fn bull_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutp
             "score_policy": "weighted_zone_load_and_average_hr_reserve",
             "zone_weights": [1.0, 2.0, 3.0, 4.0, 5.0],
             "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
+        }),
+    }
+}
+
+/// Returns the Tanaka HRmax estimate: 208.0 - 0.7 * age.
+/// Physiologically-grounded alternative to the 220-age heuristic.
+pub fn tanaka_hrmax(age: f64) -> f64 {
+    208.0 - 0.7 * age
+}
+
+// ── ALG-STR-01: History-based HRmax estimator ──────────────────────────────
+
+/// Returns the 99.5th-percentile heart rate from `hr_history` when at least
+/// 600 finite samples are present; returns None otherwise.
+///
+/// Non-finite values (NaN, ±infinity) are filtered out before counting. Index
+/// is clamped to `len - 1` to guard against boundary overflow (T-23-02).
+pub fn estimate_hrmax_from_history(hr_history: &[f64]) -> Option<f64> {
+    let mut finite: Vec<f64> = hr_history
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
+    if finite.len() < 600 {
+        return None;
+    }
+    finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let len = finite.len();
+    // CR-01 fix: nearest-rank P99.5 is ceil(0.995*n) - 1 (0-indexed).
+    let index = ((0.995 * len as f64).ceil() as usize)
+        .saturating_sub(1)
+        .min(len - 1);
+    Some(finite[index])
+}
+
+// ── ALG-STR-01: Effective HRmax resolver ───────────────────────────────────
+
+/// Resolves an effective HRmax value and its source label.
+///
+/// Resolution order (ALG-STR-01):
+/// 1. `estimate_hrmax_from_history` returns Some → `(value, "observed")`
+/// 2. `profile_age` is Some → `(max(session_max_hr, tanaka_hrmax(age)), "tanaka")`
+/// 3. No history + no age → `(session_max_hr, "fallback")`
+///
+/// Returns `(hrmax, source)` where source ∈ {"observed", "tanaka", "fallback"}.
+pub fn resolve_effective_hrmax(
+    session_max_hr: f64,
+    profile_age: Option<f64>,
+    hr_history: &[f64],
+) -> (f64, String) {
+    if let Some(history_hrmax) = estimate_hrmax_from_history(hr_history) {
+        return (history_hrmax, "observed".to_string());
+    }
+    if let Some(age) = profile_age {
+        let hrmax = session_max_hr.max(tanaka_hrmax(age));
+        return (hrmax, "tanaka".to_string());
+    }
+    (session_max_hr, "fallback".to_string())
+}
+
+// ── ALG-STR-02: Banister TRIMP with zone-midpoint approximation ─────────────
+
+/// Banister TRIMP using zone-midpoint approximation (ALG-STR-02).
+///
+/// Zone midpoints as % of HRmax: [55, 65, 75, 85, 95]%.
+/// HRR fraction: `x = clamp((zone_mid_hr - resting_hr) / (hrmax - resting_hr), 0, 1)`
+/// Formula: `Σ zone_minutes[i] * x_i * 0.64 * exp(b * x_i)` over 5 zones.
+/// Sex constant: "male" → 1.92, "female" → 1.67, otherwise → 1.795 (mean).
+///
+/// Quality flag `banister_trimp_zone_midpoint_approximation` must always be
+/// emitted by callers (it is a property of the input-approximation method,
+/// not of the computation correctness).
+pub fn banister_trimp_zone_midpoint(
+    hr_zone_minutes: &[f64],
+    resting_hr_bpm: f64,
+    hrmax: f64,
+    sex: Option<&str>,
+) -> f64 {
+    // Sex-specific exponential weighting constant (ALG-STR-02).
+    // CR-02 fix: case-insensitive comparison so "Male"/"MALE" route correctly.
+    let b: f64 = match sex.map(str::to_ascii_lowercase).as_deref() {
+        Some("male") => 1.92,
+        Some("female") => 1.67,
+        _ => 1.795,
+    };
+
+    // Zone midpoints as fraction of HRmax (55/65/75/85/95%).
+    const ZONE_MIDPOINTS: [f64; 5] = [0.55, 0.65, 0.75, 0.85, 0.95];
+
+    let hr_range = hrmax - resting_hr_bpm;
+
+    ZONE_MIDPOINTS
+        .iter()
+        .enumerate()
+        .map(|(i, &pct)| {
+            let minutes = hr_zone_minutes.get(i).copied().unwrap_or(0.0);
+            if !minutes.is_finite() || minutes <= 0.0 {
+                return 0.0;
+            }
+            let zone_mid_hr = pct * hrmax;
+            let x = ((zone_mid_hr - resting_hr_bpm) / hr_range).clamp(0.0, 1.0);
+            minutes * x * 0.64 * (b * x).exp()
+        })
+        .sum()
+}
+
+// ── ALG-STR-03: fit_strain_denominator ────────────────────────────────────
+
+/// Fits the denominator `D` in the Banister-style logarithmic strain formula
+/// `strain = 21 * ln(TRIMP+1) / ln(D)` from a set of (TRIMP, reference_strain) pairs.
+///
+/// Because the formula is linear in `m = 1/ln(D)` with coefficient `C_i = 21*ln(TRIMP_i+1)`,
+/// the closed-form least-squares solution is `m = Σ(C_i*s_i) / Σ(C_i²)`,
+/// giving `D = exp(1/m)`.
+///
+/// Returns `None` when:
+/// - fewer than 2 pairs provided (T-23-03),
+/// - any coefficient or strain value is non-finite,
+/// - the denominator `Σ(C_i²)` is zero or non-finite.
+pub fn fit_strain_denominator(pairs: &[(f64, f64)]) -> Option<f64> {
+    if pairs.len() < 2 {
+        return None;
+    }
+
+    let mut numerator = 0.0_f64;
+    let mut denominator = 0.0_f64;
+
+    for &(trimp, reference_strain) in pairs {
+        if !trimp.is_finite() || !reference_strain.is_finite() {
+            return None;
+        }
+        let c = 21.0 * (trimp + 1.0).ln();
+        if !c.is_finite() {
+            return None;
+        }
+        numerator += c * reference_strain;
+        denominator += c * c;
+    }
+
+    if denominator == 0.0 || !denominator.is_finite() || !numerator.is_finite() {
+        return None;
+    }
+
+    let m = numerator / denominator; // m = 1/ln(D)
+    if m == 0.0 || !m.is_finite() {
+        return None;
+    }
+
+    let d = (1.0 / m).exp();
+    if d.is_finite() && d > 0.0 {
+        Some(d)
+    } else {
+        None
+    }
+}
+
+// ── ALG-STR-02/03: bull_strain_v1 ────────────────────────────────────────
+
+/// Default denominator constant (D=7201) used when no calibration pairs are
+/// available. Default constant fitted from local calibration pairs via fit_strain_denominator.
+const STRAIN_V1_DEFAULT_DENOMINATOR: f64 = 7201.0;
+
+/// Computes strain using both the Edwards zone-load model (v0 logic) and the
+/// Banister TRIMP logarithmic formula (ALG-STR-02, ALG-STR-03).
+///
+/// The quality flag `banister_trimp_zone_midpoint_approximation` is always
+/// emitted because zone midpoints are an approximation of the true
+/// per-minute HRR distribution.
+pub fn bull_strain_v1(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutput> {
+    let mut quality_flags = Vec::new();
+    let mut errors = Vec::new();
+
+    // Always emit the approximation flag (ALG-STR-02 requirement).
+    quality_flags.push("banister_trimp_zone_midpoint_approximation".to_string());
+
+    require_finite_positive("duration_minutes", input.duration_minutes, &mut errors);
+    require_finite_positive("resting_hr_bpm", input.resting_hr_bpm, &mut errors);
+    require_finite_positive("average_hr_bpm", input.average_hr_bpm, &mut errors);
+    require_finite_positive("max_hr_bpm", input.max_hr_bpm, &mut errors);
+    if input.max_hr_bpm <= input.resting_hr_bpm {
+        errors.push("max_hr_must_exceed_resting_hr".to_string());
+    }
+    if input.hr_zone_minutes.len() != 5 {
+        errors.push("five_hr_zones_required".to_string());
+    }
+    if input
+        .hr_zone_minutes
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        errors.push("zone_minutes_must_be_finite_non_negative".to_string());
+    }
+
+    let zone_minutes_sum = input.hr_zone_minutes.iter().sum::<f64>();
+    if (zone_minutes_sum - input.duration_minutes).abs() > 5.0 {
+        quality_flags.push("zone_minutes_duration_mismatch".to_string());
+    }
+
+    // Resolve effective HRmax (ALG-STR-01 chain: observed → tanaka → fallback).
+    let (effective_hrmax, hrmax_source) =
+        resolve_effective_hrmax(input.max_hr_bpm, input.profile_age, &[]);
+
+    // Banister b constant for provenance recording (selected by sex, case-insensitive).
+    let b_constant: f64 = match input
+        .profile_sex
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("male") => 1.92,
+        Some("female") => 1.67,
+        _ => 1.795,
+    };
+
+    let output = if errors.is_empty() {
+        // Edwards zone-load score (reusing v0 logic).
+        let zone_load = input
+            .hr_zone_minutes
+            .iter()
+            .zip([1.0_f64, 2.0, 3.0, 4.0, 5.0])
+            .map(|(minutes, weight)| minutes * weight)
+            .sum::<f64>();
+        let edwards_score_0_to_21 = clamp_0_to(21.0, zone_load / 20.0);
+        let hr_reserve_fraction = clamp_fraction(
+            (input.average_hr_bpm - input.resting_hr_bpm)
+                / (input.max_hr_bpm - input.resting_hr_bpm),
+        );
+        let edwards_score_0_to_100 = edwards_score_0_to_21 / 21.0 * 100.0;
+        let avg_hr_score_0_to_100 = hr_reserve_fraction * 100.0;
+
+        // Banister TRIMP score using zone-midpoint approximation.
+        let trimp = banister_trimp_zone_midpoint(
+            &input.hr_zone_minutes,
+            input.resting_hr_bpm,
+            effective_hrmax,
+            input.profile_sex.as_deref(),
+        );
+        // Logarithmic strain using default denominator (D=7201).
+        let banister_score_0_to_21 = if trimp > 0.0 {
+            clamp_0_to(
+                21.0,
+                21.0 * (trimp + 1.0).ln() / STRAIN_V1_DEFAULT_DENOMINATOR.ln(),
+            )
+        } else {
+            0.0
+        };
+        let banister_score_0_to_100 = banister_score_0_to_21 / 21.0 * 100.0;
+
+        let components = vec![
+            score_component(
+                "edwards_zone_load",
+                zone_load,
+                "weighted_zone_minutes",
+                edwards_score_0_to_100,
+                0.50,
+                21.0,
+            ),
+            score_component(
+                "average_hr_reserve",
+                hr_reserve_fraction,
+                "fraction",
+                avg_hr_score_0_to_100,
+                0.20,
+                21.0,
+            ),
+            score_component(
+                "banister_trimp",
+                trimp,
+                "trimp_au",
+                banister_score_0_to_100,
+                0.30,
+                21.0,
+            ),
+        ];
+
+        Some(StrainScoreOutput {
+            algorithm_id: BULL_STRAIN_V1_ID.to_string(),
+            algorithm_version: BULL_STRAIN_V1_VERSION.to_string(),
+            score_0_to_21: component_sum(&components),
+            zone_load,
+            average_hr_reserve_fraction: hr_reserve_fraction,
+            components,
+        })
+    } else {
+        None
+    };
+
+    AlgorithmRunResult {
+        algorithm_id: BULL_STRAIN_V1_ID.to_string(),
+        algorithm_version: BULL_STRAIN_V1_VERSION.to_string(),
+        family: "strain".to_string(),
+        start_time: input.start_time.clone(),
+        end_time: input.end_time.clone(),
+        output,
+        quality_flags,
+        errors,
+        provenance: json!({
+            "input_ids": input.input_ids,
+            "score_policy": "edwards_zone_load_banister_trimp_combined",
+            "zone_weights_edwards": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "zone_midpoints_pct_hrmax": [0.55, 0.65, 0.75, 0.85, 0.95],
+            "banister_b_constant": b_constant,
+            "hrmax_source": hrmax_source,
+            "effective_hrmax": effective_hrmax,
+            "default_denominator": STRAIN_V1_DEFAULT_DENOMINATOR,
         }),
     }
 }

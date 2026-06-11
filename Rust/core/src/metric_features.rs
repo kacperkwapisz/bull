@@ -2616,6 +2616,7 @@ pub fn run_strain_feature_score_report_for_store(
                         max_hr_bpm,
                         hr_zone_minutes: window.hr_zone_minutes.clone(),
                         input_ids,
+                        ..Default::default()
                     };
                     let mut result = bull_strain_v0(&input);
                     if max_hr_basis.as_deref() == Some("observed_window_max_hr_bpm") {
