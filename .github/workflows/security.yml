@@ -40,7 +40,7 @@ permissions:
   contents: read
 
 env:
-  TRIVY_VERSION: "0.58.1"
+  TRIVY_VERSION: "0.71.0"
 
 jobs:
   cargo-audit:
@@ -104,10 +104,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # Install via the official action: it fetches the install script through an
-      # authenticated actions/checkout (default ${{ github.token }}), avoiding the
-      # unauthenticated GitHub rate limits that made the raw curl | sh install
-      # fail persistently, and caches the pinned binary across runs.
+      # Install via the official action, which downloads the pinned release from
+      # GitHub and caches the binary across runs. The version must be an existing
+      # Trivy release tag (see https://github.com/aquasecurity/trivy/releases).
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.2.6
         with:
