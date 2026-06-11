@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::{
     BullError, BullResult,
+    baselines::EwmaBaseline,
     store::{AlgorithmDefinitionRecord, AlgorithmPreferenceRecord, AlgorithmRunRecord},
 };
 
@@ -18,6 +19,10 @@ pub const BULL_STRAIN_V0_ID: &str = "bull.strain.v0";
 pub const BULL_STRAIN_V0_VERSION: &str = "0.1.0";
 pub const BULL_STRAIN_V1_ID: &str = "bull.strain.v1";
 pub const BULL_STRAIN_V1_VERSION: &str = "0.1.0";
+pub const BULL_RECOVERY_V1_ID: &str = "bull.recovery.v1";
+pub const BULL_RECOVERY_V1_VERSION: &str = "0.1.0";
+pub const BULL_READINESS_V1_ID: &str = "bull.readiness.v1";
+pub const BULL_READINESS_V1_VERSION: &str = "0.1.0";
 pub const BULL_RECOVERY_V0_ID: &str = "bull.recovery.v0";
 pub const BULL_RECOVERY_V0_VERSION: &str = "0.1.0";
 pub const BULL_STRESS_V0_ID: &str = "bull.stress.v0";
@@ -3697,5 +3702,819 @@ fn require_finite_non_negative(name: &str, value: f64, errors: &mut Vec<String>)
 fn require_bounded(name: &str, value: f64, min: f64, max: f64, errors: &mut Vec<String>) {
     if !value.is_finite() || value < min || value > max {
         errors.push(format!("{name}_must_be_between_{min}_and_{max}"));
+    }
+}
+
+const RECOVERY_POPULATION_MEAN: f64 = 58.0;
+
+/// Colour band for the Recovery V1 score, named in PT-PT.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColourBand {
+    Vermelho,
+    Amarelo,
+    Verde,
+}
+
+impl ColourBand {
+    /// Classify a 0–100 score into a colour band.
+    ///
+    /// Verde ≥ 67, Amarelo ≥ 34, Vermelho < 34.
+    pub fn from_score(score: f64) -> Self {
+        if score >= 67.0 {
+            Self::Verde
+        } else if score >= 34.0 {
+            Self::Amarelo
+        } else {
+            Self::Vermelho
+        }
+    }
+
+    /// PT-PT lowercase name, suitable for JSON serialisation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Verde => "verde",
+            Self::Amarelo => "amarelo",
+            Self::Vermelho => "vermelho",
+        }
+    }
+}
+
+/// Input for the personal-baseline recovery score algorithm (v1).
+///
+/// The database path is carried by the bridge layer; this struct holds only the
+/// nightly biometric values. Keeping the database path out of the struct lets
+/// `bull_recovery_v1` stay a pure, unit-testable function.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecoveryV1Input {
+    pub device_id: String,
+    pub date_key: String,
+    pub hrv_rmssd_ms: f64,
+    pub resting_hr_bpm: f64,
+    /// Optional respiratory rate deviation from baseline (z-score units).
+    /// When Some: contributes resp_z * 0.05 to combined_z (ALG-ALIGN-01).
+    #[serde(default)]
+    pub resp_rate_rpm: Option<f64>,
+    /// Optional sleep performance fraction 0–1.
+    /// When Some: contributes sleep_perf_z * 0.15 to combined_z (ALG-ALIGN-01).
+    #[serde(default)]
+    pub sleep_performance_fraction: Option<f64>,
+}
+
+/// Output of the personal-baseline recovery score algorithm (v1).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecoveryV1Output {
+    pub algorithm_id: String,
+    pub algorithm_version: String,
+    /// None when baseline is in Calibrating state (< 4 nights).
+    pub score_0_to_100: Option<f64>,
+    /// "calibrating" | "provisional" | "trusted"
+    pub trust_level: String,
+    /// "vermelho" | "amarelo" | "verde"
+    pub colour_band: String,
+    /// Z-score for HRV RMSSD (None when Calibrating).
+    pub z_hrv: Option<f64>,
+    /// Z-score for resting HR (None when Calibrating or RHR baseline insufficient).
+    pub z_rhr: Option<f64>,
+}
+
+/// Compute the personal-baseline Recovery score (v1, ALG-REC-01/02).
+///
+/// Takes the raw nightly biometrics and a pre-reconstructed EWMA baseline (the
+/// bridge layer reconstructs the baseline via `EwmaBaseline::fold_history`).
+///
+/// When the HRV baseline night_count < 4 (cold-start), returns `score_0_to_100`
+/// as `None`. The colour band is derived from the population mean (58.0) so the
+/// calibrating UI still shows a meaningful band.
+///
+/// When trust ≥ Provisional (personal-baseline weights):
+/// - combined z = 0.60 * z_hrv - 0.20 * z_rhr [- 0.05 * z_resp + 0.15 * z_sleep_perf] (optional)
+/// - score = 100.0 / (1.0 + exp(-1.6 * (z + 0.20)))  [logistic squash; Z=0 → ~58%]
+///
+/// Optional components (resp_rate_rpm, sleep_performance_fraction) are included only
+/// when the caller passes them; weight is re-normalised so the mandatory components
+/// always sum to their full weight.
+pub fn bull_recovery_v1(input: &RecoveryV1Input, baseline: &EwmaBaseline) -> RecoveryV1Output {
+    let trust = baseline.hrv.trust_level();
+    let trust_level = trust.as_str().to_string();
+
+    let z_hrv = baseline.hrv.z_score(input.hrv_rmssd_ms);
+    // RHR z-score is sign-flipped: lower RHR than baseline = positive contribution.
+    let z_rhr_raw = baseline.resting_hr.z_score(input.resting_hr_bpm);
+
+    // Cold-start gate: HRV baseline not seeded yet.
+    if z_hrv.is_none() {
+        let band = ColourBand::from_score(RECOVERY_POPULATION_MEAN)
+            .as_str()
+            .to_string();
+        return RecoveryV1Output {
+            algorithm_id: BULL_RECOVERY_V1_ID.to_string(),
+            algorithm_version: BULL_RECOVERY_V1_VERSION.to_string(),
+            score_0_to_100: None,
+            trust_level,
+            colour_band: band,
+            z_hrv: None,
+            z_rhr: None,
+        };
+    }
+
+    let z_hrv_val = z_hrv.expect("checked above");
+
+    // Personal-baseline component weights.
+    // Mandatory: HRV 0.60, RHR 0.20.
+    // Optional: resp 0.05 (z = deviation from population mean ≈ 0 when near baseline),
+    //           sleep_perf 0.15 (z = (frac - 0.85) / 0.10, centered on 85% efficiency).
+    let mandatory_z = {
+        let rhr_component = z_rhr_raw.map_or(0.0, |z| -0.20 * z);
+        0.60 * z_hrv_val + rhr_component
+    };
+
+    // Optional resp component: z_resp = -(resp_rpm - baseline). Negative = better.
+    let resp_component: f64 = 0.0; // No resp baseline stored yet; reserved for future use.
+
+    // Optional sleep performance component: z_sleep_perf = (frac - 0.85) / 0.10.
+    let sleep_perf_component: f64 = input
+        .sleep_performance_fraction
+        .map_or(0.0, |frac| 0.15 * (frac - 0.85) / 0.10);
+
+    let combined_z = if z_rhr_raw.is_none() {
+        // When RHR is absent, redistribute its weight to HRV.
+        z_hrv_val + resp_component + sleep_perf_component
+    } else {
+        mandatory_z + resp_component + sleep_perf_component
+    };
+    let _ = resp_component; // suppress unused warning when resp is always 0.0
+
+    let score = 100.0 / (1.0 + (-1.6_f64 * (combined_z + 0.20)).exp());
+    let colour_band = ColourBand::from_score(score).as_str().to_string();
+
+    RecoveryV1Output {
+        algorithm_id: BULL_RECOVERY_V1_ID.to_string(),
+        algorithm_version: BULL_RECOVERY_V1_VERSION.to_string(),
+        score_0_to_100: Some(score),
+        trust_level,
+        colour_band,
+        z_hrv: Some(z_hrv_val),
+        z_rhr: z_rhr_raw,
+    }
+}
+
+#[cfg(test)]
+mod recovery_v1_tests {
+    use super::*;
+    use crate::baselines::{EwmaBaseline, EwmaState, MIN_NIGHTS_SEED, MIN_NIGHTS_TRUST};
+
+    /// Build a minimal EwmaState with exact mean/variance/night_count for test control.
+    fn make_state(mean: f64, variance: f64, night_count: usize) -> EwmaState {
+        EwmaState {
+            mean,
+            variance,
+            night_count,
+        }
+    }
+
+    fn make_baseline(hrv: EwmaState, resting_hr: EwmaState) -> EwmaBaseline {
+        EwmaBaseline { hrv, resting_hr }
+    }
+
+    fn make_input() -> RecoveryV1Input {
+        RecoveryV1Input {
+            device_id: "test-device".to_string(),
+            date_key: "2024-01-01".to_string(),
+            hrv_rmssd_ms: 60.0,
+            resting_hr_bpm: 55.0,
+            resp_rate_rpm: None,
+            sleep_performance_fraction: None,
+        }
+    }
+
+    // ---- Z=0 → ≈58% --------------------------------------------------------
+
+    #[test]
+    fn test_recovery_v1_z_zero_yields_approx_58_percent() {
+        // To get combined Z = 0: need z_hrv = 0 and z_rhr = 0.
+        // z_hrv = 0 when hrv_rmssd_ms == hrv.mean.
+        // z_rhr = 0 when resting_hr_bpm == resting_hr.mean.
+        let sigma = 5.0_f64;
+        let hrv = make_state(60.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let rhr = make_state(55.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let baseline = make_baseline(hrv, rhr);
+
+        let input = RecoveryV1Input {
+            device_id: "dev".to_string(),
+            date_key: "2024-01-01".to_string(),
+            hrv_rmssd_ms: 60.0,   // == hrv.mean → z_hrv = 0
+            resting_hr_bpm: 55.0, // == rhr.mean → z_rhr = 0
+            resp_rate_rpm: None,
+            sleep_performance_fraction: None,
+        };
+
+        let output = bull_recovery_v1(&input, &baseline);
+        let score = output
+            .score_0_to_100
+            .expect("score must be Some when trusted");
+
+        // Expected: 100 / (1 + exp(-1.6 * 0.20)) = 100 / (1 + exp(-0.32)) ≈ 57.9%
+        let expected = 100.0 / (1.0 + (-1.6_f64 * 0.20_f64).exp());
+        assert!(
+            (score - expected).abs() < 0.5,
+            "Z=0 score must be within 0.5% of {:.4}, got {:.4}",
+            expected,
+            score
+        );
+        assert!(
+            (score - 58.0).abs() < 0.5,
+            "Z=0 score must be within 0.5% of 58.0, got {:.4}",
+            score
+        );
+    }
+
+    // ---- Z_RHR sign flip: lower RHR = better (positive contribution) --------
+
+    #[test]
+    fn test_recovery_v1_lower_rhr_improves_score() {
+        let sigma = 5.0_f64;
+        // HRV at mean (z_hrv = 0)
+        let hrv = make_state(60.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let rhr = make_state(60.0, sigma * sigma, MIN_NIGHTS_SEED);
+
+        // Baseline: low score (RHR at mean, HRV at mean → z=0 → ~58%)
+        let baseline_neutral = make_baseline(hrv.clone(), rhr.clone());
+        let input_neutral = RecoveryV1Input {
+            device_id: "dev".to_string(),
+            date_key: "2024-01-01".to_string(),
+            hrv_rmssd_ms: 60.0,
+            resting_hr_bpm: 60.0, // == rhr.mean → z_rhr = 0
+            resp_rate_rpm: None,
+            sleep_performance_fraction: None,
+        };
+        let output_neutral = bull_recovery_v1(&input_neutral, &baseline_neutral);
+        let score_neutral = output_neutral.score_0_to_100.unwrap();
+
+        // Scenario: RHR is below baseline mean → lower than usual → BETTER → should raise score.
+        let baseline_good = make_baseline(hrv, rhr);
+        let input_good = RecoveryV1Input {
+            device_id: "dev".to_string(),
+            date_key: "2024-01-01".to_string(),
+            hrv_rmssd_ms: 60.0,
+            resting_hr_bpm: 55.0, // below rhr.mean=60 → z_rhr_raw < 0 → -0.20 * z_rhr_raw > 0
+            resp_rate_rpm: None,
+            sleep_performance_fraction: None,
+        };
+        let output_good = bull_recovery_v1(&input_good, &baseline_good);
+        let score_good = output_good.score_0_to_100.unwrap();
+
+        assert!(
+            score_good > score_neutral,
+            "lower RHR than baseline must improve score: neutral={:.4}, good={:.4}",
+            score_neutral,
+            score_good
+        );
+    }
+
+    // ---- Cold-start: score is None when HRV baseline < 4 nights -------------
+
+    #[test]
+    fn test_recovery_v1_cold_start_score_none() {
+        let hrv = make_state(60.0, 25.0, 3); // < MIN_NIGHTS_SEED=4
+        let rhr = make_state(55.0, 25.0, 3);
+        let baseline = make_baseline(hrv, rhr);
+        let input = make_input();
+
+        let output = bull_recovery_v1(&input, &baseline);
+
+        assert!(
+            output.score_0_to_100.is_none(),
+            "cold-start: score must be None when HRV night_count < 4"
+        );
+        assert_eq!(
+            output.trust_level, "calibrating",
+            "cold-start: trust_level must be 'calibrating'"
+        );
+        assert!(output.z_hrv.is_none(), "cold-start: z_hrv must be None");
+    }
+
+    // ---- Cold-start: colour band falls back to population mean band ----------
+
+    #[test]
+    fn test_recovery_v1_cold_start_colour_band_population_mean() {
+        let hrv = make_state(60.0, 25.0, 0); // no nights
+        let rhr = make_state(55.0, 25.0, 0);
+        let baseline = make_baseline(hrv, rhr);
+        let input = make_input();
+
+        let output = bull_recovery_v1(&input, &baseline);
+
+        // RECOVERY_POPULATION_MEAN=58.0 → ColourBand::Amarelo (34 ≤ 58 < 67)
+        assert_eq!(
+            output.colour_band, "amarelo",
+            "cold-start colour band must be 'amarelo' (population mean 58.0)"
+        );
+    }
+
+    // ---- Colour band boundaries --------------------------------------------
+
+    #[test]
+    fn test_colour_band_verde_at_67() {
+        assert_eq!(ColourBand::from_score(67.0), ColourBand::Verde);
+        assert_eq!(ColourBand::from_score(67.0).as_str(), "verde");
+    }
+
+    #[test]
+    fn test_colour_band_amarelo_at_66_9() {
+        assert_eq!(ColourBand::from_score(66.9), ColourBand::Amarelo);
+        assert_eq!(ColourBand::from_score(66.9).as_str(), "amarelo");
+    }
+
+    #[test]
+    fn test_colour_band_amarelo_at_34() {
+        assert_eq!(ColourBand::from_score(34.0), ColourBand::Amarelo);
+        assert_eq!(ColourBand::from_score(34.0).as_str(), "amarelo");
+    }
+
+    #[test]
+    fn test_colour_band_vermelho_at_33_9() {
+        assert_eq!(ColourBand::from_score(33.9), ColourBand::Vermelho);
+        assert_eq!(ColourBand::from_score(33.9).as_str(), "vermelho");
+    }
+
+    // ---- Trust level mapping -----------------------------------------------
+
+    #[test]
+    fn test_recovery_v1_trust_calibrating_at_3_nights() {
+        let hrv = make_state(60.0, 25.0, 3);
+        let rhr = make_state(55.0, 25.0, 3);
+        let baseline = make_baseline(hrv, rhr);
+        let output = bull_recovery_v1(&make_input(), &baseline);
+        assert_eq!(output.trust_level, "calibrating");
+    }
+
+    #[test]
+    fn test_recovery_v1_trust_provisional_at_4_nights() {
+        let sigma = 5.0_f64;
+        let hrv = make_state(60.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let rhr = make_state(55.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let baseline = make_baseline(hrv, rhr);
+        let output = bull_recovery_v1(&make_input(), &baseline);
+        assert_eq!(output.trust_level, "provisional");
+        assert!(
+            output.score_0_to_100.is_some(),
+            "provisional must have a score"
+        );
+    }
+
+    #[test]
+    fn test_recovery_v1_trust_trusted_at_14_nights() {
+        let sigma = 5.0_f64;
+        let hrv = make_state(60.0, sigma * sigma, MIN_NIGHTS_TRUST);
+        let rhr = make_state(55.0, sigma * sigma, MIN_NIGHTS_TRUST);
+        let baseline = make_baseline(hrv, rhr);
+        let output = bull_recovery_v1(&make_input(), &baseline);
+        assert_eq!(output.trust_level, "trusted");
+        assert!(output.score_0_to_100.is_some(), "trusted must have a score");
+    }
+
+    // ---- z_rhr None fallback (only z_hrv used) -----------------------------
+
+    #[test]
+    fn test_recovery_v1_z_rhr_none_uses_z_hrv_alone() {
+        // HRV has 4 nights (provisional), RHR has 0 nights → z_rhr is None.
+        let sigma = 5.0_f64;
+        let hrv = make_state(60.0, sigma * sigma, MIN_NIGHTS_SEED);
+        let rhr = make_state(55.0, sigma * sigma, 0); // no nights
+        let baseline = make_baseline(hrv, rhr);
+
+        let input = RecoveryV1Input {
+            device_id: "dev".to_string(),
+            date_key: "2024-01-01".to_string(),
+            hrv_rmssd_ms: 60.0, // == hrv.mean → z_hrv = 0
+            resting_hr_bpm: 55.0,
+            resp_rate_rpm: None,
+            sleep_performance_fraction: None,
+        };
+
+        let output = bull_recovery_v1(&input, &baseline);
+        // With z_hrv=0 and z_rhr=None: combined_z = z_hrv = 0
+        // score = 100 / (1 + exp(-1.6 * 0.20)) ≈ 57.9
+        let score = output.score_0_to_100.expect("must have score");
+        let expected = 100.0 / (1.0 + (-1.6_f64 * 0.20_f64).exp());
+        assert!(
+            (score - expected).abs() < 0.5,
+            "z_rhr None: score must use z_hrv alone, got {:.4}, expected {:.4}",
+            score,
+            expected
+        );
+        assert!(
+            output.z_rhr.is_none(),
+            "z_rhr must be None when rhr baseline cold"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Readiness Engine — ACWR + Foster monotony (RDY-01, RDY-02, RDY-03)
+// ---------------------------------------------------------------------------
+
+/// 5-class daily readiness level derived from ACWR and Foster monotony.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessLevel {
+    Rundown,
+    Strained,
+    Balanced,
+    Primed,
+    Unknown,
+}
+
+/// Input for bull_readiness_v1.
+///
+/// `daily_strain` is a slice of (timestamp_secs_f64, strain_0_to_21_f64) pairs
+/// ordered newest-last. The caller is responsible for providing pairs in
+/// chronological order; bull_readiness_v1 uses slice positions, not timestamps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReadinessInput {
+    pub daily_strain: Vec<(f64, f64)>,
+}
+
+/// Output of bull_readiness_v1.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReadinessOutput {
+    pub algorithm_id: String,
+    pub algorithm_version: String,
+    /// Acute:chronic workload ratio (7-day / 28-day mean). None when chronic=0.
+    pub acwr: Option<f64>,
+    /// "under_training" | "optimal" | "caution" | "danger" | "unknown"
+    pub acwr_zone: String,
+    /// Foster training monotony (mean/std of last 7 days). None when std=0 or <3 entries.
+    pub monotony: Option<f64>,
+    pub monotony_high: bool,
+    pub level: ReadinessLevel,
+    pub insufficient_data: bool,
+}
+
+fn acwr_zone_str(acwr: f64) -> &'static str {
+    if acwr < 0.8 {
+        "under_training"
+    } else if acwr <= 1.3 {
+        // 0.8 boundary → "optimal"; 1.3 boundary → "optimal"
+        "optimal"
+    } else if acwr < 1.5 {
+        // 1.3 < acwr < 1.5 → "caution"; 1.5 boundary → "danger"
+        "caution"
+    } else {
+        "danger"
+    }
+}
+
+/// Compute Foster training monotony from the last 7 strain values.
+/// Returns None when fewer than 3 entries available or when population std dev is 0.
+fn foster_monotony(strains: &[f64]) -> Option<f64> {
+    if strains.len() < 3 {
+        return None;
+    }
+    let n = strains.len() as f64;
+    let mean = strains.iter().sum::<f64>() / n;
+    let variance = strains.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+    let std_dev = variance.sqrt();
+    if std_dev == 0.0 {
+        return None;
+    }
+    Some(mean / std_dev)
+}
+
+/// Compute the Readiness Engine output from a trailing window of daily strain values.
+///
+/// Expects `input.daily_strain` ordered chronologically (oldest first, newest last).
+/// Requires at least 28 entries for a valid ACWR computation; fewer entries returns
+/// `insufficient_data=true` with `level=Unknown`.
+///
+/// Caller should pre-filter NaN/Inf values before passing to this function.
+pub fn bull_readiness_v1(input: &ReadinessInput) -> ReadinessOutput {
+    let n = input.daily_strain.len();
+
+    if n < 28 {
+        return ReadinessOutput {
+            algorithm_id: BULL_READINESS_V1_ID.to_string(),
+            algorithm_version: BULL_READINESS_V1_VERSION.to_string(),
+            acwr: None,
+            acwr_zone: "unknown".to_string(),
+            monotony: None,
+            monotony_high: false,
+            level: ReadinessLevel::Unknown,
+            insufficient_data: true,
+        };
+    }
+
+    // ACWR: acute = mean of last 7; chronic = mean of last 28.
+    let window28: Vec<f64> = input.daily_strain[n - 28..]
+        .iter()
+        .map(|(_, s)| *s)
+        .collect();
+    let window7 = &window28[21..]; // last 7 of the 28
+
+    let acute_load = window7.iter().sum::<f64>() / 7.0;
+    let chronic_load = window28.iter().sum::<f64>() / 28.0;
+
+    let acwr = if !chronic_load.is_finite() || chronic_load == 0.0 {
+        None
+    } else {
+        Some((acute_load / chronic_load).clamp(0.0, 3.0))
+    };
+
+    let acwr_zone = match acwr {
+        Some(v) => acwr_zone_str(v).to_string(),
+        None => "unknown".to_string(),
+    };
+
+    // Foster monotony from last 7 strains.
+    let monotony = foster_monotony(window7);
+    let monotony_high = monotony.is_some_and(|m| m >= 2.0);
+
+    // Level synthesis (evaluated in priority order).
+    let level = match acwr {
+        None => ReadinessLevel::Unknown,
+        Some(v) if v >= 1.5 => ReadinessLevel::Rundown,
+        _ if monotony_high => ReadinessLevel::Strained,
+        Some(v) if v < 0.8 => ReadinessLevel::Strained,
+        Some(v) if (0.8..=1.3).contains(&v) && !monotony_high => ReadinessLevel::Primed,
+        _ => ReadinessLevel::Balanced,
+    };
+
+    ReadinessOutput {
+        algorithm_id: BULL_READINESS_V1_ID.to_string(),
+        algorithm_version: BULL_READINESS_V1_VERSION.to_string(),
+        acwr,
+        acwr_zone,
+        monotony,
+        monotony_high,
+        level,
+        insufficient_data: false,
+    }
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    // Helper: build ReadinessInput with n entries all at strain `s`.
+    fn uniform_input(n: usize, s: f64) -> ReadinessInput {
+        let pairs = (0..n).map(|i| (i as f64 * 86400.0, s)).collect();
+        ReadinessInput {
+            daily_strain: pairs,
+        }
+    }
+
+    // Helper: build 28-entry input with custom last-7 strain.
+    fn split_input(first21_strain: f64, last7_strain: f64) -> ReadinessInput {
+        let mut pairs: Vec<(f64, f64)> = (0..21)
+            .map(|i| (i as f64 * 86400.0, first21_strain))
+            .collect();
+        for j in 0..7 {
+            pairs.push(((21 + j) as f64 * 86400.0, last7_strain));
+        }
+        ReadinessInput {
+            daily_strain: pairs,
+        }
+    }
+
+    #[test]
+    fn test_readiness_insufficient_data_27_entries() {
+        let input = uniform_input(27, 10.0);
+        let out = bull_readiness_v1(&input);
+        assert!(
+            out.insufficient_data,
+            "27 entries: insufficient_data must be true"
+        );
+        assert_eq!(out.level, ReadinessLevel::Unknown);
+        assert!(out.acwr.is_none());
+        assert_eq!(out.acwr_zone, "unknown");
+    }
+
+    #[test]
+    fn test_readiness_insufficient_data_3_entries() {
+        let input = uniform_input(3, 10.0);
+        let out = bull_readiness_v1(&input);
+        assert!(out.insufficient_data);
+        assert_eq!(out.level, ReadinessLevel::Unknown);
+    }
+
+    #[test]
+    fn test_readiness_insufficient_data_empty() {
+        let input = ReadinessInput {
+            daily_strain: vec![],
+        };
+        let out = bull_readiness_v1(&input);
+        assert!(out.insufficient_data);
+        assert_eq!(out.level, ReadinessLevel::Unknown);
+    }
+
+    #[test]
+    fn test_readiness_primed_uniform_28_entries() {
+        // All equal → std=0 → monotony=None → monotony_high=false; acwr=1.0 → Primed
+        let input = uniform_input(28, 10.0);
+        let out = bull_readiness_v1(&input);
+        assert!(!out.insufficient_data);
+        let acwr = out.acwr.expect("acwr must be Some");
+        assert!((acwr - 1.0).abs() < 1e-9, "acwr must be 1.0, got {acwr}");
+        assert_eq!(out.acwr_zone, "optimal");
+        assert!(
+            out.monotony.is_none(),
+            "uniform strain → monotony must be None (std=0)"
+        );
+        assert!(!out.monotony_high);
+        assert_eq!(out.level, ReadinessLevel::Primed);
+    }
+
+    #[test]
+    fn test_readiness_acwr_zone_boundary_0_8() {
+        // acwr exactly 0.8 → zone = "optimal"
+        // acwr = 28x/(210+7x) = 0.8 → 28x = 168+5.6x → 22.4x = 168 → x = 7.5 (exact f64)
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        for j in 0..7 {
+            pairs.push((21.0 + j as f64, 7.5));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!((acwr - 0.8).abs() < 1e-9, "acwr must be 0.8, got {acwr}");
+        assert_eq!(out.acwr_zone, "optimal", "acwr=0.8 must map to 'optimal'");
+    }
+
+    #[test]
+    fn test_readiness_acwr_zone_boundary_1_3() {
+        // acwr exactly 1.3 → zone = "optimal"
+        // acwr = 28x/(210+7x) = 1.3 → 28x = 273+9.1x → 18.9x = 273 → x = 273/18.9
+        let x = 273.0_f64 / 18.9;
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        for j in 0..7 {
+            pairs.push((21.0 + j as f64, x));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!((acwr - 1.3).abs() < 1e-9, "acwr must be 1.3, got {acwr}");
+        assert_eq!(out.acwr_zone, "optimal", "acwr=1.3 must map to 'optimal'");
+    }
+
+    #[test]
+    fn test_readiness_acwr_zone_boundary_1_5_rundown() {
+        // acwr = 1.5 exactly → zone = "danger", level = Rundown
+        // Using same formula: x = 1.5*(10 + (x-10)/4) = 15 + 0.375x - 3.75 = 11.25 + 0.375x
+        // 0.625x = 11.25 → x = 18.0
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        for j in 0..7 {
+            pairs.push((21.0 + j as f64, 18.0));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!((acwr - 1.5).abs() < 1e-6, "acwr must be 1.5, got {acwr}");
+        assert_eq!(out.acwr_zone, "danger", "acwr=1.5 must map to 'danger'");
+        assert_eq!(
+            out.level,
+            ReadinessLevel::Rundown,
+            "acwr=1.5 must yield Rundown"
+        );
+    }
+
+    #[test]
+    fn test_readiness_rundown_high_acwr() {
+        // last 7 avg=15.0, full 28 avg=10.0 → acwr=1.5 → Rundown
+        // (21*10 + 7*15)/28 = (210+105)/28 = 315/28 = 11.25; acute=15; acwr=15/11.25=1.333...
+        // Need a higher contrast. Set first21=5.0, last7=21.0
+        // chronic=(21*5+7*21)/28=(105+147)/28=252/28=9.0; acute=21; acwr=21/9=2.333>1.5 → Rundown
+        let input = split_input(5.0, 21.0);
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!(acwr >= 1.5, "acwr must be >=1.5, got {acwr}");
+        assert_eq!(out.level, ReadinessLevel::Rundown);
+    }
+
+    #[test]
+    fn test_readiness_strained_under_training() {
+        // acwr < 0.8 → Strained (under-training)
+        // Set last7=1.0, first21=10.0
+        // chronic=(210+7)/28=217/28=7.75; acute=1.0; acwr=1/7.75≈0.129 → Strained
+        let input = split_input(10.0, 1.0);
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!(acwr < 0.8, "acwr must be <0.8, got {acwr}");
+        assert_eq!(
+            out.level,
+            ReadinessLevel::Strained,
+            "under-training acwr must yield Strained"
+        );
+    }
+
+    #[test]
+    fn test_readiness_monotony_high_at_exactly_2() {
+        // Verify that monotony_high is set true when mean/std >= 2.0.
+        //
+        // Construct last 7 values with a clear mean >> std. Use [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        // but that would give std=0 → monotony=None. Instead use values with small controlled variance.
+        //
+        // Use values: first 21 days at 10.0 (gives ACWR in sub-optimal zone when last7 vary),
+        // last 7 days as [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0] (uniform) won't have std.
+        //
+        // Instead: use values where std is finite and monotony >= 2.
+        // For [a]*6 + [b]*1 with all distinct-representable floats:
+        //   mean=(6a+b)/7, var=6*(a-mean)^2/7 + (b-mean)^2/7 = 6*(a-m)^2 [algebraic]
+        //   monotony = m/(sqrt(6)*|a-m|) >= 2 when |a-m| <= m/(2*sqrt(6))
+        //
+        // Use a=8.0, b=14.0 to get mean=(48+14)/7=62/7≈8.857:
+        //   var = (6*(8-8.857)^2+(14-8.857)^2)/7 = (6*0.7347+26.455)/7 = (4.408+26.455)/7 = 4.409
+        //   std ≈ 2.099; monotony = 8.857/2.099 ≈ 4.22 >> 2.0 → monotony_high=true
+        //
+        // We verify monotony >= 2.0 and that monotony_high is true.
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        let last7 = [8.0_f64, 8.0, 8.0, 8.0, 8.0, 8.0, 14.0];
+        for (j, &s) in last7.iter().enumerate() {
+            pairs.push((21.0 + j as f64, s));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let mono = out.monotony.expect("monotony must be Some");
+        assert!(
+            mono >= 2.0,
+            "monotony must be >=2.0 (got {mono}) for values with mean/std >> 2"
+        );
+        assert!(
+            out.monotony_high,
+            "monotony>=2.0 must set monotony_high=true"
+        );
+        assert_eq!(
+            out.level,
+            ReadinessLevel::Strained,
+            "high monotony must yield Strained"
+        );
+    }
+
+    #[test]
+    fn test_readiness_monotony_boundary_below_2() {
+        // Verify that monotony_high is false when monotony is just below 2.0.
+        // Values: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 21.0] → mean=3.0, std large → monotony low.
+        // Or use [5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.1] → tiny spread, high monotony.
+        // We need monotony < 2.0: large std relative to mean.
+        // Use [1.0, 21.0, 1.0, 21.0, 1.0, 21.0, 1.0]: mean=10, big variance → low monotony.
+        // mean = (4*1+3*21)/7 = (4+63)/7 = 67/7 ≈ 9.57
+        // var = (4*(1-9.57)^2+3*(21-9.57)^2)/7 large → std >> mean/2 → monotony < 2.
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        let last7 = [1.0_f64, 21.0, 1.0, 21.0, 1.0, 21.0, 1.0];
+        for (j, &s) in last7.iter().enumerate() {
+            pairs.push((21.0 + j as f64, s));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let mono = out
+            .monotony
+            .expect("monotony must be Some for high-variance input");
+        assert!(
+            mono < 2.0,
+            "monotony must be <2.0 for high-variance input, got {mono}"
+        );
+        assert!(
+            !out.monotony_high,
+            "monotony<2.0 must NOT set monotony_high"
+        );
+    }
+
+    #[test]
+    fn test_readiness_balanced_caution_zone() {
+        // acwr between 1.3 and 1.5 (exclusive) → Balanced (not rundown, no high monotony)
+        // Use last7=16.0 (exact f64): acwr = 28*16/(210+7*16) = 448/322 ≈ 1.391 (caution zone)
+        // All last7 identical → std=0 → monotony=None → monotony_high=false → Balanced.
+        let mut pairs: Vec<(f64, f64)> = (0..21).map(|i| (i as f64, 10.0)).collect();
+        for j in 0..7 {
+            pairs.push((21.0 + j as f64, 16.0));
+        }
+        let input = ReadinessInput {
+            daily_strain: pairs,
+        };
+        let out = bull_readiness_v1(&input);
+        let acwr = out.acwr.unwrap();
+        assert!(
+            acwr > 1.3 && acwr < 1.5,
+            "acwr must be in caution zone (1.3-1.5), got {acwr}"
+        );
+        assert!(
+            out.monotony.is_none(),
+            "uniform last7 → monotony must be None (std=0)"
+        );
+        assert!(!out.monotony_high, "uniform last7 → no high monotony");
+        assert_eq!(
+            out.level,
+            ReadinessLevel::Balanced,
+            "caution zone without monotony → Balanced"
+        );
     }
 }

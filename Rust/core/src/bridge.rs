@@ -101,10 +101,10 @@ use crate::{
         BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION, BULL_STRESS_V0_ID,
         BULL_STRESS_V0_VERSION, HrvInput, RecoveryInput, SleepInput, SleepModelStatusInput,
         SleepNightHistoryInput, SleepStageSegment, SleepV1Input, StrainInput, StressInput,
-        algorithm_run_record, built_in_algorithm_definitions,
+        ReadinessInput, RecoveryV1Input, algorithm_run_record, built_in_algorithm_definitions,
         built_in_default_algorithm_preferences, default_algorithm_preferences_for_scope,
-        bull_hrv_v0, bull_recovery_v0, bull_sleep_v0, bull_sleep_v1, bull_strain_v0,
-        bull_stress_v0, sleep_history_night_is_usable,
+        bull_hrv_v0, bull_readiness_v1, bull_recovery_v0, bull_recovery_v1, bull_sleep_v0,
+        bull_sleep_v1, bull_strain_v0, bull_stress_v0, sleep_history_night_is_usable,
     },
     openwhoop_reference::{
         OPENWHOOP_REFERENCE_ATTRIBUTION, OPENWHOOP_REFERENCE_COMMIT,
@@ -238,7 +238,9 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "metrics.activity_unavailable_daily_status",
     "metrics.built_in_definitions",
     "metrics.bull_hrv_v0",
+    "metrics.bull_readiness_v1",
     "metrics.bull_recovery_v0",
+    "metrics.bull_recovery_v1",
     "metrics.bull_sleep_v0",
     "metrics.bull_sleep_v1",
     "metrics.bull_strain_v0",
@@ -2156,6 +2158,18 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(|input| metric_result_to_value(bull_recovery_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.bull_recovery_v1" => request_args::<RecoveryV1BridgeArgs>(&request)
+            .and_then(bull_recovery_v1_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.bull_readiness_v1" => request_args::<ReadinessInput>(&request)
+            .and_then(|input| {
+                serde_json::to_value(bull_readiness_v1(&input)).map_err(|e| {
+                    BullError::message(format!("cannot serialize readiness_v1 output: {e}"))
+                })
+            })
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.bull_stress_v0" => request_args::<StressInput>(&request)
             .and_then(|input| metric_result_to_value(bull_stress_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3020,6 +3034,39 @@ fn ewma_state_to_json(
         "trust": trust.as_str(),
         "is_ready": state.is_ready(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Recovery V1 bridge (metrics.bull_recovery_v1)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct RecoveryV1BridgeArgs {
+    database_path: String,
+    device_id: String,
+    date_key: String,
+    hrv_rmssd_ms: f64,
+    resting_hr_bpm: f64,
+    #[serde(default)]
+    resp_rate_rpm: Option<f64>,
+    #[serde(default)]
+    sleep_performance_fraction: Option<f64>,
+}
+
+fn bull_recovery_v1_bridge(args: RecoveryV1BridgeArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let baseline = EwmaBaseline::fold_history(&store)?;
+    let input = RecoveryV1Input {
+        device_id: args.device_id,
+        date_key: args.date_key,
+        hrv_rmssd_ms: args.hrv_rmssd_ms,
+        resting_hr_bpm: args.resting_hr_bpm,
+        resp_rate_rpm: args.resp_rate_rpm,
+        sleep_performance_fraction: args.sleep_performance_fraction,
+    };
+    let output = bull_recovery_v1(&input, &baseline);
+    serde_json::to_value(output)
+        .map_err(|e| BullError::message(format!("cannot serialize recovery_v1 output: {e}")))
 }
 
 fn ewma_baseline_fold_history_bridge(
@@ -8454,6 +8501,44 @@ mod tests {
             "epochs must be empty for an empty gravity table"
         );
         assert!(result["stage_minutes"].is_object());
+    }
+
+    #[test]
+    fn readiness_v1_bridge_empty_input_returns_unknown() {
+        let request = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "r1".to_string(),
+            method: "metrics.bull_readiness_v1".to_string(),
+            args: json!({ "daily_strain": [] }),
+        };
+        let response = handle_bridge_request(request);
+        assert!(response.ok, "empty input must succeed: {:?}", response.error);
+        let result = response.result.expect("result");
+        assert_eq!(result["insufficient_data"], serde_json::Value::Bool(true));
+        assert_eq!(result["level"], "unknown");
+    }
+
+    #[test]
+    fn recovery_v1_bridge_cold_start_no_rows() {
+        let (_dir, db_path) = make_temp_db();
+        let request = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "rec1".to_string(),
+            method: "metrics.bull_recovery_v1".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "date_key": "2024-01-01",
+                "hrv_rmssd_ms": 60.0,
+                "resting_hr_bpm": 55.0
+            }),
+        };
+        let response = handle_bridge_request(request);
+        assert!(response.ok, "cold start must succeed: {:?}", response.error);
+        let result = response.result.expect("result");
+        // No baseline rows → calibrating, score is null.
+        assert_eq!(result["trust_level"], "calibrating");
+        assert!(result["score_0_to_100"].is_null());
     }
 
     #[test]
