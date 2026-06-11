@@ -11,7 +11,7 @@ use crate::{
     validation_labels::OFFICIAL_WHOOP_LABEL_POLICY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 14;
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
 
 const ALLOWED_METRIC_SOURCE_KINDS: [&str; 4] = [
@@ -1443,6 +1443,94 @@ impl BullStore {
                 PRIMARY KEY (session_id, sequence)
             );
 
+            -- Schema v15: motion (gravity/IMU) and V24 biometric sample tables,
+            -- plus detected exercise sessions. All carry their own per-device
+            -- time index. spo2/skin_temp/resp/sig_quality are raw uncalibrated
+            -- sensor streams decoded from the connected device's own packets.
+            CREATE TABLE IF NOT EXISTS gravity (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                z REAL NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gravity_device_ts ON gravity(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS gravity2_samples (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                z REAL NOT NULL,
+                synced INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gravity2_samples_device_ts ON gravity2_samples(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS spo2_samples (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                red INTEGER NOT NULL,
+                ir INTEGER NOT NULL,
+                contact INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_spo2_samples_device_ts ON spo2_samples(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS skin_temp_samples (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                raw INTEGER NOT NULL,
+                contact INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_skin_temp_samples_device_ts ON skin_temp_samples(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS resp_samples (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                raw INTEGER NOT NULL,
+                contact INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_resp_samples_device_ts ON resp_samples(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS sig_quality_samples (
+                device_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                quality INTEGER NOT NULL,
+                contact INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sig_quality_samples_device_ts ON sig_quality_samples(device_id, ts);
+
+            CREATE TABLE IF NOT EXISTS exercise_sessions (
+                session_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+                device_id TEXT NOT NULL,
+                start_ts REAL NOT NULL,
+                end_ts REAL NOT NULL,
+                duration_s REAL NOT NULL,
+                avg_hr REAL NOT NULL,
+                peak_hr REAL NOT NULL,
+                strain REAL NOT NULL DEFAULT 0.0,
+                calories_kcal REAL NOT NULL DEFAULT 0.0,
+                zone_time_pct_json TEXT NOT NULL DEFAULT '{}',
+                hrmax_source TEXT NOT NULL DEFAULT 'fallback',
+                rhr_source TEXT NOT NULL DEFAULT 'daily_p10',
+                avg_hrr_pct REAL NOT NULL DEFAULT 0.0,
+                synced INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(device_id, start_ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_exercise_sessions_device_start ON exercise_sessions(device_id, start_ts);
+
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (1);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (2);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (3);
@@ -1457,7 +1545,8 @@ impl BullStore {
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (12);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (13);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (14);
-            PRAGMA user_version = 14;
+            INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (15);
+            PRAGMA user_version = 15;
             "#,
         )?;
         self.ensure_raw_evidence_columns()?;
