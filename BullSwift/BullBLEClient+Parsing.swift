@@ -2,6 +2,40 @@ import CoreBluetooth
 import Foundation
 import OSLog
 
+struct BatteryPackInfo {
+  enum PackType: Equatable {
+    case puffin
+    case penguin
+    case unknown
+
+    init(byte: UInt8) {
+      switch byte {
+      case 12:
+        self = .puffin
+      case 14:
+        self = .penguin
+      default:
+        self = .unknown
+      }
+    }
+
+    var displayName: String {
+      switch self {
+      case .puffin:
+        return "Puffin"
+      case .penguin:
+        return "Penguin"
+      case .unknown:
+        return ""
+      }
+    }
+  }
+
+  let percent: Int?
+  let type: PackType
+  let colorway: String?
+  let deviceName: String?
+}
 
 extension BullBLEClient {
   func handleStandardHeartRate(
@@ -117,6 +151,86 @@ extension BullBLEClient {
       persistInferredBatteryChargingUntil(nil)
       batteryPowerStatus = status.summary
     }
+  }
+
+  static func batteryPackColorwayName(_ raw: UInt8) -> String? {
+    switch raw {
+    case 0:
+      return nil
+    case 1:
+      return "Full Black"
+    default:
+      return nil
+    }
+  }
+
+  static func batteryPackDeviceName(_ bytes: [UInt8]) -> String? {
+    let trimmed = bytes.prefix { $0 != 0 }
+    guard let string = String(bytes: trimmed, encoding: .utf8)?
+      .trimmingCharacters(in: .whitespacesAndNewlines),
+      !string.isEmpty
+    else {
+      return nil
+    }
+    return string
+  }
+
+  // Parses the GET_BATTERY_PACK_INFO (command 151) response body. The response
+  // body is the command-response payload with the 5-byte header removed.
+  // Layout (WHOOP APK parser th0.l): level@0, flag@1, mac@2..7, name@8..23,
+  // pack type@26, colorway@27.
+  static func parseBatteryPackCommandResponseBody(_ body: [UInt8]) -> BatteryPackInfo? {
+    guard body.count >= 28 else {
+      return nil
+    }
+    let percent = min(max(Int(body[0]), 0), 100)
+    let type = BatteryPackInfo.PackType(byte: body[26])
+    let colorway = batteryPackColorwayName(body[27])
+    let name = batteryPackDeviceName(Array(body[8..<24]))
+    return BatteryPackInfo(percent: percent, type: type, colorway: colorway, deviceName: name)
+  }
+
+  // Parses a BATTERY_PACK_INFO strap event body (event id 109). The event body
+  // is the event payload with the 12-byte event header removed.
+  // Layout (WHOOP APK parser xh0.d): revision@0, mac@1..6, name@7..22,
+  // level (uint16 LE)@23..24 scaled by /10, colorway@25, pack type@26.
+  static func parseBatteryPackEventBody(_ body: [UInt8]) -> BatteryPackInfo? {
+    guard body.count >= 27 else {
+      return nil
+    }
+    let raw = Int(body[23]) | (Int(body[24]) << 8)
+    let scaled = raw > 0 ? max(raw / 10, 1) : 0
+    let percent = min(max(scaled, 0), 100)
+    let type = BatteryPackInfo.PackType(byte: body[26])
+    let colorway = batteryPackColorwayName(body[25])
+    let name = batteryPackDeviceName(Array(body[7..<23]))
+    return BatteryPackInfo(percent: percent, type: type, colorway: colorway, deviceName: name)
+  }
+
+  func applyBatteryPackInfo(_ info: BatteryPackInfo, source: String, capturedAt: Date) {
+    batteryPackPercent = info.percent
+    batteryPackType = info.type
+    batteryPackColorway = info.colorway
+    batteryPackPresent = true
+    batteryPackUpdatedAt = capturedAt
+    lastSyncAt = capturedAt
+    persistBatteryPackSample(info, capturedAt: capturedAt)
+    record(
+      source: source,
+      title: "battery_pack.info",
+      body: "percent=\(info.percent.map(String.init) ?? "unknown") type=\(info.type.displayName.isEmpty ? "unknown" : info.type.displayName) colorway=\(info.colorway ?? "none")"
+    )
+  }
+
+  func markBatteryPackRemoved(source: String) {
+    guard batteryPackPresent != false || batteryPackPercent != nil else {
+      return
+    }
+    batteryPackPresent = false
+    batteryPackPercent = nil
+    batteryPackUpdatedAt = Date()
+    persistBatteryPackRemoved()
+    record(source: source, title: "battery_pack.removed")
   }
 
   @discardableResult

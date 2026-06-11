@@ -477,4 +477,24 @@ extension BullBLEClient {
     activePeripheral.discoverServices([batteryServiceID])
   }
 
+  // Requests the WHOOP battery-pack info (command 151). The strap answers with a
+  // command response carrying pack charge/type, mirroring the official app which
+  // polls this after a successful strap connection. Only valid while the pack is
+  // attached; when detached the strap reports a non-success result, handled by
+  // the response router as "not attached".
+  @discardableResult
+  func requestBatteryPackInfo(reason: String) -> Bool {
+    guard connectionState == "ready", supportsV5SensorCommands else {
+      record(
+        level: .debug,
+        source: "ble.battery_pack",
+        title: "battery_pack.request.skipped",
+        body: "state=\(connectionState) v5=\(supportsV5SensorCommands) reason=\(reason)"
+      )
+      return false
+    }
+    record(source: "ble.battery_pack", title: "battery_pack.request", body: reason)
+    return sendDebugResearchCommand(id: "get_battery_pack_info", source: "battery_pack.\(reason)")
+  }
+
 }

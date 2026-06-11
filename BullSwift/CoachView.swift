@@ -8,10 +8,15 @@ struct CoachView: View {
   @State private var promptDraft = ""
   @State private var appliedCoachPromptRequestID = 0
   @State private var showingChat = false
+  // Cache the derived overview so the four snapshot(for:) builds + summary scans
+  // only run when an input actually changes — not on every BullAppModel tick
+  // (which previously rebuilt them ~10x/s even while Coach was off-screen).
+  @State private var cachedCoachSnapshot: CoachOverviewSnapshot?
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
     CoachOverviewScreen(
-      snapshot: coachSnapshot,
+      snapshot: cachedCoachSnapshot ?? .placeholder,
       chatIsSignedIn: chat.isSignedIn,
       chatStatus: chatStatus,
       openChat: { openChat(prompt: nil) },
@@ -57,7 +62,13 @@ struct CoachView: View {
       healthStore.refreshPacketInputsIfNeeded()
       chat.refreshAuth()
       applyRequestedCoachPromptIfNeeded()
+      refreshCoachSnapshot()
     }
+    .onChange(of: healthStore.packetInputStatus) { _, _ in refreshCoachSnapshot() }
+    .onChange(of: healthStore.packetScoreStatus) { _, _ in refreshCoachSnapshot() }
+    .onChange(of: healthStore.catalogStatus) { _, _ in refreshCoachSnapshot() }
+    .onChange(of: healthStore.bandSleepImportStatus) { _, _ in refreshCoachSnapshot() }
+    .onChange(of: model.ble.liveHeartRateBPM) { _, _ in refreshCoachSnapshot() }
     .onChange(of: router.coachSetupRequestID) { _, requestID in
       guard requestID > 0, !chat.isSignedIn else {
         return
@@ -101,6 +112,10 @@ struct CoachView: View {
     CoachOverviewSnapshot.make(healthStore: healthStore, appModel: model)
   }
 
+  private func refreshCoachSnapshot() {
+    cachedCoachSnapshot = coachSnapshot
+  }
+
   private func openChat(prompt: String?) {
     if let prompt {
       let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -130,8 +145,19 @@ private struct CoachOverviewSnapshot {
   let highlights: [CoachMetricHighlight]
   let gaps: [CoachDataGap]
 
+  /// Cheap empty state shown before the first real build (e.g. while the tab is
+  /// off-screen and has never been opened). Avoids paying for `make` on renders
+  /// that will never be seen.
+  static let placeholder = CoachOverviewSnapshot(
+    recommendation: CoachRecommendation(title: "Review today", message: "", evidence: [], prompt: ""),
+    highlights: [],
+    gaps: []
+  )
+
   @MainActor
   static func make(healthStore: HealthDataStore, appModel: BullAppModel) -> CoachOverviewSnapshot {
+    let _signpost = bullSignpostBegin(BullSignpost.ui, "CoachOverviewSnapshot.make")
+    defer { bullSignpostEnd(_signpost) }
     let homeTip = CoachTipFactory.homeTip(healthStore: healthStore, appModel: appModel)
     let readiness = healthStore.metricInputReadinessSummary()
     let inputNextAction = healthStore.metricInputReadinessNextActionSummary()

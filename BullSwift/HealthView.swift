@@ -10,13 +10,9 @@ struct HealthView: View {
   @State private var cachedVitalSnapshots: [HealthMetricSnapshot] = []
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 22) {
-        HealthDashboardStatusHeader(
-          catalogStatus: store.catalogStatus,
-          usesSampleData: store.usesSampleData
-        )
-
         HealthActivityOverviewSection(
           steps: store.whoopStepsDisplayText(),
           activeEnergy: store.whoopActiveCaloriesDisplayText(),
@@ -34,11 +30,6 @@ struct HealthView: View {
         HealthRouteShortcutSection(
           title: "Explore Health",
           snapshots: snapshots(for: [.sleep, .recovery, .strain, .stress, .cardioLoad, .energyBank])
-        )
-
-        HealthRouteShortcutSection(
-          title: "Data & Algorithms",
-          snapshots: snapshots(for: [.packetInputs, .algorithms, .calibration])
         )
       }
       .padding(.horizontal, 16)

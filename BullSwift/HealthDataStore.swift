@@ -40,6 +40,8 @@ final class HealthDataStore: ObservableObject {
   private var displaySafeMetricsByFamily: [String: [[String: Any]]] = [:]
 
   private func rebuildDisplaySafeMetrics() {
+    let _signpost = bullSignpostBegin(BullSignpost.ui, "rebuildDisplaySafeMetrics")
+    defer { bullSignpostEnd(_signpost) }
     var result: [String: [[String: Any]]] = [:]
     for family in Self.displaySafeFamilies {
       result[family] = Self.array(packetInputReports[family]?["metrics"])
@@ -260,7 +262,9 @@ final class HealthDataStore: ObservableObject {
         self.packetInputIsRunning = false
         switch result {
         case .success(let reports):
+          let _signpost = bullSignpostBegin(BullSignpost.bridge, "packetInputReports.assign")
           self.packetInputReports = reports
+          bullSignpostEnd(_signpost)
           self.packetInputStatus = "Bridge packet-derived inputs extracted"
         case .failure(let error):
           self.packetInputStatus = "Bridge input extraction blocked: \(HealthDataStore.shortError(error))"

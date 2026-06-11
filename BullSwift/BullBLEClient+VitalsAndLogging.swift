@@ -164,23 +164,25 @@ extension BullBLEClient {
   }
 
   func applyBLEUIStateSnapshot(_ snapshot: BLEUIStateSnapshot) {
+    // Equality guards: only assign when the value changed so a stable HR/HRV
+    // stream doesn't fire objectWillChange (re-rendering ble observers) each tick.
     if let liveHeartRate = snapshot.liveHeartRate {
-      liveHeartRateBPM = liveHeartRate.bpm
-      liveHeartRateSource = liveHeartRate.source
-      liveHeartRateUpdatedAt = liveHeartRate.updatedAt
+      if liveHeartRateBPM != liveHeartRate.bpm { liveHeartRateBPM = liveHeartRate.bpm }
+      if liveHeartRateSource != liveHeartRate.source { liveHeartRateSource = liveHeartRate.source }
+      if liveHeartRateUpdatedAt != liveHeartRate.updatedAt { liveHeartRateUpdatedAt = liveHeartRate.updatedAt }
     }
     if let restingHeartRate = snapshot.restingHeartRate {
-      restingHeartRateEstimateBPM = restingHeartRate.bpm
-      restingHeartRateEstimateSampleCount = restingHeartRate.sampleCount
-      restingHeartRateEstimateSource = restingHeartRate.source
-      restingHeartRateEstimateUpdatedAt = restingHeartRate.updatedAt
+      if restingHeartRateEstimateBPM != restingHeartRate.bpm { restingHeartRateEstimateBPM = restingHeartRate.bpm }
+      if restingHeartRateEstimateSampleCount != restingHeartRate.sampleCount { restingHeartRateEstimateSampleCount = restingHeartRate.sampleCount }
+      if restingHeartRateEstimateSource != restingHeartRate.source { restingHeartRateEstimateSource = restingHeartRate.source }
+      if restingHeartRateEstimateUpdatedAt != restingHeartRate.updatedAt { restingHeartRateEstimateUpdatedAt = restingHeartRate.updatedAt }
     }
     if let hrv = snapshot.hrv {
-      liveHRVRMSSD = hrv.rmssd
-      liveHRVRRIntervalCount = hrv.rrIntervalCount
-      liveHRVRMSSDSampleCount = hrv.sampleCount
-      liveHRVSource = hrv.source
-      liveHRVUpdatedAt = hrv.updatedAt
+      if liveHRVRMSSD != hrv.rmssd { liveHRVRMSSD = hrv.rmssd }
+      if liveHRVRRIntervalCount != hrv.rrIntervalCount { liveHRVRRIntervalCount = hrv.rrIntervalCount }
+      if liveHRVRMSSDSampleCount != hrv.sampleCount { liveHRVRMSSDSampleCount = hrv.sampleCount }
+      if liveHRVSource != hrv.source { liveHRVSource = hrv.source }
+      if liveHRVUpdatedAt != hrv.updatedAt { liveHRVUpdatedAt = hrv.updatedAt }
     }
     if let snapshotLastSyncAt = snapshot.lastSyncAt,
        lastSyncAt.map({ $0 < snapshotLastSyncAt }) ?? true {

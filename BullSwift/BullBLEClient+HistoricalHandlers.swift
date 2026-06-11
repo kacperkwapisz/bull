@@ -75,6 +75,46 @@ extension BullBLEClient {
     }
   }
 
+  func handleBatteryPackValue(_ value: Data, characteristic: CBCharacteristic) {
+    guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
+      return
+    }
+    for frame in Self.v5Frames(in: value) {
+      guard let payload = Self.v5Payload(in: frame),
+            payload.count >= 4,
+            let packetType = payload.first,
+            packetType == V5PacketType.event else {
+        continue
+      }
+      handleBatteryPackEvent(payload)
+    }
+  }
+
+  func handleBatteryPackEvent(_ payload: [UInt8]) {
+    guard payload.count >= 12 else {
+      return
+    }
+    let eventType = UInt16(payload[2]) | UInt16(payload[3]) << 8
+    let eventBody = Array(payload.dropFirst(12))
+    switch eventType {
+    case 109:
+      // BATTERY_PACK_INFO push.
+      if let info = Self.parseBatteryPackEventBody(eventBody) {
+        applyBatteryPackInfo(info, source: "ble.battery_pack.event", capturedAt: Date())
+      }
+    case 21:
+      // BATTERY_PACK_CONNECTED.
+      batteryPackPresent = true
+      record(source: "ble.battery_pack", title: "battery_pack.connected")
+      requestBatteryPackInfo(reason: "connected_event")
+    case 22:
+      // BATTERY_PACK_REMOVED.
+      markBatteryPackRemoved(source: "ble.battery_pack.event")
+    default:
+      break
+    }
+  }
+
   func handleSensorStreamValue(_ value: Data, characteristic: CBCharacteristic) {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return

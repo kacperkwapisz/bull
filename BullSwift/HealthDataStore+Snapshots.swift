@@ -135,6 +135,8 @@ extension HealthDataStore {
     liveHeartRateUpdatedAt: Date?,
     stableDailyMetrics: Bool = false
   ) -> [HealthMetricSnapshot] {
+    let _signpost = bullSignpostBegin(BullSignpost.ui, "landingSnapshots")
+    defer { bullSignpostEnd(_signpost) }
     var snapshots = Self.baseLandingSnapshots
     if let index = snapshots.firstIndex(where: { $0.route == .sleep }) {
       snapshots[index] = sleepSnapshot(base: snapshots[index])
@@ -182,6 +184,8 @@ extension HealthDataStore {
     restingHeartRateEstimateSource: String = "ble.hr.standard.low_quartile",
     allowLiveFallbacks: Bool = true
   ) -> [HealthMetricSnapshot] {
+    let _signpost = bullSignpostBegin(BullSignpost.ui, "healthMonitorSnapshots")
+    defer { bullSignpostEnd(_signpost) }
     if previewMissingData {
       return Self.baseHealthMonitorSnapshots.map { snapshot in
         HealthMetricSnapshot(

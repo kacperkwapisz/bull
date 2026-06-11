@@ -19,6 +19,7 @@ MVP rule: More owns operational surfaces: device, connection lab, capture/import
 - [ ] Show status and advanced panels.
 - [ ] Keep WHOOP image asset in Swift asset catalog.
 - [ ] Show live device name, connection, battery, firmware, model, last sync.
+- [x] Show WHOOP battery-pack charge, type (Puffin/Penguin), and presence. Source: WHOOP command 151 `GET_BATTERY_PACK_INFO` response + strap events 109/21/22 parsed in `BullBLEClient` (`batteryPackPercent` / `batteryPackPresent` / `batteryPackType`). Pack charging animation is a native frame sequence built from WHOOP's `goose_puffin`/`goose_penguin` dotLottie frames (`PackPuffinFrame*` / `PackPenguinFrame*` imagesets). Validate raw `get_battery_pack_info` response bytes on-device via the Debug command surface.
 - [ ] Show live HR, Rust status, last parsed frame summary.
 - [ ] Show actions: Bluetooth, scan, connect, reconnect, send hello, forget.
 - [ ] Show discovered devices list.
