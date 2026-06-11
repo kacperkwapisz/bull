@@ -521,6 +521,23 @@ pub struct DailyRecoveryMetricRow {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GravityRow {
+    pub device_id: String,
+    pub ts: f64,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RespSampleRow {
+    pub device_id: String,
+    pub ts: f64,
+    pub raw: i64,
+    pub contact: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct MetricProvenanceInput<'a> {
     pub provenance_id: &'a str,
@@ -3776,6 +3793,85 @@ impl BullStore {
             rusqlite::params![daily_metric_id, date_key, now_ms, hrv_rmssd, rhr_bpm],
         )?;
         Ok(true)
+    }
+
+    /// Insert IMU gravity rows (ts in seconds, x/y/z in g) for a device.
+    /// Duplicate (device_id, ts) rows are ignored. Returns the number inserted.
+    pub fn insert_gravity_rows(
+        &self,
+        device_id: &str,
+        rows: &[(f64, f64, f64, f64)],
+    ) -> BullResult<usize> {
+        validate_required("device_id", device_id)?;
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let mut inserted = 0usize;
+        for &(ts, x, y, z) in rows {
+            let changed = self.conn.execute(
+                "INSERT OR IGNORE INTO gravity (device_id, ts, x, y, z) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![device_id, ts, x, y, z],
+            )?;
+            inserted += changed;
+        }
+        Ok(inserted)
+    }
+
+    /// Return gravity rows for a device in the half-open window [ts_start, ts_end),
+    /// ordered by ts ascending.
+    pub fn gravity_rows_between(
+        &self,
+        device_id: &str,
+        ts_start: f64,
+        ts_end: f64,
+    ) -> BullResult<Vec<GravityRow>> {
+        validate_required("device_id", device_id)?;
+        if ts_end < ts_start {
+            return Err(BullError::message(
+                "ts_end must be greater than or equal to ts_start",
+            ));
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT device_id, ts, x, y, z FROM gravity WHERE device_id = ?1 AND ts >= ?2 AND ts < ?3 ORDER BY ts",
+        )?;
+        let rows = statement.query_map(params![device_id, ts_start, ts_end], |row| {
+            Ok(GravityRow {
+                device_id: row.get(0)?,
+                ts: row.get(1)?,
+                x: row.get(2)?,
+                y: row.get(3)?,
+                z: row.get(4)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Return respiration sensor sample rows for a device in [ts_start, ts_end),
+    /// ordered by ts ascending. Raw uncalibrated V24 stream.
+    pub fn resp_samples_between(
+        &self,
+        device_id: &str,
+        ts_start: f64,
+        ts_end: f64,
+    ) -> BullResult<Vec<RespSampleRow>> {
+        validate_required("device_id", device_id)?;
+        if ts_end < ts_start {
+            return Err(BullError::message(
+                "ts_end must be greater than or equal to ts_start",
+            ));
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT device_id, ts, raw, contact FROM resp_samples WHERE device_id = ?1 AND ts >= ?2 AND ts < ?3 ORDER BY ts",
+        )?;
+        let rows = stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+            Ok(RespSampleRow {
+                device_id: row.get(0)?,
+                ts: row.get(1)?,
+                raw: row.get(2)?,
+                contact: row.get(3)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
     }
 
     pub fn insert_metric_provenance(&self, input: MetricProvenanceInput<'_>) -> BullResult<bool> {

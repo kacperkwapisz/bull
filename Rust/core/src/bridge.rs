@@ -24,6 +24,9 @@ use crate::{
         compare_stress_bull_to_reference,
     },
     baselines::{EwmaBaseline, EwmaTrustLevel},
+    sleep_staging::{
+        EpochHrFeature, SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
+    },
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, CalibrationRecord,
         CalibrationReport, apply_calibration, calibration_run_record, evaluate_linear_calibration,
@@ -151,6 +154,7 @@ use crate::{
         CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
         CommandValidationRecord, DecodedFrameRow, ExternalSleepSessionInput,
         ExternalSleepSessionRow, ExternalSleepStageInput, ExternalSleepStageRow, BullStore,
+        GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
         OvernightSyncSessionInput, SleepCorrectionLabelInput,
     },
@@ -263,6 +267,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "metrics.resting_hr_daily_rollup",
     "metrics.resting_hr_features",
     "metrics.sleep_score_from_features",
+    "metrics.sleep_staging",
     "metrics.step_capture_validation",
     "metrics.step_counter_daily_rollup",
     "metrics.step_counter_hourly_rollup",
@@ -294,6 +299,8 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "storage.check",
     "store.ewma_baseline_fold_history",
     "store.ewma_baseline_update",
+    "store.gravity_rows_between",
+    "store.insert_gravity_rows",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
 ];
@@ -2299,6 +2306,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(sleep_feature_score_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.sleep_staging" => request_args::<SleepStagingBridgeArgs>(&request)
+            .and_then(sleep_staging_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.recovery_score_from_features" => {
             request_args::<RecoveryFeatureScoreArgs>(&request)
                 .and_then(recovery_feature_score_bridge)
@@ -2631,6 +2642,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.ewma_baseline_update" => request_args::<EwmaBaselineUpdateArgs>(&request)
             .and_then(ewma_baseline_update_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.insert_gravity_rows" => request_args::<InsertGravityRowsArgs>(&request)
+            .and_then(insert_gravity_rows_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.gravity_rows_between" => request_args::<GravityRowsBetweenArgs>(&request)
+            .and_then(gravity_rows_between_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "settings.apply_default_algorithm_preferences" => {
@@ -3008,6 +3027,116 @@ fn ewma_baseline_update_bridge(args: EwmaBaselineUpdateArgs) -> BullResult<serde
     let store = open_bridge_store(&args.database_path)?;
     let wrote = store.ewma_baseline_update(&args.date_key, args.hrv_rmssd, args.rhr_bpm)?;
     Ok(json!({ "skipped": !wrote }))
+}
+
+// ---------------------------------------------------------------------------
+// Sleep staging bridge (metrics.sleep_staging)
+// ---------------------------------------------------------------------------
+
+/// HR feature argument as received from Swift (mirrors EpochHrFeature).
+#[derive(Debug, Deserialize)]
+struct HrFeatureArg {
+    ts: f64,
+    hr_bpm: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SleepStagingBridgeArgs {
+    database_path: String,
+    device_id: String,
+    sleep_start_ts: f64,
+    sleep_end_ts: f64,
+    /// Optional per-epoch HR features for the 4-class classifier.
+    #[serde(default)]
+    hr_features: Vec<HrFeatureArg>,
+    /// Whether resp data is available for this session. When false, REM
+    /// classification is suppressed (graceful degradation). Defaults to true.
+    #[serde(default = "default_resp_available")]
+    resp_available: bool,
+}
+
+fn default_resp_available() -> bool {
+    true
+}
+
+fn sleep_staging_bridge(args: SleepStagingBridgeArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let gravity_rows = store.gravity_rows_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)?;
+    let tuples: Vec<(f64, f64, f64, f64)> =
+        gravity_rows.iter().map(|r| (r.ts, r.x, r.y, r.z)).collect();
+    let input = SleepStagingInput {
+        device_id: args.device_id.clone(),
+        sleep_start_ts: args.sleep_start_ts,
+        sleep_end_ts: args.sleep_end_ts,
+    };
+    let hr_feats: Vec<EpochHrFeature> = args
+        .hr_features
+        .iter()
+        .map(|f| EpochHrFeature {
+            ts: f.ts,
+            hr_bpm: f.hr_bpm,
+        })
+        .collect();
+    // If the caller did not explicitly pass resp_available=false, confirm there
+    // are resp rows in the window before allowing REM classification.
+    let resp_available = if args.resp_available {
+        store
+            .resp_samples_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let output: SleepStagingOutput =
+        stage_sleep_four_class(&input, &tuples, &hr_feats, resp_available);
+    serde_json::to_value(output)
+        .map_err(|e| BullError::message(format!("cannot serialize sleep_staging output: {e}")))
+}
+
+// ---------------------------------------------------------------------------
+// Gravity (IMU) bridge (store.insert_gravity_rows / store.gravity_rows_between)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+struct GravityRowArg {
+    ts: f64,
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct InsertGravityRowsArgs {
+    database_path: String,
+    device_id: String,
+    rows: Vec<GravityRowArg>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GravityRowsBetweenArgs {
+    database_path: String,
+    device_id: String,
+    ts_start: f64,
+    ts_end: f64,
+}
+
+fn insert_gravity_rows_bridge(args: InsertGravityRowsArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let tuples: Vec<(f64, f64, f64, f64)> =
+        args.rows.iter().map(|r| (r.ts, r.x, r.y, r.z)).collect();
+    let inserted = store.insert_gravity_rows(&args.device_id, &tuples)?;
+    Ok(json!({ "inserted": inserted }))
+}
+
+fn gravity_rows_between_bridge(args: GravityRowsBetweenArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let rows: Vec<GravityRow> =
+        store.gravity_rows_between(&args.device_id, args.ts_start, args.ts_end)?;
+    let json_rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| json!({"ts": r.ts, "x": r.x, "y": r.y, "z": r.z}))
+        .collect();
+    Ok(json!({ "rows": json_rows }))
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {
@@ -8180,6 +8309,78 @@ mod tests {
         let fold_result = fold_resp.result.expect("fold_history result");
         assert_eq!(fold_result["hrv"]["night_count"], 1);
         assert!((fold_result["hrv"]["mean"].as_f64().unwrap() - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sleep_staging_bridge_empty_gravity_returns_no_imu_data() {
+        let (_dir, db_path) = make_temp_db();
+        let request = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-sleep-staging-empty".to_string(),
+            method: "metrics.sleep_staging".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-001",
+                "sleep_start_ts": 1_700_000_000.0_f64,
+                "sleep_end_ts":   1_700_028_800.0_f64
+            }),
+        };
+        let response = handle_bridge_request(request);
+        assert!(
+            response.ok,
+            "empty gravity table must return ok=true: {:?}",
+            response.error
+        );
+        let result = response.result.expect("result must be present");
+        assert_eq!(result["staging_method"].as_str(), Some("no_imu_data"));
+        assert!(
+            result["epochs"]
+                .as_array()
+                .map(|a| a.is_empty())
+                .unwrap_or(false),
+            "epochs must be empty for an empty gravity table"
+        );
+        assert!(result["stage_minutes"].is_object());
+    }
+
+    #[test]
+    fn gravity_rows_insert_and_query_round_trip() {
+        let (_dir, db_path) = make_temp_db();
+        let insert = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-gravity-insert".to_string(),
+            method: "store.insert_gravity_rows".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "rows": [
+                    {"ts": 100.0, "x": 0.1, "y": 0.2, "z": 0.9},
+                    {"ts": 101.0, "x": 0.0, "y": 0.1, "z": 1.0}
+                ]
+            }),
+        };
+        let insert_resp = handle_bridge_request(insert);
+        assert!(insert_resp.ok, "insert must succeed: {:?}", insert_resp.error);
+        assert_eq!(insert_resp.result.expect("insert result")["inserted"], 2);
+
+        let query = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-gravity-query".to_string(),
+            method: "store.gravity_rows_between".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "ts_start": 100.0,
+                "ts_end": 200.0
+            }),
+        };
+        let query_resp = handle_bridge_request(query);
+        assert!(query_resp.ok, "query must succeed: {:?}", query_resp.error);
+        let rows = query_resp.result.expect("query result");
+        let arr = rows["rows"].as_array().expect("rows array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["ts"], 100.0);
+        assert!((arr[1]["z"].as_f64().unwrap() - 1.0).abs() < 1e-9);
     }
 
     #[test]
