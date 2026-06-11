@@ -8,7 +8,7 @@ If you don't know what Xcode is, or how to build the Rust core, this build is no
 
 This prototype targets WHOOP 5.0 only. Other WHOOP generations are not supported in this build.
 
-The app and backend have had very little attention put into performance. The app will lag, very considerably. Performance PRs are welcome, or you can wait until I address it in due course.
+Performance work has started landing (smoother scrolling on Home and Health, lighter main-thread load, background FFI calls, and faster live-capture writes), but this is still an early alpha and noticeable lag remains in places. Further performance PRs are welcome, or you can wait until I address more in due course.
 
 Bull is a local-first WHOOP 5.0 data and health metrics project. The iOS app connects to WHOOP 5.0 bands, routes packet data through the Bull Rust core, and turns that data into daily health, recovery, sleep, strain, stress, cardio, energy, coach, and debug views.
 
