@@ -14,8 +14,9 @@ struct HomeDashboardView: View {
   @State private var cachedHealthMonitorSnapshots: [HealthMetricSnapshot] = []
 
   var body: some View {
-    // Compute once per render — avoids calling healthStore.landingSnapshots(…) 9× per body pass.
-    let cached = landingSnapshots
+    // Read the snapshots cached by refreshSnapshots() once per render — avoids
+    // recomputing healthStore.landingSnapshots(…) on every SwiftUI body pass.
+    let cached = cachedLandingSnapshots
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
         HomeDailyScoreCard(
@@ -114,7 +115,7 @@ struct HomeDashboardView: View {
       refreshSnapshots()
     }
     .sheet(isPresented: $showingScoreDatePicker) {
-      let cached = landingSnapshots
+      let cached = cachedLandingSnapshots
       ScoreDatePickerSheet(
         title: "Daily Scores",
         routes: [.sleep, .recovery, .strain],
@@ -184,6 +185,10 @@ struct HomeDashboardView: View {
 
   private func landingSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
     cachedLandingSnapshots.first { $0.route == route } ?? healthStore.snapshot(for: route)
+  }
+
+  private func landingSnapshot(for route: HealthRoute, in snapshots: [HealthMetricSnapshot]) -> HealthMetricSnapshot {
+    snapshots.first { $0.route == route } ?? healthStore.snapshot(for: route)
   }
 
   private func homeSnapshot(for route: HealthRoute, in snapshots: [HealthMetricSnapshot]) -> HealthMetricSnapshot {
