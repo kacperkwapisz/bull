@@ -54,8 +54,23 @@ enum CoachTipFactory {
   static func metricTip(
     route: HealthRoute,
     healthStore: HealthDataStore,
-    appModel: BullAppModel
+    appModel: BullAppModel,
+    calibrationSnapshot: CalibrationUISnapshot? = nil
   ) -> CoachInlineTip {
+    if let calibrationSnapshot,
+       !calibrationSnapshot.isComplete,
+       let metricRoute = CalibrationUISnapshot.metricRoute(for: route),
+       calibrationSnapshot.shouldShowHeroOverlay(for: metricRoute) {
+      return CoachInlineTip(
+        id: "\(route.rawValue)-calibration",
+        title: "\(route.title) Coach",
+        message: calibrationSnapshot.coachTipMessage(for: metricRoute),
+        source: "",
+        prompt: "I'm still building my \(route.title.lowercased()) baseline in Bull. \(calibrationSnapshot.coachTipMessage(for: metricRoute)) Give one practical next action.",
+        systemImage: route.systemImage,
+        tint: healthStore.snapshot(for: route).tint
+      )
+    }
     switch route {
     case .sleep:
       return sleepTip(healthStore: healthStore, ble: appModel.ble)
@@ -79,7 +94,25 @@ enum CoachTipFactory {
     }
   }
 
-  static func sleepTip(healthStore: HealthDataStore, ble: BullBLEClient) -> CoachInlineTip {
+  static func sleepTip(
+    healthStore: HealthDataStore,
+    ble: BullBLEClient,
+    calibrationSnapshot: CalibrationUISnapshot? = nil
+  ) -> CoachInlineTip {
+    if let calibrationSnapshot,
+       !calibrationSnapshot.isComplete,
+       calibrationSnapshot.shouldShowHeroOverlay(for: .sleep) {
+      let message = calibrationSnapshot.coachTipMessage(for: .sleep)
+      return CoachInlineTip(
+        id: "sleep-calibration",
+        title: "Sleep Coach",
+        message: message,
+        source: "",
+        prompt: "I'm still building my sleep baseline in Bull. \(message) Give one practical next action for tonight.",
+        systemImage: "moon.zzz.fill",
+        tint: .indigo
+      )
+    }
     let snapshot = healthStore.snapshot(for: .sleep)
     let schedule = healthStore.sleepV1ScheduleSummary()
     let debt = healthStore.sleepV1DebtSummary()

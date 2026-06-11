@@ -30,7 +30,7 @@ enum HealthRoute: String, CaseIterable, Identifiable, Hashable {
     case .packetInputs: "Packet Inputs"
     case .algorithms: "Algorithms"
     case .referenceComparisons: "Reference Comparisons"
-    case .calibration: "Calibration"
+    case .calibration: "Algorithm Calibration"
     }
   }
 
@@ -86,6 +86,16 @@ struct HealthMetricSnapshot: Identifiable {
 }
 
 extension HealthRoute {
+  /// Consumer navigation (Home, Health explore, Coach) — not developer tooling.
+  var isUserFacing: Bool {
+    switch self {
+    case .healthMonitor, .sleep, .recovery, .strain, .stress, .cardioLoad, .energyBank:
+      true
+    case .packetInputs, .algorithms, .referenceComparisons, .calibration:
+      false
+    }
+  }
+
   var supportsScoreDatePicker: Bool {
     switch self {
     case .sleep, .recovery, .strain:

@@ -6,6 +6,7 @@ import UIKit
 struct RecoveryV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: BullAppModel
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var store: HealthDataStore
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
@@ -43,14 +44,21 @@ struct RecoveryV2OverviewPage: View {
           LazyVStack(alignment: .leading, spacing: 0) {
             SleepV2ScrollOffsetProbe()
 
-            SleepV2Hero(
+            CalibrationHeroContainer(
+              snapshot: calibration.uiSnapshot,
+              route: .recovery,
               palette: palette,
-              title: "Recovery",
-              dateLabel: dateLabel,
-              score: data.score,
-              gaugeLabel: "Recovery",
-              onDateTap: { showingDatePicker = true }
-            )
+              onCelebrateCompletion: { calibration.markCompletionCelebrated() }
+            ) {
+              SleepV2Hero(
+                palette: palette,
+                title: "Recovery",
+                dateLabel: dateLabel,
+                score: data.score,
+                gaugeLabel: "Recovery",
+                onDateTap: { showingDatePicker = true }
+              )
+            }
             .frame(height: heroHeight)
 
             VStack(alignment: .leading, spacing: 14) {
@@ -99,24 +107,6 @@ struct RecoveryV2OverviewPage: View {
               SleepV2CoachingCard(palette: palette, tip: data.coachTip) {
                 openCoachTip()
               }
-
-              SleepV2SectionHeader(title: "Timeline", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "timeline.selection",
-                title: "No recovery timeline",
-                value: "0 events"
-              )
-
-              SleepV2SectionHeader(title: "Insights", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "sparkles",
-                title: "No recovery insights",
-                value: "0 signals"
-              )
 
               SleepV2SectionHeader(title: "Trends", palette: palette)
 
@@ -184,6 +174,7 @@ struct RecoveryV2OverviewPage: View {
   }
 
   private func refreshData() {
+    calibration.refreshUISnapshot(store: store, isBandConnected: model.ble.isConnectedForUserBaseline)
     cachedData = pageData()
     lastLiveRefresh = Date()
   }
@@ -193,13 +184,14 @@ struct RecoveryV2OverviewPage: View {
       from: store.snapshot(for: .recovery),
       date: selectedDate
     )
-    let score: Int
+    let score: Int?
     if let selectedScore = SleepV2Numbers.firstInt(in: selectedSnapshot.value) {
       score = selectedScore
+    } else if Calendar.current.isDate(selectedDate, inSameDayAs: Date()),
+              store.recoveryScoreValue() != nil {
+      score = store.recoveryScoreDisplayValue()
     } else {
-      score = Calendar.current.isDate(selectedDate, inSameDayAs: Date())
-        ? store.recoveryScoreDisplayValue()
-        : 0
+      score = nil
     }
     return RecoveryV2PageData(
       score: score,
@@ -209,20 +201,20 @@ struct RecoveryV2OverviewPage: View {
       oxygenText: store.recoveryOxygenSaturationDisplayText(for: selectedDate),
       temperatureText: store.recoveryWristTemperatureDisplayText(for: selectedDate),
       trendRows: store.recoveryTrendOverviewRows(),
-      coachTip: CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model)
+      coachTip: CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     )
   }
 
   private func openCoachTip() {
     let tip = cachedData?.coachTip
-      ?? CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model)
+      ?? CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     router.openCoach(prompt: tip.prompt)
     model.recordUIAction("coach.opened", detail: "recovery v2 inline tip")
   }
 }
 
 private struct RecoveryV2PageData {
-  let score: Int
+  let score: Int?
   let hrvText: String
   let restingHRText: String
   let respiratoryText: String
@@ -235,6 +227,7 @@ private struct RecoveryV2PageData {
 struct StressV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: BullAppModel
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var store: HealthDataStore
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
@@ -270,14 +263,22 @@ struct StressV2OverviewPage: View {
         LazyVStack(alignment: .leading, spacing: 0) {
           SleepV2ScrollOffsetProbe()
 
-          StressV2Hero(
+          CalibrationHeroContainer(
+            snapshot: calibration.uiSnapshot,
+            route: .stress,
             palette: palette,
-            title: "Stress",
-            dateLabel: dateLabel,
-            score: Int((summary.score ?? 0).rounded()),
-            status: summary.status,
-            onDateTap: { showingDatePicker = true }
-          )
+            ringSize: 206,
+            onCelebrateCompletion: { calibration.markCompletionCelebrated() }
+          ) {
+            StressV2Hero(
+              palette: palette,
+              title: "Stress",
+              dateLabel: dateLabel,
+              score: Int((summary.score ?? 0).rounded()),
+              status: summary.status,
+              onDateTap: { showingDatePicker = true }
+            )
+          }
           .frame(height: heroHeight)
 
           VStack(alignment: .leading, spacing: 14) {
@@ -384,7 +385,7 @@ struct StressV2OverviewPage: View {
   }
 
   private var coachTip: CoachInlineTip {
-    cachedCoachTip ?? CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model)
+    cachedCoachTip ?? CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
   }
 
   private var dateLabel: String {
@@ -392,9 +393,10 @@ struct StressV2OverviewPage: View {
   }
 
   private func refreshData() {
+    calibration.refreshUISnapshot(store: store, isBandConnected: model.ble.isConnectedForUserBaseline)
     cachedSummary = store.stressAlgorithmSummary(for: selectedDate)
     cachedTrendRows = Calendar.current.isDate(selectedDate, inSameDayAs: Date()) ? store.trendRows(for: .stress) : []
-    cachedCoachTip = CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model)
+    cachedCoachTip = CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     lastLiveRefresh = Date()
   }
 

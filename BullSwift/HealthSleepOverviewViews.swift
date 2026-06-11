@@ -5,6 +5,7 @@ import UIKit
 
 struct SleepV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var store: HealthDataStore
   @ObservedObject var ble: BullBLEClient
   @Binding var selectedDate: Date
@@ -47,13 +48,20 @@ struct SleepV2OverviewPage: View {
 	          LazyVStack(alignment: .leading, spacing: 0) {
 	            SleepV2ScrollOffsetProbe()
 
-	            SleepV2Hero(
+	            CalibrationHeroContainer(
+	              snapshot: calibration.uiSnapshot,
+	              route: .sleep,
 	              palette: palette,
-	              title: "Sleep",
-	              dateLabel: dateLabel,
-	              score: data.score,
-	              onDateTap: { showingDatePicker = true }
-	            )
+	              onCelebrateCompletion: { calibration.markCompletionCelebrated() }
+	            ) {
+	              SleepV2Hero(
+	                palette: palette,
+	                title: "Sleep",
+	                dateLabel: dateLabel,
+	                score: data.score,
+	                onDateTap: { showingDatePicker = true }
+	              )
+	            }
 	            .frame(height: heroHeight)
 
 	            VStack(alignment: .leading, spacing: 14) {
@@ -90,7 +98,7 @@ struct SleepV2OverviewPage: View {
                 onSleepNeeded: { showingSleepNeededSheet = true }
               )
 
-              SleepV2BandSyncCard(store: store, ble: ble, palette: palette) {
+              SleepV2BandSyncStatusLine(ble: ble, palette: palette) {
                 startBandSleepSync(automatic: false)
               }
 
@@ -201,6 +209,7 @@ struct SleepV2OverviewPage: View {
   }
 
   private func refreshData() {
+    calibration.refreshUISnapshot(store: store, isBandConnected: ble.isConnectedForUserBaseline)
     cachedData = pageData()
   }
 
@@ -212,12 +221,11 @@ struct SleepV2OverviewPage: View {
     let primarySleep = store.primarySleep()
     let score = SleepV2Numbers.firstInt(in: selectedSnapshot.value)
       ?? SleepV2Numbers.firstInt(in: primarySleep?.scoreText ?? "")
-      ?? 92
     return SleepV2PageData(
       score: score,
       primarySleep: primarySleep,
       trendRows: store.trendRows(for: .sleep),
-      coachTip: CoachTipFactory.sleepTip(healthStore: store, ble: ble)
+      coachTip: CoachTipFactory.sleepTip(healthStore: store, ble: ble, calibrationSnapshot: calibration.uiSnapshot)
     )
   }
 
@@ -255,7 +263,7 @@ struct SleepV2OverviewPage: View {
 }
 
 private struct SleepV2PageData {
-  let score: Int
+  let score: Int?
   let primarySleep: PrimarySleepDetail?
   let trendRows: [HealthMetricSnapshot]
   let coachTip: CoachInlineTip

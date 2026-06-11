@@ -7,6 +7,7 @@ struct AppShellView: View {
   // selection is already logged via each tab's `page.opened` onAppear.
   @EnvironmentObject private var router: AppRouter
   @StateObject private var healthStore = HealthDataStore()
+  @StateObject private var calibrationManager = CalibrationManager.shared
   @State private var homeHealthPath: [HealthRoute] = []
   @State private var homeSelectedDate = Date()
 
@@ -20,6 +21,7 @@ struct AppShellView: View {
         .tag(tab)
       }
     }
+    .environmentObject(calibrationManager)
   }
 
   private var tabSelection: Binding<BullAppTab> {
@@ -40,7 +42,13 @@ struct AppShellView: View {
       NavigationStack(path: $homeHealthPath) {
         tabContent(for: tab)
           .navigationDestination(for: HealthRoute.self) { route in
-            HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
+            if route.isUserFacing {
+              HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
+            } else {
+              Text("Open this tool from More → Developer.")
+                .foregroundStyle(.secondary)
+                .padding()
+            }
           }
       }
     } else if tab == .health {

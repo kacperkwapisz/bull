@@ -47,11 +47,6 @@ struct HealthMetricFamilyView: View {
           SleepAlarmBridgeSection(ble: model.ble)
         }
 
-        if route == .stress {
-          StressDailyChart(summary: store.stressAlgorithmSummary())
-          StressBreakdownRows(summary: store.stressAlgorithmSummary())
-        }
-
         if route == .strain {
           HeartRateZonesSection()
         }
@@ -152,7 +147,6 @@ struct HealthMetricFamilyView: View {
     case .sleep: "Score, stages, sleep needed, alarm, and trend surfaces"
     case .recovery: "Recovery score, HRV, resting HR, vitals, and unavailable states"
     case .strain: "Daily strain, activity, energy, and trend readiness"
-    case .stress: "Stress score, HRV/HR inputs, daily chart, and breakdown"
     default: ""
     }
   }
@@ -195,21 +189,6 @@ struct HealthMetricFamilyView: View {
         HealthSummaryRow("Duration", value: store.strainDurationDisplayText(), source: .unavailable("activity sessions unavailable"), systemImage: "timer"),
         HealthSummaryRow("Total Energy", value: store.strainEnergyDisplayText(for: selectedDate), source: store.whoopTotalCaloriesSource(for: selectedDate), systemImage: "flame"),
         HealthSummaryRow("Steps", value: store.strainActivityCountText(for: selectedDate), source: store.whoopStepsSource(for: selectedDate), systemImage: "shoeprints.fill"),
-      ]
-    case .stress:
-      let selectedDate = selectedDateBinding.wrappedValue
-      let isToday = Calendar.current.isDate(selectedDate, inSameDayAs: Date())
-      let summary = store.stressAlgorithmSummary(for: selectedDate)
-      let scoreText = summary.score.flatMap { HealthDataStore.numberText($0, fractionDigits: 0) } ?? "--"
-      let averageHRText = summary.averageHeartRate.flatMap { HealthDataStore.numberText($0, fractionDigits: 0) }
-        .map { "\($0) bpm avg" } ?? "No HR data"
-      let confidenceText = summary.confidence.flatMap { HealthDataStore.numberText($0, fractionDigits: 2) } ?? "--"
-      return [
-        HealthSummaryRow("Stress score", value: summary.hasData ? "\(scoreText)% | \(summary.status)" : summary.status, source: summary.source, systemImage: "waveform.path.ecg"),
-        HealthSummaryRow("Confidence", value: summary.hasData ? confidenceText : "--", source: summary.source, systemImage: "checkmark.seal"),
-        HealthSummaryRow("Inputs", value: summary.hasData ? summary.inputSummary : "No local stress inputs", source: summary.source, systemImage: "checklist"),
-        HealthSummaryRow("HRV Input", value: isToday ? store.hrvFeatureSummary() : "--", source: isToday ? store.packetInputSource("HRV feature") : store.recoveryHRVSource(for: selectedDate), systemImage: "waveform.path.ecg"),
-        HealthSummaryRow("Average HR", value: averageHRText, source: summary.source, systemImage: "heart"),
       ]
     default:
       return []
@@ -254,11 +233,6 @@ struct HealthMetricFamilyView: View {
       return [
         HealthSummaryRow("Activities", value: "No activities", source: .unavailable("activity sessions unavailable"), systemImage: "plus.circle"),
       ]
-    case .stress:
-      let summary = store.stressAlgorithmSummary(for: selectedDateBinding.wrappedValue)
-      return [
-        HealthSummaryRow("Daily timeline", value: summary.hasData ? "\(summary.windows.count) stress windows" : summary.status, source: summary.source, systemImage: "timeline.selection"),
-      ]
     default:
       return []
     }
@@ -279,11 +253,6 @@ struct HealthMetricFamilyView: View {
     case .strain:
       return [
         HealthSummaryRow("Coaching", value: store.strainEmptyStateSummary(), source: .unavailable("strain insights unavailable"), systemImage: "sparkles"),
-      ]
-    case .stress:
-      let summary = store.stressAlgorithmSummary(for: selectedDateBinding.wrappedValue)
-      return [
-        HealthSummaryRow("Breakdown", value: summary.hasData ? "High \(Int((summary.high.percent * 100).rounded()))% | Medium \(Int((summary.medium.percent * 100).rounded()))% | Low \(Int((summary.low.percent * 100).rounded()))%" : summary.status, source: summary.source, systemImage: "chart.bar"),
       ]
     default:
       return []
@@ -395,6 +364,7 @@ struct StrainV2ActivityBackground: View {
 struct StrainV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: BullAppModel
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var store: HealthDataStore
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
@@ -428,13 +398,20 @@ struct StrainV2OverviewPage: View {
               .frame(height: heroHeight)
               .allowsHitTesting(false)
 
-            StrainV2Hero(
+            CalibrationHeroContainer(
+              snapshot: calibration.uiSnapshot,
+              route: .strain,
               palette: palette,
-              score: data.score,
-              status: data.status,
-              dateLabel: dateLabel,
-              onDateTap: { showingDatePicker = true }
-            )
+              onCelebrateCompletion: { calibration.markCompletionCelebrated() }
+            ) {
+              StrainV2Hero(
+                palette: palette,
+                score: data.score,
+                status: data.status,
+                dateLabel: dateLabel,
+                onDateTap: { showingDatePicker = true }
+              )
+            }
           }
           .frame(height: heroHeight)
           .clipped()
@@ -479,7 +456,7 @@ struct StrainV2OverviewPage: View {
             SleepV2ActionRow(
               palette: palette,
               systemImage: "exclamationmark.triangle",
-              title: "View data gaps",
+              title: "What's missing today",
               action: { showingInsightsSheet = true }
             )
 
@@ -576,6 +553,7 @@ struct StrainV2OverviewPage: View {
   }
 
   private func refreshData() {
+    calibration.refreshUISnapshot(store: store, isBandConnected: model.ble.isConnectedForUserBaseline)
     cachedData = pageData()
     lastLiveRefresh = Date()
   }
@@ -591,13 +569,13 @@ struct StrainV2OverviewPage: View {
       stepsText: store.strainActivityCountText(for: selectedDate),
       emptyStateSummary: store.strainEmptyStateSummary(),
       trendRows: store.trendRows(for: .strain),
-      coachTip: CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model)
+      coachTip: CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     )
   }
 
   private func openCoachTip() {
     let tip = cachedData?.coachTip
-      ?? CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model)
+      ?? CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     router.openCoach(prompt: tip.prompt)
     model.recordUIAction("coach.opened", detail: "strain inline tip")
   }

@@ -13,6 +13,7 @@ struct HealthPreviewRouteHost: View {
     }
     .environmentObject(BullAppModel(startBLE: false))
     .environmentObject(AppRouter())
+    .environmentObject(CalibrationManager.shared)
   }
 }
 
