@@ -13,7 +13,10 @@ enum CoachAPIConfiguration {
       return url
     }
     #if DEBUG
-    return URL(string: "http://127.0.0.1:3000")!
+    // Local dev default (your current CoachAPI host + port on the Tailscale/local network).
+    // The shared "BullSwift" scheme (xcshareddata/xcschemes) pre-sets COACH_API_BASE_URL for you.
+    // You can also override via Xcode scheme env vars manually, or Info.plist key.
+    return URL(string: "http://100.95.172.121:3333")!
     #else
     return URL(string: productionDefault)!
     #endif

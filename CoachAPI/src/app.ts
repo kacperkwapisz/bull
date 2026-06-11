@@ -14,6 +14,7 @@ const health = route.get("/health").handle(() =>
     service: "bull-coach-api",
     upstream: env.COACH_UPSTREAM_BASE_URL,
     model_default: env.COACH_MODEL_DEFAULT,
+    model_deep: env.COACH_MODEL_DEEP,
   }),
 )
 

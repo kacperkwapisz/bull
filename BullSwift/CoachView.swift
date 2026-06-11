@@ -664,10 +664,17 @@ private struct CoachProfileMenu: View {
           Button {
             chat.selectModelPreset(preset)
           } label: {
-            if chat.modelPreset == preset {
-              Label(preset.title, systemImage: "checkmark")
-            } else {
-              Text(preset.title)
+            VStack(alignment: .leading, spacing: 1) {
+              HStack {
+                Text(preset.title)
+                if chat.modelPreset == preset {
+                  Image(systemName: "checkmark")
+                    .font(.caption.weight(.semibold))
+                }
+              }
+              Text(preset.subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
           }
         }

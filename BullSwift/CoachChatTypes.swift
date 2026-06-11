@@ -71,6 +71,15 @@ enum CoachModelPreset: String, CaseIterable, Identifiable {
     }
   }
 
+  var subtitle: String {
+    switch self {
+    case .coach:
+      return "Fast responses for daily questions"
+    case .deeperInsight:
+      return "Stronger reasoning for complex questions"
+    }
+  }
+
   var apiTier: String {
     switch self {
     case .coach:

@@ -11,9 +11,11 @@ describe("CoachAPI", () => {
   test("GET /health returns ok", async () => {
     const res = await app.fetch(new Request("http://localhost/health"))
     expect(res.status).toBe(200)
-    const json = (await res.json()) as { ok: boolean; service: string }
+    const json = (await res.json()) as { ok: boolean; service: string; model_default?: string; model_deep?: string }
     expect(json.ok).toBe(true)
     expect(json.service).toBe("bull-coach-api")
+    expect(typeof json.model_default).toBe("string")
+    expect(typeof json.model_deep).toBe("string")
   })
 
   test("POST /v1/auth/dev-token issues bearer token", async () => {

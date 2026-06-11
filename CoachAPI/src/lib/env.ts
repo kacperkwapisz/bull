@@ -3,10 +3,10 @@ import { z } from "zod"
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   JWT_SECRET: z.string().min(32),
-  COACH_UPSTREAM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
+  COACH_UPSTREAM_BASE_URL: z.string().url().default("https://oraiapi.com/v1"),
   COACH_UPSTREAM_API_KEY: z.string().min(1),
-  COACH_MODEL_DEFAULT: z.string().default("openai/gpt-oss-120b"),
-  COACH_MODEL_DEEP: z.string().default("openai/gpt-oss-120b"),
+  COACH_MODEL_DEFAULT: z.string().default("gpt-oss-120b"),
+  COACH_MODEL_DEEP: z.string().default("gpt-oss-120b"),
   COACH_DEV_AUTH_BYPASS: z
     .enum(["0", "1"])
     .default("0")

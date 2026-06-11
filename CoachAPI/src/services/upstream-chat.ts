@@ -23,6 +23,10 @@ function isGroq(baseURL: string): boolean {
   return baseURL.includes("groq.com")
 }
 
+function isOrai(baseURL: string): boolean {
+  return baseURL.includes("oraiapi.com")
+}
+
 function normalizeToolsForOpenAICompat(tools: Record<string, unknown>[] | undefined): unknown[] | undefined {
   if (!tools?.length) {
     return undefined
@@ -82,7 +86,7 @@ export async function* streamUpstreamChat(
     "Content-Type": "application/json",
     Accept: "text/event-stream",
   }
-  if (isGroq(base)) {
+  if (isGroq(base) || isOrai(base)) {
     headers["User-Agent"] = "bull-coach-api/1"
   }
   if (isZen(base)) {

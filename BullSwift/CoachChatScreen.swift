@@ -37,7 +37,7 @@ struct CoachChatScreen: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 12) {
           if chat.streamState != .idle {
-            CoachConnectionStrip(streamState: chat.streamState)
+            CoachConnectionStrip(streamState: chat.streamState, modelPreset: chat.modelPreset)
           }
 
           ForEach(chat.messages) { message in
@@ -133,6 +133,7 @@ struct CoachChatScreen: View {
 
 private struct CoachConnectionStrip: View {
   let streamState: CoachStreamState
+  let modelPreset: CoachModelPreset
 
   var body: some View {
     HStack(spacing: 8) {
@@ -144,6 +145,16 @@ private struct CoachConnectionStrip: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
         .lineLimit(1)
+
+      if modelPreset != .coach {
+        Text("·")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        Text(modelPreset.title)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
 
       Spacer()
 

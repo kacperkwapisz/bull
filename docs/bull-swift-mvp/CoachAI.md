@@ -19,9 +19,14 @@ Dev JWT via `POST /v1/auth/dev-token` when `COACH_DEV_AUTH_BYPASS=1`. Token in K
 
 ## Configuration
 
-| iOS | `COACH_API_BASE_URL` Info.plist or env; Debug → `127.0.0.1:3000` |
+| iOS | `COACH_API_BASE_URL` via shared Xcode scheme (or env/Info.plist); Debug → `http://100.95.172.121:3333` (local dev) |
 | API | `.env` — see `CoachAPI/.env.example` |
 
 ## Models
 
-Default upstream: **gpt-oss-120b** (Groq). Optional Zen for local dev. See `CoachLLMEvalDecision.md`.
+Two client-selectable tiers (via chat profile menu "Model"):
+
+- `coach` → `COACH_MODEL_DEFAULT`
+- `deeperInsight` → `COACH_MODEL_DEEP`
+
+Default upstream: **gpt-oss-120b** on https://oraiapi.com/v1 for both (configurable independently via env; oraiapi is OpenAI-compatible and supports tools). Server resolves tier → model id; client never hardcodes provider models. See `CoachLLMEvalDecision.md` and `CoachAPI/README.md`. Alternative dev upstreams (e.g. OpenCode Zen) remain possible via env.
