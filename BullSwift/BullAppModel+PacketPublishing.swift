@@ -16,11 +16,17 @@ extension BullAppModel {
       return
     }
 
-    healthPacketCaptureFamilyRows = snapshot.rows
-    healthPacketCaptureFamilyRowsByID = Dictionary(
-      uniqueKeysWithValues: snapshot.rows.map { ($0.id, $0) }
-    )
-    if let lastPacketSummary = snapshot.lastPacketSummary {
+    // Equality guards: these fields are only shown on the debug/capture screens,
+    // but as @Published they re-rendered every dashboard on each ~1s tick. Skip
+    // the publish when the value is unchanged.
+    if healthPacketCaptureFamilyRows != snapshot.rows {
+      healthPacketCaptureFamilyRows = snapshot.rows
+      healthPacketCaptureFamilyRowsByID = Dictionary(
+        uniqueKeysWithValues: snapshot.rows.map { ($0.id, $0) }
+      )
+    }
+    if let lastPacketSummary = snapshot.lastPacketSummary,
+       lastPacketSummary != healthPacketCaptureLastPacketSummary {
       healthPacketCaptureLastPacketSummary = lastPacketSummary
     }
     for family in snapshot.discoveredFamilies {
@@ -62,11 +68,14 @@ extension BullAppModel {
     healthPacketCaptureUIUpdateWorkItem?.cancel()
     healthPacketCaptureUIUpdateWorkItem = nil
     lastHealthPacketCaptureUIUpdatedAt = now
-    if let capture = activeHealthPacketCapture {
+    if let capture = activeHealthPacketCapture,
+       healthPacketCaptureFrameCount != capture.importedFrameCount {
       healthPacketCaptureFrameCount = capture.importedFrameCount
     }
     if let pendingHealthPacketCaptureLastPacketSummary {
-      healthPacketCaptureLastPacketSummary = pendingHealthPacketCaptureLastPacketSummary
+      if pendingHealthPacketCaptureLastPacketSummary != healthPacketCaptureLastPacketSummary {
+        healthPacketCaptureLastPacketSummary = pendingHealthPacketCaptureLastPacketSummary
+      }
       self.pendingHealthPacketCaptureLastPacketSummary = nil
     }
     updateHealthPacketCaptureTargetSummary(rows: healthPacketCaptureFamilyRows)
@@ -333,12 +342,18 @@ extension BullAppModel {
     let unresolved = rows
       .filter { $0.status == .unresolved || $0.status == .unknown }
       .reduce(0) { $0 + $1.count }
+    let newSummary: String
     if activeHealthPacketCapture?.mode == .temperature {
-      healthPacketCaptureTargetSummary = "frames \(healthPacketCaptureFrameCount) | K18 \(k18History) | K24 \(k24History) | K47 \(k47History) | event17 \(eventTemperature) | metadata \(metadataEvents) | temp \(temperature) | unknown \(unresolved)"
+      newSummary = "frames \(healthPacketCaptureFrameCount) | K18 \(k18History) | K24 \(k24History) | K47 \(k47History) | event17 \(eventTemperature) | metadata \(metadataEvents) | temp \(temperature) | unknown \(unresolved)"
     } else if r21 + optical + pulse + temperature > 0 {
-      healthPacketCaptureTargetSummary = "frames \(healthPacketCaptureFrameCount) | motion \(motion) | K11 \(rawStream) | K20 \(rawResearch) | K2 \(realtimeStatus) | HR \(heartRate) | R21 \(r21) | optical \(optical) | pulse \(pulse) | K47 \(k47History) | metadata \(metadataEvents) | temp \(temperature) | unknown \(unresolved)"
+      newSummary = "frames \(healthPacketCaptureFrameCount) | motion \(motion) | K11 \(rawStream) | K20 \(rawResearch) | K2 \(realtimeStatus) | HR \(heartRate) | R21 \(r21) | optical \(optical) | pulse \(pulse) | K47 \(k47History) | metadata \(metadataEvents) | temp \(temperature) | unknown \(unresolved)"
     } else {
-      healthPacketCaptureTargetSummary = "frames \(healthPacketCaptureFrameCount) | motion \(motion) | K11 \(rawStream) | K20 \(rawResearch) | K2 \(realtimeStatus) | HR \(heartRate) | K47 \(k47History) | metadata \(metadataEvents) | activity \(activityDetectionStatus) | unknown \(unresolved)"
+      newSummary = "frames \(healthPacketCaptureFrameCount) | motion \(motion) | K11 \(rawStream) | K20 \(rawResearch) | K2 \(realtimeStatus) | HR \(heartRate) | K47 \(k47History) | metadata \(metadataEvents) | activity \(activityDetectionStatus) | unknown \(unresolved)"
+    }
+    // Equality guard: only the debug screen shows this, but a bare assign fired
+    // objectWillChange on every tick and re-rendered all dashboards.
+    if newSummary != healthPacketCaptureTargetSummary {
+      healthPacketCaptureTargetSummary = newSummary
     }
   }
 
@@ -513,6 +528,8 @@ extension BullAppModel {
   }
 
   func applyPacketUIStateSnapshot(_ snapshot: PacketUIStateSnapshot) {
+    let _signpost = bullSignpostBegin(BullSignpost.pipeline, "applyPacketUIStateSnapshot")
+    defer { bullSignpostEnd(_signpost) }
     packetMonitor.apply(
       snapshot,
       maxRecentDeviceSignalPoints: Self.maxRecentDeviceSignalPoints,

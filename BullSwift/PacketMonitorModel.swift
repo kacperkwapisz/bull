@@ -22,40 +22,43 @@ final class PacketMonitorModel: ObservableObject {
     maxRecentDeviceSignalPoints: Int,
     publishInterval: TimeInterval
   ) {
-    if let status = snapshot.lastParsedFrameSummary {
+    // Equality guards: this object is injected app-wide as an @EnvironmentObject
+    // and publishes every ~0.2s. Only assign when a value actually changed so we
+    // don't fire objectWillChange (and re-render consumers) on repeated strings.
+    if let status = snapshot.lastParsedFrameSummary, status != lastParsedFrameSummary {
       lastParsedFrameSummary = status
     }
-    if let status = snapshot.movementPacketStatus {
+    if let status = snapshot.movementPacketStatus, status != movementPacketStatus {
       movementPacketStatus = status
     }
-    if let status = snapshot.whoopEventStatus {
+    if let status = snapshot.whoopEventStatus, status != latestWhoopEventStatus {
       latestWhoopEventStatus = status
     }
-    if let status = snapshot.skinTemperatureCandidateStatus {
+    if let status = snapshot.skinTemperatureCandidateStatus, status != latestSkinTemperatureCandidateStatus {
       latestSkinTemperatureCandidateStatus = status
     }
-    if let status = snapshot.whoopDataPacketStatus {
+    if let status = snapshot.whoopDataPacketStatus, status != latestWhoopDataPacketStatus {
       latestWhoopDataPacketStatus = status
     }
-    if let status = snapshot.historyTemperatureCandidateStatus {
+    if let status = snapshot.historyTemperatureCandidateStatus, status != latestHistoryTemperatureCandidateStatus {
       latestHistoryTemperatureCandidateStatus = status
     }
-    if let status = snapshot.respiratoryRateCandidateStatus {
+    if let status = snapshot.respiratoryRateCandidateStatus, status != latestRespiratoryRateCandidateStatus {
       latestRespiratoryRateCandidateStatus = status
     }
-    if let status = snapshot.pulseInformationPacketStatus {
+    if let status = snapshot.pulseInformationPacketStatus, status != latestPulseInformationPacketStatus {
       latestPulseInformationPacketStatus = status
     }
-    if let status = snapshot.opticalPacketStatus {
+    if let status = snapshot.opticalPacketStatus, status != latestOpticalPacketStatus {
       latestOpticalPacketStatus = status
     }
-    if let status = snapshot.rawResearchPacketStatus {
+    if let status = snapshot.rawResearchPacketStatus, status != latestRawResearchPacketStatus {
       latestRawResearchPacketStatus = status
     }
-    if let status = snapshot.realtimeStatusPacketStatus {
+    if let status = snapshot.realtimeStatusPacketStatus, status != latestRealtimeStatusPacketStatus {
       latestRealtimeStatusPacketStatus = status
     }
-    if let status = snapshot.performancePipelineStatus {
+    if let status = snapshot.performancePipelineStatus, status != performancePipelineStatus {
       performancePipelineStatus = status
     }
     if !snapshot.deviceSignalPoints.isEmpty {
@@ -66,7 +69,7 @@ final class PacketMonitorModel: ObservableObject {
         recentDeviceSignalPoints.removeLast(recentDeviceSignalPoints.count - maxRecentDeviceSignalPoints)
       }
     }
-    if let summary = snapshot.liveDeviceDataSummary {
+    if let summary = snapshot.liveDeviceDataSummary, summary != liveDeviceDataSummary {
       liveDeviceDataSummary = summary
     }
     if snapshot.coalescedStatusUpdateCount > 0 {

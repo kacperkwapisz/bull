@@ -14,18 +14,24 @@ struct HomeDashboardView: View {
   @State private var cachedHealthMonitorSnapshots: [HealthMetricSnapshot] = []
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
     // Read the snapshots cached by refreshSnapshots() once per render — avoids
     // recomputing healthStore.landingSnapshots(…) on every SwiftUI body pass.
     let cached = cachedLandingSnapshots
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
-        HomeDailyScoreCard(
-          scores: scoreSnapshots(using: cached),
-          actionSummary: dailyActionSummary,
-          coachTip: CoachTipFactory.homeTip(healthStore: healthStore, appModel: model),
-          openScore: openHealth,
-          openCoach: openCoach
+        HomeScoreTriRow(
+          strain: datedHomeSnapshot(for: .strain, in: cached),
+          recovery: datedHomeSnapshot(for: .recovery, in: cached),
+          sleep: datedHomeSnapshot(for: .sleep, in: cached),
+          open: openHealth
         )
+
+        if let coachTip = homeCoachTip(using: cached) {
+          CoachTipCard(tip: coachTip, showsSource: false) {
+            openCoach(coachTip.prompt)
+          }
+        }
 
         HomeStressEnergySection(
           stress: landingSnapshot(for: .stress, in: cached),
@@ -47,13 +53,8 @@ struct HomeDashboardView: View {
         )
 
         HomeTimelineSection(
-          sleep: homeSnapshot(for: .sleep, in: cached),
-          activity: homeSnapshot(for: .strain, in: cached),
-          recovery: homeSnapshot(for: .recovery, in: cached),
           activities: model.homeActivityTimelineItems,
-          openSleep: { openHealth(.sleep) },
-          openActivity: { openHealth(.strain) },
-          openRecovery: { openHealth(.recovery) }
+          openActivity: { openHealth(.strain) }
         )
 
       }
@@ -131,14 +132,6 @@ struct HomeDashboardView: View {
     }
   }
 
-  private func scoreSnapshots(using cached: [HealthMetricSnapshot]) -> [HealthMetricSnapshot] {
-    [
-      datedHomeSnapshot(for: .sleep, in: cached),
-      datedHomeSnapshot(for: .recovery, in: cached),
-      datedHomeSnapshot(for: .strain, in: cached),
-    ]
-  }
-
   private func scorePickerSnapshots(using cached: [HealthMetricSnapshot]) -> [HealthMetricSnapshot] {
     [
       homeSnapshot(for: .sleep, in: cached),
@@ -164,12 +157,26 @@ struct HomeDashboardView: View {
     return state == "ready" || state == "connected"
   }
 
-  private var dailyActionSummary: String {
-    let inputAction = healthStore.metricInputReadinessNextActionSummary()
-    if !inputAction.isEmpty {
-      return inputAction
+  /// Coach card for the Home surface. Hidden while there is no Recovery score —
+  /// the hero already carries the single next action, and the alpha screen should
+  /// stay calm rather than repeat itself.
+  private func homeCoachTip(using cached: [HealthMetricSnapshot]) -> CoachInlineTip? {
+    let recovery = homeSnapshot(for: .recovery, in: cached)
+    guard recovery.source.kind != .unavailable else {
+      return nil
     }
-    return healthStore.packetDerivedScoreNextActionSummary()
+    let base = CoachTipFactory.homeTip(healthStore: healthStore, appModel: model)
+    let sleep = homeSnapshot(for: .sleep, in: cached)
+    let strain = homeSnapshot(for: .strain, in: cached)
+    return CoachInlineTip(
+      id: base.id,
+      title: "Coach",
+      message: "Sleep \(sleep.displayValue) \u{00B7} Recovery \(recovery.displayValue) \u{00B7} Strain \(strain.displayValue). Ask Coach how to spend today.",
+      source: "",
+      prompt: base.prompt,
+      systemImage: base.systemImage,
+      tint: base.tint
+    )
   }
 
   private func refreshSnapshots() {

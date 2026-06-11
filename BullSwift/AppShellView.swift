@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct AppShellView: View {
-  @EnvironmentObject private var model: BullAppModel
+  // Intentionally does NOT observe BullAppModel: doing so re-ran this body on every
+  // model tick (~1.3/s) and recreated the tab-content structs (new closure identity
+  // -> SwiftUI `@self changed` cascade re-rendering the whole Home tree). Tab
+  // selection is already logged via each tab's `page.opened` onAppear.
   @EnvironmentObject private var router: AppRouter
   @StateObject private var healthStore = HealthDataStore()
   @State private var homeHealthPath: [HealthRoute] = []
@@ -28,7 +31,6 @@ struct AppShellView: View {
         return
       }
       router.selectedTab = newTab
-      model.recordUIAction("tab.selected", detail: newTab.title)
     }
   }
 
