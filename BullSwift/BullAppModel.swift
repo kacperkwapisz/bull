@@ -80,7 +80,8 @@ final class BullAppModel: ObservableObject {
   let captureFrameWriteQueue = CaptureFrameWriteQueue(
     databasePath: HealthDataStore.defaultDatabasePath(),
     maxQueuedRows: BullAppModel.captureFrameWriteQueueMaxRows,
-    maxBatchRows: BullAppModel.captureFrameWriteBatchMaxRows
+    maxBatchRows: BullAppModel.captureFrameWriteBatchMaxRows,
+    coalesceDelay: BullAppModel.captureFrameWriteCoalesceDelay
   )
   let captureFrameEnqueueAggregator = CaptureFrameEnqueueAggregator(
     publishInterval: BullAppModel.packetUIStatePublishInterval
@@ -192,66 +193,26 @@ final class BullAppModel: ObservableObject {
     return processInfo.arguments.contains("--bull-start-respiratory-packet-watch")
       || processInfo.environment["BULL_START_RESPIRATORY_PACKET_WATCH"] == "1"
   }()
-  let autoStartHealthPacketCaptureDuration: TimeInterval = {
-    let processInfo = ProcessInfo.processInfo
-    if let value = processInfo.environment["BULL_HEALTH_PACKET_CAPTURE_DURATION_SECONDS"],
-       let seconds = Double(value),
-       seconds > 0 {
-      return seconds
-    }
-    let prefix = "--bull-health-packet-capture-duration="
-    if let argument = processInfo.arguments.first(where: { $0.hasPrefix(prefix) }),
-       let seconds = Double(argument.dropFirst(prefix.count)),
-       seconds > 0 {
-      return seconds
-    }
-    return 30 * 60
-  }()
-  let autoStartTemperaturePacketCaptureDuration: TimeInterval = {
-    let processInfo = ProcessInfo.processInfo
-    if let value = processInfo.environment["BULL_TEMPERATURE_PACKET_CAPTURE_DURATION_SECONDS"],
-       let seconds = Double(value),
-       seconds > 0 {
-      return seconds
-    }
-    let prefix = "--bull-temperature-packet-capture-duration="
-    if let argument = processInfo.arguments.first(where: { $0.hasPrefix(prefix) }),
-       let seconds = Double(argument.dropFirst(prefix.count)),
-       seconds > 0 {
-      return seconds
-    }
-    return 10 * 60
-  }()
-  let autoStartPhysiologyPacketCaptureDuration: TimeInterval = {
-    let processInfo = ProcessInfo.processInfo
-    if let value = processInfo.environment["BULL_PHYSIOLOGY_PACKET_CAPTURE_DURATION_SECONDS"],
-       let seconds = Double(value),
-       seconds > 0 {
-      return seconds
-    }
-    let prefix = "--bull-physiology-packet-capture-duration="
-    if let argument = processInfo.arguments.first(where: { $0.hasPrefix(prefix) }),
-       let seconds = Double(argument.dropFirst(prefix.count)),
-       seconds > 0 {
-      return seconds
-    }
-    return 30 * 60
-  }()
-  let autoStartRespiratoryPacketWatchDuration: TimeInterval = {
-    let processInfo = ProcessInfo.processInfo
-    if let value = processInfo.environment["BULL_RESPIRATORY_PACKET_WATCH_DURATION_SECONDS"],
-       let seconds = Double(value),
-       seconds > 0 {
-      return seconds
-    }
-    let prefix = "--bull-respiratory-packet-watch-duration="
-    if let argument = processInfo.arguments.first(where: { $0.hasPrefix(prefix) }),
-       let seconds = Double(argument.dropFirst(prefix.count)),
-       seconds > 0 {
-      return seconds
-    }
-    return 10 * 60
-  }()
+  let autoStartHealthPacketCaptureDuration: TimeInterval = BullAppModel.durationFromEnvironment(
+    envVar: "BULL_HEALTH_PACKET_CAPTURE_DURATION_SECONDS",
+    cliPrefix: "--bull-health-packet-capture-duration=",
+    fallback: 30 * 60
+  )
+  let autoStartTemperaturePacketCaptureDuration: TimeInterval = BullAppModel.durationFromEnvironment(
+    envVar: "BULL_TEMPERATURE_PACKET_CAPTURE_DURATION_SECONDS",
+    cliPrefix: "--bull-temperature-packet-capture-duration=",
+    fallback: 10 * 60
+  )
+  let autoStartPhysiologyPacketCaptureDuration: TimeInterval = BullAppModel.durationFromEnvironment(
+    envVar: "BULL_PHYSIOLOGY_PACKET_CAPTURE_DURATION_SECONDS",
+    cliPrefix: "--bull-physiology-packet-capture-duration=",
+    fallback: 30 * 60
+  )
+  let autoStartRespiratoryPacketWatchDuration: TimeInterval = BullAppModel.durationFromEnvironment(
+    envVar: "BULL_RESPIRATORY_PACKET_WATCH_DURATION_SECONDS",
+    cliPrefix: "--bull-respiratory-packet-watch-duration=",
+    fallback: 10 * 60
+  )
   let autoSyncHistoryDuringPhysiologyCapture: Bool = {
     let processInfo = ProcessInfo.processInfo
     return processInfo.arguments.contains("--bull-sync-history-during-physiology-capture")
@@ -286,6 +247,7 @@ final class BullAppModel: ObservableObject {
   static let restingHeartRateFrameWriteInterval: TimeInterval = 0.1
   static let captureFrameWriteQueueMaxRows = 2048
   static let captureFrameWriteBatchMaxRows = 128
+  static let captureFrameWriteCoalesceDelay: TimeInterval = 0.05
   static let passiveActivityCaptureDuration: TimeInterval = 12 * 60 * 60
   static let movementPacketStatusInterval: TimeInterval = 1
   static let movementPacketLogInterval: TimeInterval = 5
@@ -438,6 +400,25 @@ final class BullAppModel: ObservableObject {
     } else {
       _ = overnightRawSpool.finish(status: "model_deinit")
     }
+  }
+
+  private nonisolated static func durationFromEnvironment(
+    envVar: String,
+    cliPrefix: String,
+    fallback: TimeInterval
+  ) -> TimeInterval {
+    let processInfo = ProcessInfo.processInfo
+    if let value = processInfo.environment[envVar],
+       let seconds = Double(value),
+       seconds > 0 {
+      return seconds
+    }
+    if let argument = processInfo.arguments.first(where: { $0.hasPrefix(cliPrefix) }),
+       let seconds = Double(argument.dropFirst(cliPrefix.count)),
+       seconds > 0 {
+      return seconds
+    }
+    return fallback
   }
 
 }
