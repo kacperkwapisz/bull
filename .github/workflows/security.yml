@@ -104,13 +104,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # Install is network-bound; retry transient failures.
-      - name: Install Trivy (with retry)
-        run: |
-          source "${GITHUB_WORKSPACE}/.github/scripts/retry.sh"
-          retry bash -c 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"'
-          trivy --version
+      # Install via the official action: it fetches the install script through an
+      # authenticated actions/checkout (default ${{ github.token }}), avoiding the
+      # unauthenticated GitHub rate limits that made the raw curl | sh install
+      # fail persistently, and caches the pinned binary across runs.
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: "v${{ env.TRIVY_VERSION }}"
+          cache: true
+
+      - name: Verify Trivy
+        run: trivy --version
 
       # Pre-fetch the vulnerability DB and the misconfiguration checks bundle in
       # retried, network-bound steps so registry rate limits are retried rather
