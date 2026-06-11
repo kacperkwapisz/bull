@@ -16,3 +16,6 @@ Rust/iphoneos/
 Rust/iphonesimulator/
 Vendor/CodexRust/codex-rs/target/
 tmp/
+
+# Local agent/contributor working notes (not tracked)
+AGENTS.md
