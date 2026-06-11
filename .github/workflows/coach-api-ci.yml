@@ -1,0 +1,88 @@
+name: Coach API CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "CoachAPI/**"
+      - ".github/workflows/coach-api-ci.yml"
+      - ".github/workflows/coach-api-docker.yml"
+  pull_request:
+    paths:
+      - "CoachAPI/**"
+      - ".github/workflows/coach-api-ci.yml"
+      - ".github/workflows/coach-api-docker.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: CoachAPI
+
+jobs:
+  test:
+    name: Test & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        env:
+          HYPER_SKIP_LISTEN: "1"
+          JWT_SECRET: test-jwt-secret-at-least-32-bytes-long!!
+          COACH_UPSTREAM_API_KEY: test-upstream-key
+          COACH_DEV_AUTH_BYPASS: "1"
+        run: bun test
+
+  docker-build:
+    name: Verify Docker image builds
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: CoachAPI
+          file: CoachAPI/Dockerfile
+          push: false
+          load: true
+          tags: bull-coach-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke container health
+        env:
+          JWT_SECRET: test-jwt-secret-at-least-32-bytes-long!!
+          COACH_UPSTREAM_API_KEY: test-upstream-key
+          COACH_DEV_AUTH_BYPASS: "0"
+        run: |
+          docker run -d --name coach-api-smoke -p 13000:3000 \
+            -e JWT_SECRET \
+            -e COACH_UPSTREAM_API_KEY \
+            -e COACH_DEV_AUTH_BYPASS \
+            bull-coach-api:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:13000/health | grep -q '"ok":true'; then
+              echo "health ok"
+              docker stop coach-api-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs coach-api-smoke
+          docker stop coach-api-smoke
+          exit 1

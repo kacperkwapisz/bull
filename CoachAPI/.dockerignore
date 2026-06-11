@@ -1,0 +1,9 @@
+node_modules
+.env
+.env.*
+!.env.example
+*.md
+test
+.git
+.gitignore
+.DS_Store
