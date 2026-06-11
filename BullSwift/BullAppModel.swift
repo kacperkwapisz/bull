@@ -80,7 +80,8 @@ final class BullAppModel: ObservableObject {
   let captureFrameWriteQueue = CaptureFrameWriteQueue(
     databasePath: HealthDataStore.defaultDatabasePath(),
     maxQueuedRows: BullAppModel.captureFrameWriteQueueMaxRows,
-    maxBatchRows: BullAppModel.captureFrameWriteBatchMaxRows
+    maxBatchRows: BullAppModel.captureFrameWriteBatchMaxRows,
+    coalesceDelay: BullAppModel.captureFrameWriteCoalesceDelay
   )
   let captureFrameEnqueueAggregator = CaptureFrameEnqueueAggregator(
     publishInterval: BullAppModel.packetUIStatePublishInterval
@@ -246,6 +247,7 @@ final class BullAppModel: ObservableObject {
   static let restingHeartRateFrameWriteInterval: TimeInterval = 0.1
   static let captureFrameWriteQueueMaxRows = 2048
   static let captureFrameWriteBatchMaxRows = 128
+  static let captureFrameWriteCoalesceDelay: TimeInterval = 0.05
   static let passiveActivityCaptureDuration: TimeInterval = 12 * 60 * 60
   static let movementPacketStatusInterval: TimeInterval = 1
   static let movementPacketLogInterval: TimeInterval = 5

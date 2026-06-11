@@ -409,8 +409,27 @@ fn sleep_v1_unexpected_evidence_files(evidence_dir: &Path) -> Vec<String> {
     entries
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|filename| !filename.starts_with('.') && !allowed.contains(filename))
+        .filter(|filename| {
+            !filename.starts_with('.')
+                && !allowed.contains(filename)
+                && !is_sqlite_sidecar_of_allowed(filename, &allowed)
+        })
         .collect()
+}
+
+/// SQLite leaves transient `-wal`, `-shm`, and `-journal` sidecar files next to
+/// a database opened in WAL mode (the read-write open path enables WAL). These
+/// are derivatives of an allowed `.sqlite` evidence file, not foreign evidence,
+/// so they must not be reported as unexpected.
+fn is_sqlite_sidecar_of_allowed(filename: &str, allowed: &BTreeSet<String>) -> bool {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        if let Some(base) = filename.strip_suffix(suffix) {
+            if allowed.contains(base) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn sleep_v1_evidence_manifest_sha256(

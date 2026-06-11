@@ -888,22 +888,59 @@ pub struct DebugEventRow {
     pub data_json: String,
 }
 
+fn configure_read_write_connection(conn: &Connection) -> BullResult<()> {
+    conn.execute_batch(
+        r#"
+        PRAGMA foreign_keys = ON;
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA busy_timeout = 5000;
+        "#,
+    )?;
+    Ok(())
+}
+
+fn configure_read_only_connection(conn: &Connection) -> BullResult<()> {
+    conn.execute_batch(
+        r#"
+        PRAGMA foreign_keys = ON;
+        PRAGMA busy_timeout = 5000;
+        "#,
+    )?;
+    Ok(())
+}
+
 impl BullStore {
     pub fn open(path: &Path) -> BullResult<Self> {
         let conn = Connection::open(path)?;
+        configure_read_write_connection(&conn)?;
         let store = Self { conn };
         store.migrate()?;
         Ok(store)
     }
 
+    pub fn open_existing_current(path: &Path) -> BullResult<Self> {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        configure_read_write_connection(&conn)?;
+        let store = Self { conn };
+        let schema_version = store.schema_version()?;
+        if schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(BullError::message(format!(
+                "database schema version {schema_version} is not current {CURRENT_SCHEMA_VERSION}"
+            )));
+        }
+        Ok(store)
+    }
+
     pub fn open_read_only(path: &Path) -> BullResult<Self> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        configure_read_only_connection(&conn)?;
         Ok(Self { conn })
     }
 
     pub fn open_in_memory() -> BullResult<Self> {
         let conn = Connection::open_in_memory()?;
+        configure_read_write_connection(&conn)?;
         let store = Self { conn };
         store.migrate()?;
         Ok(store)
@@ -1429,6 +1466,7 @@ impl BullStore {
         self.ensure_daily_activity_metric_multi_row_source_kind()?;
         self.ensure_daily_recovery_metric_multi_row_source_kind()?;
         self.ensure_step_counter_sample_columns()?;
+        self.ensure_capture_hot_path_indexes()?;
         Ok(())
     }
 
@@ -6004,6 +6042,43 @@ impl BullStore {
 }
 
 impl BullStore {
+    /// Capture hot-path indexes (PR #27) that accelerate live-capture reads.
+    ///
+    /// These are pure performance optimizations, so they are created only when
+    /// the underlying columns exist. A partially-migrated or legacy schema is
+    /// surfaced by `storage_check` rather than aborting the whole migration
+    /// here, preserving graceful degradation for inspection tooling.
+    fn ensure_capture_hot_path_indexes(&self) -> BullResult<()> {
+        if self
+            .table_columns_unchecked("raw_evidence")?
+            .contains("captured_at")
+        {
+            self.conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_raw_evidence_by_captured_at
+                    ON raw_evidence(captured_at, evidence_id);",
+            )?;
+        }
+        if self
+            .table_columns_unchecked("decoded_frames")?
+            .contains("evidence_id")
+        {
+            self.conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_decoded_frames_by_evidence
+                    ON decoded_frames(evidence_id);",
+            )?;
+        }
+        if self
+            .table_columns_unchecked("capture_sessions")?
+            .contains("started_at_unix_ms")
+        {
+            self.conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_capture_sessions_by_started_at
+                    ON capture_sessions(started_at_unix_ms);",
+            )?;
+        }
+        Ok(())
+    }
+
     fn ensure_raw_evidence_columns(&self) -> BullResult<()> {
         let columns = self.table_columns_unchecked("raw_evidence")?;
         for (column, ddl) in [(
@@ -7590,4 +7665,83 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_write_open_applies_local_storage_pragmas() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bull.sqlite");
+        let store = BullStore::open(&path).unwrap();
+
+        let foreign_keys: i64 = store
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        let busy_timeout_ms: i64 = store
+            .conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        let synchronous: i64 = store
+            .conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .unwrap();
+        let journal_mode: String = store
+            .conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(foreign_keys, 1);
+        assert_eq!(busy_timeout_ms, 5000);
+        assert_eq!(synchronous, 1);
+        assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+    }
+
+    #[test]
+    fn open_existing_current_reuses_current_local_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bull.sqlite");
+        BullStore::open(&path).unwrap();
+
+        let store = BullStore::open_existing_current(&path).unwrap();
+
+        assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn open_existing_current_rejects_old_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bull.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        drop(conn);
+
+        let error = BullStore::open_existing_current(&path).unwrap_err();
+
+        assert!(error.to_string().contains("not current"));
+    }
+
+    #[test]
+    fn migration_creates_capture_hot_path_indexes() {
+        let store = BullStore::open_in_memory().unwrap();
+
+        assert!(index_exists(&store, "idx_raw_evidence_by_captured_at"));
+        assert!(index_exists(&store, "idx_decoded_frames_by_evidence"));
+        assert!(index_exists(&store, "idx_capture_sessions_by_started_at"));
+    }
+
+    fn index_exists(store: &BullStore, name: &str) -> bool {
+        let count: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        count > 0
+    }
 }
