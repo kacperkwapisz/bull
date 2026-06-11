@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GGIR sleep summary adapter for goose-reference-algo-runner."""
+"""GGIR sleep summary adapter for bull-reference-algo-runner."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "goose.external-reference-output.v1"
+SCHEMA = "bull.external-reference-output.v1"
 PROVIDER = "external.ggir.sleep"
 ALGORITHM_ID = "reference.sleep.ggir_summary.v1"
 ALGORITHM_VERSION = "1.0.0"
@@ -18,7 +18,7 @@ ALGORITHM_VERSION = "1.0.0"
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Summarize GGIR sleep output for Goose benchmarks."
+        description="Summarize GGIR sleep output for Bull benchmarks."
     )
     parser.add_argument("--input", required=True)
     parser.add_argument("--family", required=True)
@@ -88,8 +88,8 @@ def base_report(payload: dict[str, Any], provider_version_value: str) -> dict[st
         "algorithm_id": ALGORITHM_ID,
         "algorithm_version": ALGORITHM_VERSION,
         "display_name": "GGIR Sleep Summary",
-        "input_schema": "goose.sleep-ggir-summary-input.v1",
-        "output_schema": "goose.sleep-ggir-summary-output.v1",
+        "input_schema": "bull.sleep-ggir-summary-input.v1",
+        "output_schema": "bull.sleep-ggir-summary-output.v1",
         "start_time": payload.get("start_time", ""),
         "end_time": payload.get("end_time", ""),
         "output": None,
@@ -138,7 +138,7 @@ def base_report(payload: dict[str, Any], provider_version_value: str) -> dict[st
         },
         "quality_gates": [
             "external_provider_exit_zero",
-            "goose_contract_schema_match",
+            "bull_contract_schema_match",
             "units_recorded",
             "non_empty_provenance",
             "at_least_one_valid_ggir_sleep_summary_row",

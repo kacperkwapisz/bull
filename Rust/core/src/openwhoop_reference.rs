@@ -166,20 +166,20 @@ pub fn whoop_generation_from_service_uuid(service_uuid: &str) -> Option<WhoopGen
 pub fn whoop_generation_from_device_type(device_type: DeviceType) -> Option<WhoopGeneration> {
     match device_type {
         DeviceType::Gen4 => Some(WhoopGeneration::Gen4),
-        DeviceType::Maverick | DeviceType::Goose => Some(WhoopGeneration::Gen5),
+        DeviceType::Maverick | DeviceType::Bull => Some(WhoopGeneration::Gen5),
         DeviceType::Puffin => None,
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GooseSummaryStatus {
+pub enum BullSummaryStatus {
     Matched,
     Candidate,
     Conflicting,
     NotDecoded,
 }
 
-impl GooseSummaryStatus {
+impl BullSummaryStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Matched => "matched",
@@ -190,7 +190,7 @@ impl GooseSummaryStatus {
     }
 }
 
-impl Display for GooseSummaryStatus {
+impl Display for BullSummaryStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -235,19 +235,19 @@ impl Display for OpenWhoopHistoryField {
     }
 }
 
-pub const GOOSE_SUMMARIES_NONE: [&str; 0] = [];
-pub const GOOSE_SUMMARIES_NORMAL_HISTORY: [&str; 1] = ["normal_history"];
-pub const GOOSE_SUMMARIES_R17: [&str; 1] = ["r17_optical_or_labrador_filtered"];
-pub const GOOSE_SUMMARIES_RAW_MOTION: [&str; 2] = ["raw_motion_k10", "raw_motion_k21"];
-pub const GOOSE_SUMMARIES_EVENT_TEMPERATURE: [&str; 1] = ["event_temperature_level"];
+pub const BULL_SUMMARIES_NONE: [&str; 0] = [];
+pub const BULL_SUMMARIES_NORMAL_HISTORY: [&str; 1] = ["normal_history"];
+pub const BULL_SUMMARIES_R17: [&str; 1] = ["r17_optical_or_labrador_filtered"];
+pub const BULL_SUMMARIES_RAW_MOTION: [&str; 2] = ["raw_motion_k10", "raw_motion_k21"];
+pub const BULL_SUMMARIES_EVENT_TEMPERATURE: [&str; 1] = ["event_temperature_level"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HistoryFieldReference {
     pub field: OpenWhoopHistoryField,
     pub gen4: bool,
     pub gen5: bool,
-    pub goose_summary_kinds: &'static [&'static str],
-    pub status: GooseSummaryStatus,
+    pub bull_summary_kinds: &'static [&'static str],
+    pub status: BullSummaryStatus,
     pub note: &'static str,
 }
 
@@ -265,89 +265,89 @@ pub const OPENWHOOP_HISTORY_FIELD_REFERENCES: [HistoryFieldReference; 11] = [
         field: OpenWhoopHistoryField::Bpm,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NORMAL_HISTORY,
-        status: GooseSummaryStatus::Matched,
-        note: "Goose already promotes the normal_history heart-rate marker into heart_rate_bpm; the byte-level source is not the same, but the summary-level concept matches.",
+        bull_summary_kinds: &BULL_SUMMARIES_NORMAL_HISTORY,
+        status: BullSummaryStatus::Matched,
+        note: "Bull already promotes the normal_history heart-rate marker into heart_rate_bpm; the byte-level source is not the same, but the summary-level concept matches.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::Rr,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_R17,
-        status: GooseSummaryStatus::Candidate,
-        note: "Goose currently treats RR intervals as preliminary candidates from r17_optical_or_labrador_filtered rather than a fully decoded strap-history field.",
+        bull_summary_kinds: &BULL_SUMMARIES_R17,
+        status: BullSummaryStatus::Candidate,
+        note: "Bull currently treats RR intervals as preliminary candidates from r17_optical_or_labrador_filtered rather than a fully decoded strap-history field.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::Imu,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_RAW_MOTION,
-        status: GooseSummaryStatus::Matched,
-        note: "Goose already exposes raw motion summaries for K10/K21 motion payloads, which are the closest direct match to OpenWhoop IMU samples.",
+        bull_summary_kinds: &BULL_SUMMARIES_RAW_MOTION,
+        status: BullSummaryStatus::Matched,
+        note: "Bull already exposes raw motion summaries for K10/K21 motion payloads, which are the closest direct match to OpenWhoop IMU samples.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::Ppg,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_R17,
-        status: GooseSummaryStatus::Candidate,
-        note: "Goose keeps the optical stream as r17_optical_or_labrador_filtered candidates, but does not yet expose a dedicated PPG history field.",
+        bull_summary_kinds: &BULL_SUMMARIES_R17,
+        status: BullSummaryStatus::Candidate,
+        note: "Bull keeps the optical stream as r17_optical_or_labrador_filtered candidates, but does not yet expose a dedicated PPG history field.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::RawSpo2RedIr,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NONE,
-        status: GooseSummaryStatus::NotDecoded,
-        note: "Goose does not currently expose a raw SpO2 red/IR decoder or summary.",
+        bull_summary_kinds: &BULL_SUMMARIES_NONE,
+        status: BullSummaryStatus::NotDecoded,
+        note: "Bull does not currently expose a raw SpO2 red/IR decoder or summary.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::RawSkinTemp,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_EVENT_TEMPERATURE,
-        status: GooseSummaryStatus::Candidate,
-        note: "Goose has an event_temperature_level candidate path, but metric_readiness still blocks skin-temperature extraction until the units and semantics are verified.",
+        bull_summary_kinds: &BULL_SUMMARIES_EVENT_TEMPERATURE,
+        status: BullSummaryStatus::Candidate,
+        note: "Bull has an event_temperature_level candidate path, but metric_readiness still blocks skin-temperature extraction until the units and semantics are verified.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::RespiratoryRaw,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NONE,
-        status: GooseSummaryStatus::NotDecoded,
-        note: "Goose's metric readiness explicitly marks respiratory-rate extraction as not implemented.",
+        bull_summary_kinds: &BULL_SUMMARIES_NONE,
+        status: BullSummaryStatus::NotDecoded,
+        note: "Bull's metric readiness explicitly marks respiratory-rate extraction as not implemented.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::SignalQuality,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NONE,
-        status: GooseSummaryStatus::NotDecoded,
-        note: "Goose does not currently surface a signal-quality summary for this field.",
+        bull_summary_kinds: &BULL_SUMMARIES_NONE,
+        status: BullSummaryStatus::NotDecoded,
+        note: "Bull does not currently surface a signal-quality summary for this field.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::SkinContact,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NONE,
-        status: GooseSummaryStatus::NotDecoded,
-        note: "Goose does not currently surface a skin-contact summary for this field.",
+        bull_summary_kinds: &BULL_SUMMARIES_NONE,
+        status: BullSummaryStatus::NotDecoded,
+        note: "Bull does not currently surface a skin-contact summary for this field.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::Gravity,
         gen4: true,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_RAW_MOTION,
-        status: GooseSummaryStatus::Conflicting,
-        note: "Goose raw motion summaries expose signed axes rather than the derived gravity vector that OpenWhoop stores here, so the semantics do not line up cleanly.",
+        bull_summary_kinds: &BULL_SUMMARIES_RAW_MOTION,
+        status: BullSummaryStatus::Conflicting,
+        note: "Bull raw motion summaries expose signed axes rather than the derived gravity vector that OpenWhoop stores here, so the semantics do not line up cleanly.",
     },
     HistoryFieldReference {
         field: OpenWhoopHistoryField::Gen5Spo2Percentage,
         gen4: false,
         gen5: true,
-        goose_summary_kinds: &GOOSE_SUMMARIES_NONE,
-        status: GooseSummaryStatus::NotDecoded,
-        note: "OpenWhoop marks this as a Gen5-only field, but Goose does not yet have a summary or decoder for it.",
+        bull_summary_kinds: &BULL_SUMMARIES_NONE,
+        status: BullSummaryStatus::NotDecoded,
+        note: "OpenWhoop marks this as a Gen5-only field, but Bull does not yet have a summary or decoder for it.",
     },
 ];
 
@@ -363,14 +363,14 @@ pub fn openwhoop_history_field_reference(
         .find(|reference| reference.field == field)
 }
 
-pub fn openwhoop_history_field_status(field: OpenWhoopHistoryField) -> Option<GooseSummaryStatus> {
+pub fn openwhoop_history_field_status(field: OpenWhoopHistoryField) -> Option<BullSummaryStatus> {
     openwhoop_history_field_reference(field).map(|reference| reference.status)
 }
 
-pub fn openwhoop_history_field_goose_summary_kinds(
+pub fn openwhoop_history_field_bull_summary_kinds(
     field: OpenWhoopHistoryField,
 ) -> Option<&'static [&'static str]> {
-    openwhoop_history_field_reference(field).map(|reference| reference.goose_summary_kinds)
+    openwhoop_history_field_reference(field).map(|reference| reference.bull_summary_kinds)
 }
 
 #[cfg(test)]
@@ -441,27 +441,27 @@ mod tests {
             Some(WhoopGeneration::Gen4)
         );
         assert_eq!(
-            whoop_generation_from_device_type(DeviceType::Goose),
+            whoop_generation_from_device_type(DeviceType::Bull),
             Some(WhoopGeneration::Gen5)
         );
         assert_eq!(whoop_generation_from_device_type(DeviceType::Puffin), None);
     }
 
     #[test]
-    fn history_field_table_marks_goose_statuses() {
+    fn history_field_table_marks_bull_statuses() {
         let bpm = openwhoop_history_field_reference(OpenWhoopHistoryField::Bpm).unwrap();
-        assert_eq!(bpm.status, GooseSummaryStatus::Matched);
-        assert_eq!(bpm.goose_summary_kinds, &GOOSE_SUMMARIES_NORMAL_HISTORY);
+        assert_eq!(bpm.status, BullSummaryStatus::Matched);
+        assert_eq!(bpm.bull_summary_kinds, &BULL_SUMMARIES_NORMAL_HISTORY);
 
         let gravity = openwhoop_history_field_reference(OpenWhoopHistoryField::Gravity).unwrap();
-        assert_eq!(gravity.status, GooseSummaryStatus::Conflicting);
-        assert_eq!(gravity.goose_summary_kinds, &GOOSE_SUMMARIES_RAW_MOTION);
+        assert_eq!(gravity.status, BullSummaryStatus::Conflicting);
+        assert_eq!(gravity.bull_summary_kinds, &BULL_SUMMARIES_RAW_MOTION);
 
         let spo2 =
             openwhoop_history_field_reference(OpenWhoopHistoryField::Gen5Spo2Percentage).unwrap();
         assert!(!spo2.gen4);
         assert!(spo2.gen5);
-        assert_eq!(spo2.status, GooseSummaryStatus::NotDecoded);
+        assert_eq!(spo2.status, BullSummaryStatus::NotDecoded);
     }
 
     #[test]

@@ -85,7 +85,7 @@ pub struct ExistingHealthRecord {
     pub platform_record_id: String,
     pub destination_type: String,
     pub idempotency_key: String,
-    pub goose_marker: String,
+    pub bull_marker: String,
     pub start_time: String,
     pub end_time: String,
     #[serde(default)]
@@ -238,7 +238,7 @@ pub struct PlannedHealthWrite {
     pub start_time: String,
     pub end_time: String,
     pub idempotency_key: String,
-    pub goose_marker: String,
+    pub bull_marker: String,
     pub provenance: serde_json::Value,
 }
 
@@ -256,7 +256,7 @@ pub struct PlannedActivityHealthWrite {
     pub start_time: String,
     pub end_time: String,
     pub idempotency_key: String,
-    pub goose_marker: String,
+    pub bull_marker: String,
     pub attached_metric_count: usize,
     pub attached_interval_count: usize,
     pub provenance: serde_json::Value,
@@ -283,7 +283,7 @@ pub struct PlannedHealthDelete {
     pub platform_record_id: String,
     pub destination_type: String,
     pub idempotency_key: String,
-    pub goose_marker: String,
+    pub bull_marker: String,
     pub start_time: String,
     pub end_time: String,
     pub reason: String,
@@ -360,7 +360,7 @@ fn partial_plan_next_actions(scope: &str, state: PartialPlanState) -> Vec<Health
         return vec![HealthSyncNextAction {
             scope: scope.to_string(),
             reason: "partial_plan_requires_confirmation".to_string(),
-            action: "Ask the user to confirm syncing only the planned Goose rows; blocked rows must remain unwritten.".to_string(),
+            action: "Ask the user to confirm syncing only the planned Bull rows; blocked rows must remain unwritten.".to_string(),
         }];
     }
     if state.blocked_by_policy {
@@ -552,7 +552,7 @@ fn is_leap_year(year: i32) -> bool {
 
 pub fn run_health_sync_dry_run(input: &HealthSyncDryRunInput) -> HealthSyncDryRunReport {
     let mut issues = Vec::new();
-    if input.schema != "goose.health-sync-dry-run.v1" {
+    if input.schema != "bull.health-sync-dry-run.v1" {
         issues.push(format!("unsupported schema {}", input.schema));
     }
     let backfill_times = validate_backfill_window(&input.backfill, &mut issues);
@@ -607,7 +607,7 @@ pub fn run_health_sync_dry_run(input: &HealthSyncDryRunInput) -> HealthSyncDryRu
                 start_time: candidate.start_time.clone(),
                 end_time: candidate.end_time.clone(),
                 idempotency_key,
-                goose_marker: goose_marker(candidate),
+                bull_marker: bull_marker(candidate),
                 provenance: candidate.provenance.clone(),
             });
         } else {
@@ -657,8 +657,8 @@ pub fn run_health_sync_dry_run(input: &HealthSyncDryRunInput) -> HealthSyncDryRu
     let cleanup_scope_ready = health_cleanup_scope_ready(&blocked_deletes);
 
     HealthSyncDryRunReport {
-        schema: "goose.health-sync-dry-run-report.v1".to_string(),
-        generated_by: "goose-health-sync-dry-run".to_string(),
+        schema: "bull.health-sync-dry-run-report.v1".to_string(),
+        generated_by: "bull-health-sync-dry-run".to_string(),
         platform: input.platform,
         pass: input_valid,
         input_valid,
@@ -698,7 +698,7 @@ pub fn run_activity_health_sync_dry_run(
     input: &ActivityHealthSyncDryRunInput,
 ) -> ActivityHealthSyncDryRunReport {
     let mut issues = Vec::new();
-    if input.schema != "goose.activity-health-sync-dry-run.v1" {
+    if input.schema != "bull.activity-health-sync-dry-run.v1" {
         issues.push(format!("unsupported schema {}", input.schema));
     }
     let backfill_times = validate_backfill_window(&input.backfill, &mut issues);
@@ -736,7 +736,7 @@ pub fn run_activity_health_sync_dry_run(
                     start_time: session.start_time.clone(),
                     end_time: session.end_time.clone(),
                     idempotency_key,
-                    goose_marker: activity_goose_marker(session),
+                    bull_marker: activity_bull_marker(session),
                     attached_metric_count: syncable_activity_metric_count(session),
                     attached_interval_count: syncable_activity_interval_count(session),
                     provenance: session.provenance.clone(),
@@ -772,8 +772,8 @@ pub fn run_activity_health_sync_dry_run(
     ));
     next_actions = dedupe_health_next_actions(next_actions);
     ActivityHealthSyncDryRunReport {
-        schema: "goose.activity-health-sync-dry-run-report.v1".to_string(),
-        generated_by: "goose-activity-health-sync-dry-run".to_string(),
+        schema: "bull.activity-health-sync-dry-run-report.v1".to_string(),
+        generated_by: "bull-activity-health-sync-dry-run".to_string(),
         platform: input.platform,
         pass: input_valid,
         input_valid,
@@ -1233,9 +1233,9 @@ fn activity_idempotency_key(session: &ActivitySyncCandidate) -> String {
     })
 }
 
-fn activity_goose_marker(session: &ActivitySyncCandidate) -> String {
+fn activity_bull_marker(session: &ActivitySyncCandidate) -> String {
     format!(
-        "goose:{}:{}:{}",
+        "bull:{}:{}:{}",
         session_kind_marker(session.session_kind),
         session.activity_type,
         session.session_id
@@ -1336,10 +1336,10 @@ fn plan_health_deletes(
                 platform_record_id: existing.platform_record_id.clone(),
                 destination_type: existing.destination_type.clone(),
                 idempotency_key: existing.idempotency_key.clone(),
-                goose_marker: existing.goose_marker.clone(),
+                bull_marker: existing.bull_marker.clone(),
                 start_time: existing.start_time.clone(),
                 end_time: existing.end_time.clone(),
-                reason: "stale_goose_record_in_backfill".to_string(),
+                reason: "stale_bull_record_in_backfill".to_string(),
             });
         } else {
             reasons.sort();
@@ -1450,7 +1450,7 @@ fn health_cleanup_scope_ready(blocked_deletes: &[BlockedHealthDelete]) -> bool {
             reason.ends_with("_required")
                 || matches!(
                     reason.as_str(),
-                    "outside_backfill_window" | "end_time_not_after_start_time" | "not_goose_owned"
+                    "outside_backfill_window" | "end_time_not_after_start_time" | "not_bull_owned"
                 )
         })
 }
@@ -1467,7 +1467,7 @@ fn validate_existing_record_for_delete(
         ("platform_record_id", existing.platform_record_id.as_str()),
         ("destination_type", existing.destination_type.as_str()),
         ("idempotency_key", existing.idempotency_key.as_str()),
-        ("goose_marker", existing.goose_marker.as_str()),
+        ("bull_marker", existing.bull_marker.as_str()),
         ("start_time", existing.start_time.as_str()),
         ("end_time", existing.end_time.as_str()),
     ] {
@@ -1487,10 +1487,10 @@ fn validate_existing_record_for_delete(
     {
         reasons.push("end_time_not_after_start_time".to_string());
     }
-    if !existing.goose_marker.starts_with("goose:")
-        || !existing.idempotency_key.starts_with("goose:")
+    if !existing.bull_marker.starts_with("bull:")
+        || !existing.idempotency_key.starts_with("bull:")
     {
-        reasons.push("not_goose_owned".to_string());
+        reasons.push("not_bull_owned".to_string());
     }
     if !platform_delete_supported(input.platform, &existing.destination_type) {
         reasons.push("unsupported_delete_mapping".to_string());
@@ -1544,7 +1544,7 @@ fn next_actions_for_health_reasons(
 
 fn health_sync_issue_action(issue: &str) -> String {
     if issue.starts_with("unsupported schema ") {
-        return "Use goose.health-sync-dry-run.v1 input before planning Health sync.".to_string();
+        return "Use bull.health-sync-dry-run.v1 input before planning Health sync.".to_string();
     }
     if issue == "backfill.start_required" {
         return "Choose a Health sync backfill start before planning Health sync.".to_string();
@@ -1595,7 +1595,7 @@ fn health_sync_reason_action(
                 .to_string()
         }
         "unsupported_delete_mapping" => {
-            "Leave this platform record untouched or add a supported Goose cleanup mapping."
+            "Leave this platform record untouched or add a supported Bull cleanup mapping."
                 .to_string()
         }
         "outside_backfill_window" => {
@@ -1609,11 +1609,11 @@ fn health_sync_reason_action(
                 .to_string()
         }
         "unsafe_source_kind" => {
-            "Use a Goose-owned decoded, derived, user-confirmed, or manual source kind."
+            "Use a Bull-owned decoded, derived, user-confirmed, or manual source kind."
                 .to_string()
         }
         "unsupported_activity_type_mapping" => {
-            "Use a supported Goose activity, workout, or sleep type before planning this session."
+            "Use a supported Bull activity, workout, or sleep type before planning this session."
                 .to_string()
         }
         "activity_metric_time_range_incomplete" => {
@@ -1627,30 +1627,30 @@ fn health_sync_reason_action(
             "Fix the activity interval time range so end_time is after start_time.".to_string()
         }
         "benchmark_only_algorithm_not_syncable" => {
-            "Use a Goose-owned primary algorithm output instead of a benchmark/reference output."
+            "Use a Bull-owned primary algorithm output instead of a benchmark/reference output."
                 .to_string()
         }
         "missing_provenance" => {
-            "Attach non-empty Goose provenance linking this value to owned data or an approved algorithm run."
+            "Attach non-empty Bull provenance linking this value to owned data or an approved algorithm run."
                 .to_string()
         }
         "provenance_must_be_object" => {
             "Store provenance as a non-empty JSON object before syncing.".to_string()
         }
         "private_api_provenance_not_syncable" => {
-            "Replace private API provenance with user-owned capture/import provenance; Goose must not sync private API replay material."
+            "Replace private API provenance with user-owned capture/import provenance; Bull must not sync private API replay material."
                 .to_string()
         }
         "official_whoop_label_not_syncable" => {
-            "Keep official WHOOP labels as labels only; sync Goose outputs or decoded owned values instead."
+            "Keep official WHOOP labels as labels only; sync Bull outputs or decoded owned values instead."
                 .to_string()
         }
         "platform_import_not_syncable" => {
-            "Keep HealthKit and Health Connect values out of Goose local metrics; only sync Goose-owned decoded or derived outputs."
+            "Keep HealthKit and Health Connect values out of Bull local metrics; only sync Bull-owned decoded or derived outputs."
                 .to_string()
         }
         "healthkit_rmssd_must_not_be_written_as_sdnn" => {
-            "Do not write RMSSD to HealthKit SDNN; sync SDNN only if Goose can calculate SDNN, or use Health Connect RMSSD."
+            "Do not write RMSSD to HealthKit SDNN; sync SDNN only if Bull can calculate SDNN, or use Health Connect RMSSD."
                 .to_string()
         }
         "health_connect_has_no_sdnn_record" => {
@@ -1661,8 +1661,8 @@ fn health_sync_reason_action(
             "Deduplicate candidate records or adjust source ids/time windows so each Health record has one idempotency key."
                 .to_string()
         }
-        "not_goose_owned" => {
-            "Do not delete external platform records; cleanup is limited to Goose-owned records."
+        "not_bull_owned" => {
+            "Do not delete external platform records; cleanup is limited to Bull-owned records."
                 .to_string()
         }
         _ => format!("Resolve Health sync blocker {reason}, then rerun the dry run."),
@@ -2020,14 +2020,14 @@ fn idempotency_key(
     candidate: &HealthSyncCandidate,
 ) -> String {
     format!(
-        "goose:{platform:?}:{destination_type}:{}:{}:{}",
+        "bull:{platform:?}:{destination_type}:{}:{}:{}",
         candidate.record_id, candidate.start_time, candidate.end_time
     )
 }
 
-fn goose_marker(candidate: &HealthSyncCandidate) -> String {
+fn bull_marker(candidate: &HealthSyncCandidate) -> String {
     format!(
-        "goose:{}:{}:{}",
+        "bull:{}:{}:{}",
         candidate.metric_family,
         candidate.algorithm_id.as_deref().unwrap_or("raw"),
         candidate.record_id

@@ -1,9 +1,9 @@
-use goose_core::{
+use bull_core::{
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, apply_calibration,
         calibration_run_record, evaluate_linear_calibration,
     },
-    store::{AlgorithmDefinitionRecord, CalibrationRunTimes, GooseStore},
+    store::{AlgorithmDefinitionRecord, CalibrationRunTimes, BullStore},
 };
 
 const FIXTURE: &str = include_str!("../fixtures/synthetic/recovery_calibration_linear.json");
@@ -159,17 +159,17 @@ fn calibration_run_persists_to_sqlite() {
     let report = evaluate_linear_calibration(&dataset, &default_options());
     assert!(report.pass);
 
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     store
         .upsert_algorithm_definition(&AlgorithmDefinitionRecord {
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             version: "0.1.0".to_string(),
             metric_family: "recovery".to_string(),
-            display_name: "Goose Recovery v0".to_string(),
+            display_name: "Bull Recovery v0".to_string(),
             implementation: "rust".to_string(),
             license: "UNLICENSED".to_string(),
-            input_schema: "goose.recovery-input.v1".to_string(),
-            output_schema: "goose.recovery-output.v1".to_string(),
+            input_schema: "bull.recovery-input.v1".to_string(),
+            output_schema: "bull.recovery-output.v1".to_string(),
             input_requirements_json: "{}".to_string(),
             params_json: "{}".to_string(),
             quality_gates_json: "[]".to_string(),
@@ -181,7 +181,7 @@ fn calibration_run_persists_to_sqlite() {
     assert!(!store.insert_calibration_run(&record).unwrap());
 
     let saved = store.calibration_run("calibration-run-1").unwrap().unwrap();
-    assert_eq!(saved.algorithm_id, "goose.recovery.v0");
+    assert_eq!(saved.algorithm_id, "bull.recovery.v0");
     assert!(saved.params_json.contains("ordinary_least_squares_1d"));
     assert_eq!(
         store
@@ -193,7 +193,7 @@ fn calibration_run_persists_to_sqlite() {
 }
 
 #[test]
-fn applies_passed_calibration_model_to_local_goose_score() {
+fn applies_passed_calibration_model_to_local_bull_score() {
     let dataset: CalibrationDataset = serde_json::from_str(FIXTURE).unwrap();
     let report = evaluate_linear_calibration(&dataset, &default_options());
     assert!(report.pass);
@@ -201,7 +201,7 @@ fn applies_passed_calibration_model_to_local_goose_score() {
 
     let application = apply_calibration(&CalibrationApplicationInput {
         metric_family: "recovery".to_string(),
-        algorithm_id: "goose.recovery.v0".to_string(),
+        algorithm_id: "bull.recovery.v0".to_string(),
         algorithm_version: "0.1.0".to_string(),
         raw_score: 70.0,
         input_run_id: Some("recovery-run-1".to_string()),
@@ -223,7 +223,7 @@ fn applies_passed_calibration_model_to_local_goose_score() {
         application.next_actions
     );
     assert_close(application.calibrated_score.unwrap(), 79.0);
-    assert_eq!(application.output_kind, "goose_calibrated_local_score");
+    assert_eq!(application.output_kind, "bull_calibrated_local_score");
     assert!(application.official_labels_are_labels);
     assert_eq!(
         application.provenance["label_policy"],
@@ -239,7 +239,7 @@ fn apply_calibration_clamps_to_score_range_and_flags_it() {
 
     let application = apply_calibration(&CalibrationApplicationInput {
         metric_family: "recovery".to_string(),
-        algorithm_id: "goose.recovery.v0".to_string(),
+        algorithm_id: "bull.recovery.v0".to_string(),
         algorithm_version: "0.1.0".to_string(),
         raw_score: 200.0,
         input_run_id: None,
@@ -265,9 +265,9 @@ fn apply_calibration_clamps_to_score_range_and_flags_it() {
 
 #[test]
 fn apply_calibration_rejects_failed_or_mismatched_calibration_runs() {
-    let failed_record = goose_core::store::CalibrationRunRecord {
+    let failed_record = bull_core::store::CalibrationRunRecord {
         calibration_run_id: "failed-calibration".to_string(),
-        algorithm_id: "goose.sleep.v0".to_string(),
+        algorithm_id: "bull.sleep.v0".to_string(),
         version: "0.1.0".to_string(),
         times: CalibrationRunTimes {
             train_start: "2026-05-01T00:00:00Z".to_string(),
@@ -285,7 +285,7 @@ fn apply_calibration_rejects_failed_or_mismatched_calibration_runs() {
 
     let application = apply_calibration(&CalibrationApplicationInput {
         metric_family: "recovery".to_string(),
-        algorithm_id: "goose.recovery.v0".to_string(),
+        algorithm_id: "bull.recovery.v0".to_string(),
         algorithm_version: "0.1.0".to_string(),
         raw_score: 70.0,
         input_run_id: None,
@@ -306,7 +306,7 @@ fn apply_calibration_rejects_failed_or_mismatched_calibration_runs() {
         application
             .issues
             .iter()
-            .any(|issue| issue.contains("calibration run targets goose.sleep.v0"))
+            .any(|issue| issue.contains("calibration run targets bull.sleep.v0"))
     );
     assert!(
         application
@@ -331,7 +331,7 @@ fn apply_calibration_rejects_failed_or_mismatched_calibration_runs() {
 #[test]
 fn reports_next_actions_for_insufficient_calibration_rows() {
     let dataset = CalibrationDataset {
-        schema: "goose.calibration-dataset.v1".to_string(),
+        schema: "bull.calibration-dataset.v1".to_string(),
         records: Vec::new(),
     };
     let report = evaluate_linear_calibration(&dataset, &default_options());
@@ -362,7 +362,7 @@ fn reports_next_actions_for_insufficient_calibration_rows() {
 fn default_options() -> CalibrationOptions {
     CalibrationOptions {
         metric_family: "recovery".to_string(),
-        algorithm_id: "goose.recovery.v0".to_string(),
+        algorithm_id: "bull.recovery.v0".to_string(),
         algorithm_version: "0.1.0".to_string(),
         split_at: "2026-05-04T00:00:00Z".to_string(),
         min_train_rows: 2,

@@ -2,7 +2,7 @@
 fn command_capture_plan_cli_emits_selected_command_plan() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures/command-evidence/whoop-emulator-command-evidence.json");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-capture-plan"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-capture-plan"))
         .arg("--evidence")
         .arg(path)
         .arg("--commands")
@@ -12,8 +12,8 @@ fn command_capture_plan_cli_emits_selected_command_plan() {
 
     assert!(!output.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(plan["schema"], "goose.command-capture-plan-report.v1");
-    assert_eq!(plan["generated_by"], "goose-command-capture-plan");
+    assert_eq!(plan["schema"], "bull.command-capture-plan-report.v1");
+    assert_eq!(plan["generated_by"], "bull-command-capture-plan");
     assert_eq!(plan["command_count"], 2);
     assert_eq!(plan["requested_commands_valid"], true);
     assert_eq!(plan["validation_records_valid"], true);
@@ -44,7 +44,7 @@ fn command_capture_plan_cli_can_ingest_emulator_log_and_write_evidence() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-capture-plan"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-capture-plan"))
         .arg("--emulator-log")
         .arg(&log_path)
         .arg("--emulator-evidence-output")
@@ -57,6 +57,6 @@ fn command_capture_plan_cli_can_ingest_emulator_log_and_write_evidence() {
         .unwrap();
 
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(plan["schema"], "goose.command-capture-plan-report.v1");
+    assert_eq!(plan["schema"], "bull.command-capture-plan-report.v1");
     assert!(evidence_output.exists());
 }

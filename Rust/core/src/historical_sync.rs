@@ -9,14 +9,14 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const HISTORICAL_SYNC_DRY_RUN_SCHEMA: &str = "goose.historical-sync-dry-run.v1";
-pub const HISTORICAL_SYNC_DRY_RUN_REPORT_SCHEMA: &str = "goose.historical-sync-dry-run-report.v1";
+pub const HISTORICAL_SYNC_DRY_RUN_SCHEMA: &str = "bull.historical-sync-dry-run.v1";
+pub const HISTORICAL_SYNC_DRY_RUN_REPORT_SCHEMA: &str = "bull.historical-sync-dry-run-report.v1";
 pub const HISTORICAL_SYNC_PHYSICAL_VALIDATION_SCHEMA: &str =
-    "goose.historical-sync-physical-validation.v1";
+    "bull.historical-sync-physical-validation.v1";
 pub const HISTORICAL_SYNC_PHYSICAL_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.historical-sync-physical-validation-report.v1";
+    "bull.historical-sync-physical-validation-report.v1";
 pub const HISTORICAL_SYNC_PHYSICAL_EVIDENCE_TEMPLATE_SCHEMA: &str =
-    "goose.historical-sync-physical-evidence-template.v1";
+    "bull.historical-sync-physical-evidence-template.v1";
 pub const HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY: &str =
     "historical_sync_physical_requires_current_flow_event_order_and_timestamp_integrity";
 pub const HISTORICAL_SYNC_PHYSICAL_VALIDATION_POLICY: &str =
@@ -830,7 +830,7 @@ pub fn historical_sync_physical_evidence_template(
     let expected_service_uuid = expected_historical_service_uuid(generation).to_string();
     HistoricalSyncPhysicalEvidenceTemplate {
         schema: HISTORICAL_SYNC_PHYSICAL_EVIDENCE_TEMPLATE_SCHEMA.to_string(),
-        generated_by: "goose-historical-sync-physical-validator".to_string(),
+        generated_by: "bull-historical-sync-physical-validator".to_string(),
         generation,
         capture_session_id: capture_session_id.clone(),
         expected_service_uuid: expected_service_uuid.clone(),
@@ -1058,7 +1058,7 @@ pub fn validate_historical_sync_physical_evidence(
         && timestamp_fields_confirmed;
     let mut report = HistoricalSyncPhysicalValidationReport {
         schema: HISTORICAL_SYNC_PHYSICAL_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-historical-sync-physical-validator".to_string(),
+        generated_by: "bull-historical-sync-physical-validator".to_string(),
         pass,
         generation: input.generation,
         capture_session_id: input.capture_session_id.clone(),
@@ -1460,7 +1460,7 @@ fn finish_report(
     let next_actions = next_actions_for_issues(&issues);
     HistoricalSyncDryRunReport {
         schema: HISTORICAL_SYNC_DRY_RUN_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-historical-sync-dry-run".to_string(),
+        generated_by: "bull-historical-sync-dry-run".to_string(),
         generation: input.generation,
         pass: input_valid && state == HistoricalSyncState::Complete && issues.is_empty(),
         input_valid,
@@ -1500,8 +1500,8 @@ fn next_actions_for_issues(issues: &[String]) -> Vec<HistoricalSyncNextAction> {
 
 fn issue_action(issue: &str) -> String {
     match issue {
-        "unsupported schema goose.historical-sync-dry-run.v1" => {
-            "Use goose.historical-sync-dry-run.v1 input before planning historical sync."
+        "unsupported schema bull.historical-sync-dry-run.v1" => {
+            "Use bull.historical-sync-dry-run.v1 input before planning historical sync."
                 .to_string()
         }
         "device_disconnected" => {
@@ -1541,7 +1541,7 @@ fn issue_action(issue: &str) -> String {
                 .to_string()
         }
         value if value.starts_with("unsupported schema ") => {
-            "Use goose.historical-sync-dry-run.v1 input before planning historical sync."
+            "Use bull.historical-sync-dry-run.v1 input before planning historical sync."
                 .to_string()
         }
         _ => format!("Resolve historical sync issue {issue}, then rerun the dry run."),
@@ -1600,7 +1600,7 @@ fn physical_validation_issue_action(issue: &str) -> String {
             "Capture historical motion and heart-rate packets with device timestamps whose UTC sample times match the device timestamp fields and differ from import time.".to_string()
         }
         value if value.starts_with("unsupported schema ") => {
-            "Use goose.historical-sync-physical-validation.v1 for physical evidence bundles.".to_string()
+            "Use bull.historical-sync-physical-validation.v1 for physical evidence bundles.".to_string()
         }
         _ => format!("Resolve physical historical sync validation issue {issue}."),
     }

@@ -1,17 +1,17 @@
-use goose_core::{
+use bull_core::{
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     protocol::{DeviceType, PACKET_TYPE_REALTIME_RAW_DATA, build_v5_payload_frame},
-    store::GooseStore,
+    store::BullStore,
 };
 
 #[test]
 fn metric_feature_report_cli_builds_motion_report_from_owned_capture() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     import_motion_frame(&store);
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("motion")
         .arg("--database")
@@ -28,8 +28,8 @@ fn metric_feature_report_cli_builds_motion_report_from_owned_capture() {
 
     assert!(output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.motion-feature-report.v1");
-    assert_eq!(report["generated_by"], "goose-motion-feature-extractor");
+    assert_eq!(report["schema"], "bull.motion-feature-report.v1");
+    assert_eq!(report["generated_by"], "bull-motion-feature-extractor");
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
@@ -40,9 +40,9 @@ fn metric_feature_report_cli_builds_motion_report_from_owned_capture() {
 #[test]
 fn metric_feature_report_cli_emits_heart_rate_blockers_without_trusted_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("heart-rate")
         .arg("--database")
@@ -59,7 +59,7 @@ fn metric_feature_report_cli_emits_heart_rate_blockers_without_trusted_evidence(
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.heart-rate-feature-report.v1");
+    assert_eq!(report["schema"], "bull.heart-rate-feature-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["feature_count"], 0);
     assert_eq!(report["trusted_feature_count"], 0);
@@ -82,9 +82,9 @@ fn metric_feature_report_cli_emits_heart_rate_blockers_without_trusted_evidence(
 #[test]
 fn metric_feature_report_cli_runs_step_packet_discovery_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("step-discovery")
         .arg("--database")
@@ -98,7 +98,7 @@ fn metric_feature_report_cli_runs_step_packet_discovery_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.step-packet-discovery-report.v1");
+    assert_eq!(report["schema"], "bull.step-packet-discovery-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["decoded_frame_count"], 0);
     assert!(
@@ -113,9 +113,9 @@ fn metric_feature_report_cli_runs_step_packet_discovery_alias() {
 #[test]
 fn metric_feature_report_cli_runs_step_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("step-validation")
         .arg("--database")
@@ -137,7 +137,7 @@ fn metric_feature_report_cli_runs_step_capture_validation_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.step-capture-validation-report.v1");
+    assert_eq!(report["schema"], "bull.step-capture-validation-report.v1");
     assert_eq!(report["capture_kind"], "100_counted_steps");
     assert_eq!(report["manual_step_delta"], 100);
     assert_eq!(report["official_whoop_step_delta"], 97);
@@ -154,9 +154,9 @@ fn metric_feature_report_cli_runs_step_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_runs_raw_motion_step_estimate_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("raw-motion-steps")
         .arg("--database")
@@ -174,8 +174,8 @@ fn metric_feature_report_cli_runs_raw_motion_step_estimate_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.raw-motion-step-estimate-report.v1");
-    assert_eq!(report["algorithm_id"], "goose.steps.raw_motion_estimate.v0");
+    assert_eq!(report["schema"], "bull.raw-motion-step-estimate-report.v1");
+    assert_eq!(report["algorithm_id"], "bull.steps.raw_motion_estimate.v0");
     assert_eq!(report["source_kind_if_promoted"], "local_estimate");
     assert_eq!(report["manual_step_delta"], 100);
     assert!(
@@ -190,9 +190,9 @@ fn metric_feature_report_cli_runs_raw_motion_step_estimate_alias() {
 #[test]
 fn metric_feature_report_cli_runs_step_counter_ingest_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("step-counter-ingest")
         .arg("--database")
@@ -206,7 +206,7 @@ fn metric_feature_report_cli_runs_step_counter_ingest_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.step-counter-ingest-report.v1");
+    assert_eq!(report["schema"], "bull.step-counter-ingest-report.v1");
     assert_eq!(report["pass"], false);
     assert!(
         report["issues"]
@@ -220,9 +220,9 @@ fn metric_feature_report_cli_runs_step_counter_ingest_alias() {
 #[test]
 fn metric_feature_report_cli_runs_step_counter_daily_rollup_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("step-rollup")
         .arg("--database")
@@ -242,7 +242,7 @@ fn metric_feature_report_cli_runs_step_counter_daily_rollup_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.step-counter-daily-rollup-report.v1"
+        "bull.step-counter-daily-rollup-report.v1"
     );
     assert_eq!(report["pass"], false);
     assert_eq!(report["daily_metric_written"], false);
@@ -258,9 +258,9 @@ fn metric_feature_report_cli_runs_step_counter_daily_rollup_alias() {
 #[test]
 fn metric_feature_report_cli_runs_step_counter_hourly_rollup_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("hourly-step-rollup")
         .arg("--database")
@@ -280,7 +280,7 @@ fn metric_feature_report_cli_runs_step_counter_hourly_rollup_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.step-counter-hourly-rollup-report.v1"
+        "bull.step-counter-hourly-rollup-report.v1"
     );
     assert_eq!(report["pass"], false);
     assert_eq!(report["hourly_metric_written"], false);
@@ -296,9 +296,9 @@ fn metric_feature_report_cli_runs_step_counter_hourly_rollup_alias() {
 #[test]
 fn metric_feature_report_cli_runs_activity_unavailable_status_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("steps-unavailable-status")
         .arg("--database")
@@ -321,7 +321,7 @@ fn metric_feature_report_cli_runs_activity_unavailable_status_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.activity-unavailable-daily-status-report.v1"
+        "bull.activity-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["unavailable_metric_count"], 1);
@@ -329,7 +329,7 @@ fn metric_feature_report_cli_runs_activity_unavailable_status_alias() {
     assert_eq!(report["statuses"][0]["metric_id"], "steps");
     assert_eq!(report["statuses"][0]["source_kind"], "unavailable");
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(
         store
             .daily_activity_metrics_between(0, i64::MAX)
@@ -344,9 +344,9 @@ fn metric_feature_report_cli_runs_activity_unavailable_status_alias() {
 #[test]
 fn metric_feature_report_cli_runs_resting_heart_rate_daily_rollup_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("rhr-rollup")
         .arg("--database")
@@ -368,7 +368,7 @@ fn metric_feature_report_cli_runs_resting_heart_rate_daily_rollup_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.resting-heart-rate-daily-rollup-report.v1"
+        "bull.resting-heart-rate-daily-rollup-report.v1"
     );
     assert_eq!(report["pass"], false);
     assert_eq!(report["daily_metric_written"], false);
@@ -384,9 +384,9 @@ fn metric_feature_report_cli_runs_resting_heart_rate_daily_rollup_alias() {
 #[test]
 fn metric_feature_report_cli_runs_resting_heart_rate_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("rhr-validation")
         .arg("--database")
@@ -412,7 +412,7 @@ fn metric_feature_report_cli_runs_resting_heart_rate_capture_validation_alias() 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.resting-heart-rate-capture-validation-report.v1"
+        "bull.resting-heart-rate-capture-validation-report.v1"
     );
     assert_eq!(
         report["label_policy"],
@@ -432,9 +432,9 @@ fn metric_feature_report_cli_runs_resting_heart_rate_capture_validation_alias() 
 #[test]
 fn metric_feature_report_cli_runs_energy_daily_rollup_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("energy-rollup")
         .arg("--database")
@@ -460,7 +460,7 @@ fn metric_feature_report_cli_runs_energy_daily_rollup_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.energy-daily-rollup-report.v1");
+    assert_eq!(report["schema"], "bull.energy-daily-rollup-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["daily_metric_written"], false);
     assert!(
@@ -475,9 +475,9 @@ fn metric_feature_report_cli_runs_energy_daily_rollup_alias() {
 #[test]
 fn metric_feature_report_cli_runs_energy_unavailable_status_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("calories-unavailable-status")
         .arg("--database")
@@ -506,7 +506,7 @@ fn metric_feature_report_cli_runs_energy_unavailable_status_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.energy-unavailable-daily-status-report.v1"
+        "bull.energy-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["unavailable_metric_count"], 3);
@@ -520,7 +520,7 @@ fn metric_feature_report_cli_runs_energy_unavailable_status_alias() {
                 && status["source_kind"] == "unavailable")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(
         store
             .daily_activity_metrics_between(0, i64::MAX)
@@ -535,9 +535,9 @@ fn metric_feature_report_cli_runs_energy_unavailable_status_alias() {
 #[test]
 fn metric_feature_report_cli_runs_energy_hourly_rollup_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("hourly-energy-rollup")
         .arg("--database")
@@ -563,7 +563,7 @@ fn metric_feature_report_cli_runs_energy_hourly_rollup_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.energy-hourly-rollup-report.v1");
+    assert_eq!(report["schema"], "bull.energy-hourly-rollup-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["hourly_metric_written"], false);
     assert!(
@@ -578,9 +578,9 @@ fn metric_feature_report_cli_runs_energy_hourly_rollup_alias() {
 #[test]
 fn metric_feature_report_cli_runs_energy_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("energy-validation")
         .arg("--database")
@@ -604,7 +604,7 @@ fn metric_feature_report_cli_runs_energy_capture_validation_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.energy-capture-validation-report.v1"
+        "bull.energy-capture-validation-report.v1"
     );
     assert_eq!(
         report["label_policy"],
@@ -624,9 +624,9 @@ fn metric_feature_report_cli_runs_energy_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_merges_extra_json_args_for_hrv_options() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("hrv")
         .arg("--database")
@@ -643,7 +643,7 @@ fn metric_feature_report_cli_merges_extra_json_args_for_hrv_options() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.hrv-feature-report.v1");
+    assert_eq!(report["schema"], "bull.hrv-feature-report.v1");
     assert_eq!(report["pass"], false);
     assert!(
         report["issues"]
@@ -664,9 +664,9 @@ fn metric_feature_report_cli_merges_extra_json_args_for_hrv_options() {
 #[test]
 fn metric_feature_report_cli_runs_hrv_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("hrv-validation")
         .arg("--database")
@@ -691,7 +691,7 @@ fn metric_feature_report_cli_runs_hrv_capture_validation_alias() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.hrv-capture-validation-report.v1");
+    assert_eq!(report["schema"], "bull.hrv-capture-validation-report.v1");
     assert_eq!(
         report["label_policy"],
         "official_whoop_values_are_validation_labels_not_inputs"
@@ -725,9 +725,9 @@ fn metric_feature_report_cli_runs_hrv_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_runs_respiratory_rate_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("respiratory-rate-validation")
         .arg("--database")
@@ -752,7 +752,7 @@ fn metric_feature_report_cli_runs_respiratory_rate_capture_validation_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.respiratory-rate-capture-validation-report.v1"
+        "bull.respiratory-rate-capture-validation-report.v1"
     );
     assert_eq!(
         report["label_policy"],
@@ -784,9 +784,9 @@ fn metric_feature_report_cli_runs_respiratory_rate_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_runs_oxygen_saturation_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("spo2-validation")
         .arg("--database")
@@ -811,7 +811,7 @@ fn metric_feature_report_cli_runs_oxygen_saturation_capture_validation_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.oxygen-saturation-capture-validation-report.v1"
+        "bull.oxygen-saturation-capture-validation-report.v1"
     );
     assert_eq!(
         report["label_policy"],
@@ -844,9 +844,9 @@ fn metric_feature_report_cli_runs_oxygen_saturation_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_runs_temperature_capture_validation_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("temperature-validation")
         .arg("--database")
@@ -871,7 +871,7 @@ fn metric_feature_report_cli_runs_temperature_capture_validation_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.temperature-capture-validation-report.v1"
+        "bull.temperature-capture-validation-report.v1"
     );
     assert_eq!(
         report["label_policy"],
@@ -904,9 +904,9 @@ fn metric_feature_report_cli_runs_temperature_capture_validation_alias() {
 #[test]
 fn metric_feature_report_cli_runs_recovery_sensor_discovery_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("recovery-sensors")
         .arg("--database")
@@ -925,7 +925,7 @@ fn metric_feature_report_cli_runs_recovery_sensor_discovery_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.recovery-sensor-discovery-report.v1"
+        "bull.recovery-sensor-discovery-report.v1"
     );
     assert_eq!(report["pass"], false);
     assert_eq!(report["widgets"].as_array().unwrap().len(), 4);
@@ -946,9 +946,9 @@ fn metric_feature_report_cli_runs_recovery_sensor_discovery_alias() {
 #[test]
 fn metric_feature_report_cli_runs_recovery_unavailable_status_alias() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("recovery-unavailable-status")
         .arg("--database")
@@ -974,7 +974,7 @@ fn metric_feature_report_cli_runs_recovery_unavailable_status_alias() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.recovery-unavailable-daily-status-report.v1"
+        "bull.recovery-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["unavailable_metric_count"], 4);
@@ -988,7 +988,7 @@ fn metric_feature_report_cli_runs_recovery_unavailable_status_alias() {
                 && status["source_kind"] == "unavailable")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(
         store
             .daily_recovery_metrics_between(0, i64::MAX)
@@ -1004,9 +1004,9 @@ fn metric_feature_report_cli_runs_recovery_unavailable_status_alias() {
 fn metric_feature_report_cli_runs_recovery_sensor_daily_rollup_alias_without_promoting_blocked_candidates()
  {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-feature-report"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-feature-report"))
         .arg("--method")
         .arg("recovery-sensor-rollup")
         .arg("--database")
@@ -1032,7 +1032,7 @@ fn metric_feature_report_cli_runs_recovery_sensor_daily_rollup_alias_without_pro
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.recovery-sensor-daily-rollup-report.v1"
+        "bull.recovery-sensor-daily-rollup-report.v1"
     );
     assert_eq!(report["pass"], false);
     assert_eq!(report["metric_count"], 4);
@@ -1049,7 +1049,7 @@ fn metric_feature_report_cli_runs_recovery_sensor_daily_rollup_alias_without_pro
                 && status["local_value"].is_null())
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(
         store
             .daily_recovery_metrics_between(0, i64::MAX)
@@ -1065,23 +1065,23 @@ fn metric_feature_report_cli_runs_recovery_sensor_daily_rollup_alias_without_pro
     );
 }
 
-fn import_motion_frame(store: &GooseStore) {
+fn import_motion_frame(store: &BullStore) {
     let frames = vec![CapturedFrameInput {
         evidence_id: "metric-feature-cli-motion".to_string(),
         frame_id: Some("metric-feature-cli-motion.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-30T12:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: k10_motion_frame_hex(),
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/metric-feature-cli-test",
+            parser_version: "bull-core/metric-feature-cli-test",
         },
     )
     .unwrap();

@@ -6,8 +6,8 @@ APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CORE_DIR="$APP_DIR/Rust/core"
 RUST_DIR="$APP_DIR/Rust"
 
-if [[ "${GOOSE_SKIP_RUST_CORE_BUILD:-0}" == "1" ]]; then
-  echo "Skipping Goose Rust core build because GOOSE_SKIP_RUST_CORE_BUILD=1"
+if [[ "${BULL_SKIP_RUST_CORE_BUILD:-0}" == "1" ]]; then
+  echo "Skipping Bull Rust core build because BULL_SKIP_RUST_CORE_BUILD=1"
   exit 0
 fi
 
@@ -17,10 +17,10 @@ CURRENT_ARCH="${CURRENT_ARCH:-${ARCHS:-arm64}}"
 IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-${IPHONEOS_DEPLOYMENT_TARGET:-14.0}}"
 export IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET"
 
-if [[ "${GOOSE_RUST_RELEASE:-0}" == "1" ]]; then
+if [[ "${BULL_RUST_RELEASE:-0}" == "1" ]]; then
   CARGO_RELEASE=1
   CARGO_PROFILE_DIR="release"
-elif [[ "$PLATFORM_NAME" == "iphoneos" && "${GOOSE_RUST_DEBUG_BUILD:-0}" != "1" ]]; then
+elif [[ "$PLATFORM_NAME" == "iphoneos" && "${BULL_RUST_DEBUG_BUILD:-0}" != "1" ]]; then
   CARGO_RELEASE=1
   CARGO_PROFILE_DIR="release"
 else
@@ -59,9 +59,9 @@ case "$PLATFORM_NAME" in
 esac
 
 PLATFORM_RUST_DIR="$RUST_DIR/$PLATFORM_NAME"
-PLATFORM_OUTPUT_LIB="$PLATFORM_RUST_DIR/libgoose_core.a"
-PLATFORM_TARGET_FILE="$PLATFORM_RUST_DIR/.goose_core.target"
-PLATFORM_PROFILE_FILE="$PLATFORM_RUST_DIR/.goose_core.profile"
+PLATFORM_OUTPUT_LIB="$PLATFORM_RUST_DIR/libbull_core.a"
+PLATFORM_TARGET_FILE="$PLATFORM_RUST_DIR/.bull_core.target"
+PLATFORM_PROFILE_FILE="$PLATFORM_RUST_DIR/.bull_core.profile"
 
 if [[ -f "$PLATFORM_OUTPUT_LIB" && -f "$PLATFORM_TARGET_FILE" && -f "$PLATFORM_PROFILE_FILE" ]]; then
   CURRENT_BUILT_TARGET="$(cat "$PLATFORM_TARGET_FILE")"
@@ -78,7 +78,7 @@ if [[ -f "$PLATFORM_OUTPUT_LIB" && -f "$PLATFORM_TARGET_FILE" && -f "$PLATFORM_P
   )"
   if [[ -z "$NEWER_INPUT" && "$CURRENT_BUILT_TARGET" == "$RUST_TARGET" && "$CURRENT_BUILT_PROFILE" == "$CARGO_PROFILE_DIR" ]]; then
     mkdir -p "$PLATFORM_RUST_DIR"
-    echo "Goose Rust iOS library already current for $RUST_TARGET ($CARGO_PROFILE_DIR)"
+    echo "Bull Rust iOS library already current for $RUST_TARGET ($CARGO_PROFILE_DIR)"
     exit 0
   fi
 fi
@@ -108,7 +108,7 @@ case "$RUST_TARGET" in
     ;;
   esac
 
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/build/rust-target/goose-core}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/build/rust-target/bull-core}"
 
 cargo_args=(
   build
@@ -122,9 +122,9 @@ fi
 cargo "${cargo_args[@]}"
 
 mkdir -p "$PLATFORM_RUST_DIR"
-cp "$CARGO_TARGET_DIR/$RUST_TARGET/$CARGO_PROFILE_DIR/libgoose_core.a" \
-  "$PLATFORM_RUST_DIR/libgoose_core.a"
+cp "$CARGO_TARGET_DIR/$RUST_TARGET/$CARGO_PROFILE_DIR/libbull_core.a" \
+  "$PLATFORM_RUST_DIR/libbull_core.a"
 printf '%s\n' "$RUST_TARGET" > "$PLATFORM_TARGET_FILE"
 printf '%s\n' "$CARGO_PROFILE_DIR" > "$PLATFORM_PROFILE_FILE"
 
-echo "Built Goose Rust iOS library for $RUST_TARGET ($CARGO_PROFILE_DIR) at $PLATFORM_RUST_DIR/libgoose_core.a"
+echo "Built Bull Rust iOS library for $RUST_TARGET ($CARGO_PROFILE_DIR) at $PLATFORM_RUST_DIR/libbull_core.a"

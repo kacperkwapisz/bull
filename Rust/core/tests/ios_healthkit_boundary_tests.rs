@@ -177,9 +177,9 @@ fn swift_source_root() -> PathBuf {
         .parent()
         .expect("core crate has parent")
         .parent()
-        .expect("goose project has parent")
-        .join("goose-swift")
-        .join("GooseSwift")
+        .expect("bull project has parent")
+        .join("bull-swift")
+        .join("BullSwift")
 }
 
 fn swift_source(root: &Path, filename: &str) -> String {

@@ -1,4 +1,4 @@
-use goose_core::protocol::{
+use bull_core::protocol::{
     COMMAND_GET_HELLO, DataPacketBodySummary, DeviceType, FrameAccumulator, I16SeriesSummary,
     PACKET_TYPE_COMMAND_RESPONSE, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA,
     PACKET_TYPE_REALTIME_DATA, PACKET_TYPE_REALTIME_RAW_DATA, ParsedPayload,
@@ -8,8 +8,8 @@ use goose_core::protocol::{
 const GET_HELLO_FRAME: &str = "aa0108000001e67123019101363e5c8d";
 
 #[test]
-fn parses_hand_derived_goose_v5_get_hello_frame() {
-    let parsed = parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME).unwrap();
+fn parses_hand_derived_bull_v5_get_hello_frame() {
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
 
     assert_eq!(parsed.raw_len, 16);
     assert_eq!(parsed.header_len, 8);
@@ -44,7 +44,7 @@ fn builder_matches_existing_python_command_builder_fixture() {
 #[test]
 fn deframer_reassembles_split_v5_frame_and_drops_prefix_noise() {
     let frame = hex::decode(GET_HELLO_FRAME).unwrap();
-    let mut accumulator = FrameAccumulator::new(DeviceType::Goose);
+    let mut accumulator = FrameAccumulator::new(DeviceType::Bull);
 
     let first = accumulator.feed(&[0x00, 0x01, frame[0], frame[1], frame[2]]);
     assert!(first.frames.is_empty());
@@ -62,7 +62,7 @@ fn payload_crc_mismatch_preserves_parseable_header_with_warning() {
     let last = frame.len() - 1;
     frame[last] ^= 0xff;
 
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert!(parsed.header_crc_valid);
     assert!(!parsed.payload_crc_valid);
@@ -80,7 +80,7 @@ fn malformed_length_fails_safely() {
     frame[2] = 0x04;
     frame[3] = 0x00;
 
-    let error = parse_frame(DeviceType::Goose, &frame).unwrap_err();
+    let error = parse_frame(DeviceType::Bull, &frame).unwrap_err();
     assert!(error.to_string().contains("declared length"));
 }
 
@@ -96,7 +96,7 @@ fn parses_generic_command_response_payload_contract() {
         0xbb,
         0xcc,
     ]);
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert_eq!(parsed.packet_type_name.as_deref(), Some("COMMAND_RESPONSE"));
     assert_eq!(
@@ -133,7 +133,7 @@ fn parses_event_header_and_preserves_unknown_event_body() {
         0xbe,
         0xef,
     ]);
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert_eq!(parsed.packet_type_name.as_deref(), Some("EVENT"));
     assert_eq!(
@@ -174,7 +174,7 @@ fn parses_history_packet_stable_header_and_hr_marker() {
         0xee,
         0xff,
     ]);
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert_eq!(parsed.packet_type_name.as_deref(), Some("HISTORICAL_DATA"));
     assert_eq!(
@@ -208,7 +208,7 @@ fn normal_history_zero_hr_marker_is_not_treated_as_hr_present() {
     payload.extend_from_slice(&3u16.to_le_bytes());
     payload.resize(18, 0);
     payload[17] = 0;
-    let parsed = parse_frame(DeviceType::Goose, &build_v5_payload_frame(&payload)).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &build_v5_payload_frame(&payload)).unwrap();
 
     match parsed.parsed_payload.unwrap() {
         ParsedPayload::DataPacket {
@@ -243,7 +243,7 @@ fn parses_r17_optical_body_offsets_and_signed_sample_stats() {
     put_i16(&mut payload, 28, -1000);
     put_i16(&mut payload, 30, 200);
 
-    let parsed = parse_frame(DeviceType::Goose, &build_v5_payload_frame(&payload)).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &build_v5_payload_frame(&payload)).unwrap();
 
     match parsed.parsed_payload.unwrap() {
         ParsedPayload::DataPacket {
@@ -286,7 +286,7 @@ fn r17_truncated_samples_warn_without_losing_available_values() {
     put_u16(&mut payload, 24, 4);
     put_i16(&mut payload, 26, -7);
 
-    let parsed = parse_frame(DeviceType::Goose, &build_v5_payload_frame(&payload)).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &build_v5_payload_frame(&payload)).unwrap();
 
     match parsed.parsed_payload.unwrap() {
         ParsedPayload::DataPacket {
@@ -322,7 +322,7 @@ fn parses_k10_raw_motion_offsets_without_claiming_units() {
     put_i16(&mut payload, 1088, -10);
     put_i16(&mut payload, 1090, 20);
 
-    let parsed = parse_frame(DeviceType::Goose, &build_v5_payload_frame(&payload)).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &build_v5_payload_frame(&payload)).unwrap();
 
     match parsed.parsed_payload.unwrap() {
         ParsedPayload::DataPacket {
@@ -371,7 +371,7 @@ fn parses_k21_grouped_motion_offsets_and_counts() {
     put_i16(&mut payload, 1034, 60);
     put_i16(&mut payload, 1036, 70);
 
-    let parsed = parse_frame(DeviceType::Goose, &build_v5_payload_frame(&payload)).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &build_v5_payload_frame(&payload)).unwrap();
 
     match parsed.parsed_payload.unwrap() {
         ParsedPayload::DataPacket {
@@ -419,7 +419,7 @@ fn truncated_long_motion_frame_keeps_partial_samples_with_quality_warnings() {
     let mut frame = build_v5_payload_frame(&payload);
     frame.truncate(180);
 
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert_eq!(parsed.raw_len, 180);
     assert!(parsed.declared_len > parsed.raw_len);
@@ -467,7 +467,7 @@ fn truncated_non_data_frame_fails_instead_of_becoming_decoded_evidence() {
     let mut frame = build_v5_command_frame(1, COMMAND_GET_HELLO, &[1, 2, 3, 4, 5, 6, 7, 8]);
     frame.truncate(frame.len() - 3);
 
-    let error = parse_frame(DeviceType::Goose, &frame).unwrap_err();
+    let error = parse_frame(DeviceType::Bull, &frame).unwrap_err();
 
     assert!(error.to_string().contains("declared length"));
 }
@@ -475,7 +475,7 @@ fn truncated_non_data_frame_fails_instead_of_becoming_decoded_evidence() {
 #[test]
 fn short_data_packets_preserve_raw_body_and_warn() {
     let frame = build_v5_payload_frame(&[PACKET_TYPE_HISTORICAL_DATA, 18, 1, 2]);
-    let parsed = parse_frame(DeviceType::Goose, &frame).unwrap();
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert!(
         parsed

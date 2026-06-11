@@ -1,5 +1,5 @@
-use goose_core::activity_identity::{ActivityIdentityInput, activity_idempotency_key};
-use goose_core::health_sync::{
+use bull_core::activity_identity::{ActivityIdentityInput, activity_idempotency_key};
+use bull_core::health_sync::{
     ActivityHealthSyncDryRunInput, ActivitySyncCandidate, ActivitySyncInterval, ActivitySyncMetric,
     ExistingHealthRecord, HealthPlatform, HealthSyncCandidate, HealthSyncDeletePolicy,
     HealthSyncDryRunInput, HealthSyncPartialPlanPolicy, HealthSyncSessionKind, HealthSyncWindow,
@@ -130,7 +130,7 @@ fn health_sync_maps_steps_and_active_energy_where_platform_supported() {
     assert_eq!(health_connect.planned_write_count, 2);
     assert!(health_connect.planned_writes.iter().any(|write| {
         write.destination_type == "StepsRecord"
-            && write.goose_marker == "goose:activity:goose.test.v0:steps-2"
+            && write.bull_marker == "bull:activity:bull.test.v0:steps-2"
     }));
     assert!(
         health_connect
@@ -1006,7 +1006,7 @@ fn activity_session_idempotency_changes_when_source_window_or_type_change() {
 }
 
 #[test]
-fn stale_goose_records_inside_backfill_are_planned_for_delete() {
+fn stale_bull_records_inside_backfill_are_planned_for_delete() {
     let current = candidate("current", "heart_rate", "heart_rate", "count/min");
     let input = HealthSyncDryRunInput {
         delete_policy: HealthSyncDeletePolicy::StaleInBackfill,
@@ -1014,16 +1014,16 @@ fn stale_goose_records_inside_backfill_are_planned_for_delete() {
             existing_record(
                 "stale-platform-record",
                 "heartRate",
-                "goose:HealthKit:heartRate:old:2026-05-27T01:00:00Z:2026-05-27T01:05:00Z",
-                "goose:heart_rate:goose.test.v0:old",
+                "bull:HealthKit:heartRate:old:2026-05-27T01:00:00Z:2026-05-27T01:05:00Z",
+                "bull:heart_rate:bull.test.v0:old",
                 "2026-05-27T01:00:00Z",
                 "2026-05-27T01:05:00Z",
             ),
             existing_record(
                 "current-platform-record",
                 "heartRate",
-                "goose:HealthKit:heartRate:current:2026-05-27T00:00:00Z:2026-05-27T00:05:00Z",
-                "goose:heart_rate:goose.test.v0:current",
+                "bull:HealthKit:heartRate:current:2026-05-27T00:00:00Z:2026-05-27T00:05:00Z",
+                "bull:heart_rate:bull.test.v0:current",
                 "2026-05-27T00:00:00Z",
                 "2026-05-27T00:05:00Z",
             ),
@@ -1048,12 +1048,12 @@ fn stale_goose_records_inside_backfill_are_planned_for_delete() {
     );
     assert_eq!(
         report.planned_deletes[0].reason,
-        "stale_goose_record_in_backfill"
+        "stale_bull_record_in_backfill"
     );
 }
 
 #[test]
-fn delete_planning_blocks_non_goose_external_or_unsupported_records() {
+fn delete_planning_blocks_non_bull_external_or_unsupported_records() {
     let input = HealthSyncDryRunInput {
         delete_policy: HealthSyncDeletePolicy::StaleInBackfill,
         existing_records: vec![
@@ -1068,16 +1068,16 @@ fn delete_planning_blocks_non_goose_external_or_unsupported_records() {
             existing_record(
                 "unsupported-platform-record",
                 "WorkoutRoute",
-                "goose:HealthKit:WorkoutRoute:old:2026-05-27T01:00:00Z:2026-05-27T01:05:00Z",
-                "goose:route:goose.test.v0:old",
+                "bull:HealthKit:WorkoutRoute:old:2026-05-27T01:00:00Z:2026-05-27T01:05:00Z",
+                "bull:route:bull.test.v0:old",
                 "2026-05-27T01:00:00Z",
                 "2026-05-27T01:05:00Z",
             ),
             existing_record(
                 "outside-platform-record",
                 "heartRate",
-                "goose:HealthKit:heartRate:outside:2026-05-28T01:00:00Z:2026-05-28T01:05:00Z",
-                "goose:heart_rate:goose.test.v0:outside",
+                "bull:HealthKit:heartRate:outside:2026-05-28T01:00:00Z:2026-05-28T01:05:00Z",
+                "bull:heart_rate:bull.test.v0:outside",
                 "2026-05-28T01:00:00Z",
                 "2026-05-28T01:05:00Z",
             ),
@@ -1095,7 +1095,7 @@ fn delete_planning_blocks_non_goose_external_or_unsupported_records() {
     assert!(!report.cleanup_scope_ready);
     assert!(report.blocked_deletes.iter().any(|record| {
         record.platform_record_id == "external-platform-record"
-            && record.reasons.contains(&"not_goose_owned".to_string())
+            && record.reasons.contains(&"not_bull_owned".to_string())
     }));
     assert!(report.blocked_deletes.iter().any(|record| {
         record.platform_record_id == "unsupported-platform-record"
@@ -1144,7 +1144,7 @@ fn unit_mismatch_blocks_record() {
 #[test]
 fn dry_run_report_next_actions_cover_report_and_cleanup_blockers() {
     let input = HealthSyncDryRunInput {
-        schema: "goose.health-sync-dry-run.v1".to_string(),
+        schema: "bull.health-sync-dry-run.v1".to_string(),
         platform: HealthPlatform::HealthKit,
         permission_grants: Vec::new(),
         backfill: HealthSyncWindow {
@@ -1190,11 +1190,11 @@ fn dry_run_report_next_actions_cover_report_and_cleanup_blockers() {
         .find(|delete| delete.platform_record_id == "external-platform-record")
         .unwrap();
     assert!(blocked_delete.next_actions.iter().any(|action| {
-        action.reason == "not_goose_owned" && action.action.contains("Do not delete external")
+        action.reason == "not_bull_owned" && action.action.contains("Do not delete external")
     }));
     assert!(report.next_actions.iter().any(|action| {
         action.scope == "external-platform-record"
-            && action.reason == "not_goose_owned"
+            && action.reason == "not_bull_owned"
             && action.action.contains("Do not delete external")
     }));
 }
@@ -1204,7 +1204,7 @@ fn health_sync_cli_report_separates_valid_input_from_partial_plan() {
     let input_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures/synthetic/health_sync_dry_run_healthkit.json");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-health-sync-dry-run"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-health-sync-dry-run"))
         .arg("--input")
         .arg(input_path)
         .output()
@@ -1241,7 +1241,7 @@ fn input_with_candidates(
     candidates: Vec<HealthSyncCandidate>,
 ) -> HealthSyncDryRunInput {
     HealthSyncDryRunInput {
-        schema: "goose.health-sync-dry-run.v1".to_string(),
+        schema: "bull.health-sync-dry-run.v1".to_string(),
         platform,
         permission_grants,
         backfill: HealthSyncWindow {
@@ -1261,7 +1261,7 @@ fn activity_input(
     sessions: Vec<ActivitySyncCandidate>,
 ) -> ActivityHealthSyncDryRunInput {
     ActivityHealthSyncDryRunInput {
-        schema: "goose.activity-health-sync-dry-run.v1".to_string(),
+        schema: "bull.activity-health-sync-dry-run.v1".to_string(),
         platform,
         permission_grants,
         backfill: HealthSyncWindow {
@@ -1414,7 +1414,7 @@ fn candidate(
         end_time: "2026-05-27T00:05:00Z".to_string(),
         value: 60.0,
         unit: unit.to_string(),
-        algorithm_id: Some("goose.test.v0".to_string()),
+        algorithm_id: Some("bull.test.v0".to_string()),
         algorithm_version: Some("0.1.0".to_string()),
         approved_by_user: true,
         provenance: json!({"run_id": record_id}),
@@ -1425,7 +1425,7 @@ fn existing_record(
     platform_record_id: &str,
     destination_type: &str,
     idempotency_key: &str,
-    goose_marker: &str,
+    bull_marker: &str,
     start_time: &str,
     end_time: &str,
 ) -> ExistingHealthRecord {
@@ -1433,7 +1433,7 @@ fn existing_record(
         platform_record_id: platform_record_id.to_string(),
         destination_type: destination_type.to_string(),
         idempotency_key: idempotency_key.to_string(),
-        goose_marker: goose_marker.to_string(),
+        bull_marker: bull_marker.to_string(),
         start_time: start_time.to_string(),
         end_time: end_time.to_string(),
         provenance: json!({"source": "platform_snapshot"}),

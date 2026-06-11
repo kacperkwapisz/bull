@@ -8,19 +8,19 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     protocol::{
         DeviceType, ParsedFrame, build_v5_payload_frame, decode_hex_with_whitespace, parse_frame,
     },
 };
 
-pub const FIXTURE_INDEX_SCHEMA: &str = "goose.fixture-index.v1";
-pub const FRAME_HEX_SCHEMA: &str = "goose.frame.hex.v1";
-pub const CAPTURED_FRAME_BATCH_SCHEMA: &str = "goose.captured-frame-batch.v1";
-pub const PAYLOAD_HEX_SCHEMA: &str = "goose.payload.hex.v1";
-pub const ACTIVITY_SESSION_FIXTURE_SCHEMA: &str = "goose.activity-session-fixtures.v1";
-pub const OPENWHOOP_REFERENCE_FIXTURE_SCHEMA: &str = "goose.openwhoop-reference-fixture.v1";
-pub const COMMAND_VALIDATION_FIXTURE_SCHEMA: &str = "goose.command-validation-fixtures.v1";
+pub const FIXTURE_INDEX_SCHEMA: &str = "bull.fixture-index.v1";
+pub const FRAME_HEX_SCHEMA: &str = "bull.frame.hex.v1";
+pub const CAPTURED_FRAME_BATCH_SCHEMA: &str = "bull.captured-frame-batch.v1";
+pub const PAYLOAD_HEX_SCHEMA: &str = "bull.payload.hex.v1";
+pub const ACTIVITY_SESSION_FIXTURE_SCHEMA: &str = "bull.activity-session-fixtures.v1";
+pub const OPENWHOOP_REFERENCE_FIXTURE_SCHEMA: &str = "bull.openwhoop-reference-fixture.v1";
+pub const COMMAND_VALIDATION_FIXTURE_SCHEMA: &str = "bull.command-validation-fixtures.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixtureMetadata {
@@ -126,7 +126,7 @@ struct CapturedFrameFixtureFrame {
     pub device_type: DeviceType,
 }
 
-pub fn build_fixture_index(root: &Path) -> GooseResult<FixtureIndexReport> {
+pub fn build_fixture_index(root: &Path) -> BullResult<FixtureIndexReport> {
     let mut sidecars = Vec::new();
     collect_sidecars(root, &mut sidecars)?;
     sidecars.sort();
@@ -138,9 +138,9 @@ pub fn build_fixture_index(root: &Path) -> GooseResult<FixtureIndexReport> {
 
     for sidecar in sidecars {
         let raw =
-            fs::read_to_string(&sidecar).map_err(|source| GooseError::io(&sidecar, source))?;
+            fs::read_to_string(&sidecar).map_err(|source| BullError::io(&sidecar, source))?;
         let metadata: FixtureMetadata =
-            serde_json::from_str(&raw).map_err(|source| GooseError::json(&sidecar, source))?;
+            serde_json::from_str(&raw).map_err(|source| BullError::json(&sidecar, source))?;
         validate_metadata(&metadata, &sidecar, &mut issues);
 
         if !ids.insert(metadata.id.clone()) {
@@ -209,7 +209,7 @@ pub fn build_fixture_index(root: &Path) -> GooseResult<FixtureIndexReport> {
 
     Ok(FixtureIndexReport {
         schema: FIXTURE_INDEX_SCHEMA.to_string(),
-        generated_by: "goose-fixture-index".to_string(),
+        generated_by: "bull-fixture-index".to_string(),
         fixture_root: root.display().to_string(),
         pass: issues.is_empty(),
         fixtures,
@@ -239,14 +239,14 @@ pub fn run_parser_fixtures(root: &Path, index: &FixtureIndexReport) -> ParserFix
     }
 
     if results.is_empty() {
-        issues.push("no goose.frame.hex.v1 fixtures found".to_string());
+        issues.push("no bull.frame.hex.v1 fixtures found".to_string());
     }
 
     let next_actions = parser_fixture_report_next_actions(&issues, &results);
 
     ParserFixtureReport {
-        schema: "goose.parser-fixture-report.v1".to_string(),
-        generated_by: "goose-parser-fixture-runner".to_string(),
+        schema: "bull.parser-fixture-report.v1".to_string(),
+        generated_by: "bull-parser-fixture-runner".to_string(),
         fixture_root: root.display().to_string(),
         pass: issues.is_empty(),
         fixtures: results,
@@ -255,9 +255,9 @@ pub fn run_parser_fixtures(root: &Path, index: &FixtureIndexReport) -> ParserFix
     }
 }
 
-pub fn load_fixture_index(path: &Path) -> GooseResult<FixtureIndexReport> {
-    let raw = fs::read_to_string(path).map_err(|source| GooseError::io(path, source))?;
-    serde_json::from_str(&raw).map_err(|source| GooseError::json(path, source))
+pub fn load_fixture_index(path: &Path) -> BullResult<FixtureIndexReport> {
+    let raw = fs::read_to_string(path).map_err(|source| BullError::io(path, source))?;
+    serde_json::from_str(&raw).map_err(|source| BullError::json(path, source))
 }
 
 fn run_frame_fixture(root: &Path, fixture: &IndexedFixture) -> ParserFixtureResult {
@@ -283,7 +283,7 @@ fn run_frame_fixture(root: &Path, fixture: &IndexedFixture) -> ParserFixtureResu
     };
 
     let expected = fixture.expected.clone().unwrap_or_default();
-    let device_type = expected_device_type(&expected).unwrap_or(DeviceType::Goose);
+    let device_type = expected_device_type(&expected).unwrap_or(DeviceType::Bull);
 
     match decode_hex_with_whitespace(&raw).and_then(|bytes| parse_frame(device_type, &bytes)) {
         Ok(frame) => {
@@ -330,7 +330,7 @@ fn run_payload_fixture(root: &Path, fixture: &IndexedFixture) -> ParserFixtureRe
     };
 
     let expected = fixture.expected.clone().unwrap_or_default();
-    let device_type = expected_device_type(&expected).unwrap_or(DeviceType::Goose);
+    let device_type = expected_device_type(&expected).unwrap_or(DeviceType::Bull);
 
     match decode_hex_with_whitespace(&raw)
         .map(|payload| build_v5_payload_frame(&payload))
@@ -479,7 +479,7 @@ fn expected_device_type(expected: &serde_json::Value) -> Option<DeviceType> {
         "GEN_4" => Some(DeviceType::Gen4),
         "MAVERICK" => Some(DeviceType::Maverick),
         "PUFFIN" => Some(DeviceType::Puffin),
-        "GOOSE" => Some(DeviceType::Goose),
+        "BULL" => Some(DeviceType::Bull),
         _ => None,
     }
 }
@@ -642,7 +642,7 @@ fn compare_expected_bool(
 }
 
 fn default_device_type() -> DeviceType {
-    DeviceType::Goose
+    DeviceType::Bull
 }
 
 fn parsed_payload_kind(payload: &crate::protocol::ParsedPayload) -> String {
@@ -763,11 +763,11 @@ fn parser_fixture_report_next_actions(
         }
     }
     for issue in issues {
-        if issue == "no goose.frame.hex.v1 fixtures found" {
+        if issue == "no bull.frame.hex.v1 fixtures found" {
             actions.push(FixtureNextAction {
                 scope: "parser_fixtures".to_string(),
                 reason: "no_parser_fixtures".to_string(),
-                action: "Add at least one goose.frame.hex.v1, goose.payload.hex.v1, or goose.captured-frame-batch.v1 fixture and regenerate the fixture index.".to_string(),
+                action: "Add at least one bull.frame.hex.v1, bull.payload.hex.v1, or bull.captured-frame-batch.v1 fixture and regenerate the fixture index.".to_string(),
             });
         } else if issue.ends_with(" failed parser validation") {
             let fixture_id = issue
@@ -824,7 +824,7 @@ fn parser_fixture_issue_action(issue: &str) -> (&'static str, &'static str) {
     } else if issue.contains(" embedded schema must be ") {
         (
             "captured_frame_batch_schema_invalid",
-            "Update the captured-frame batch schema to goose.captured-frame-batch.v1 or add a migration before trusting it.",
+            "Update the captured-frame batch schema to bull.captured-frame-batch.v1 or add a migration before trusting it.",
         )
     } else if issue.contains(" must include at least one frame") {
         (
@@ -884,12 +884,12 @@ fn dedupe_fixture_next_actions(actions: Vec<FixtureNextAction>) -> Vec<FixtureNe
         .collect()
 }
 
-fn collect_sidecars(root: &Path, sidecars: &mut Vec<PathBuf>) -> GooseResult<()> {
+fn collect_sidecars(root: &Path, sidecars: &mut Vec<PathBuf>) -> BullResult<()> {
     if !root.exists() {
         return Ok(());
     }
-    for entry in fs::read_dir(root).map_err(|source| GooseError::io(root, source))? {
-        let entry = entry.map_err(|source| GooseError::io(root, source))?;
+    for entry in fs::read_dir(root).map_err(|source| BullError::io(root, source))? {
+        let entry = entry.map_err(|source| BullError::io(root, source))?;
         let path = entry.path();
         if path.is_dir() {
             collect_sidecars(&path, sidecars)?;
@@ -904,12 +904,12 @@ fn collect_sidecars(root: &Path, sidecars: &mut Vec<PathBuf>) -> GooseResult<()>
     Ok(())
 }
 
-fn collect_data_files(root: &Path, files: &mut Vec<PathBuf>) -> GooseResult<()> {
+fn collect_data_files(root: &Path, files: &mut Vec<PathBuf>) -> BullResult<()> {
     if !root.exists() {
         return Ok(());
     }
-    for entry in fs::read_dir(root).map_err(|source| GooseError::io(root, source))? {
-        let entry = entry.map_err(|source| GooseError::io(root, source))?;
+    for entry in fs::read_dir(root).map_err(|source| BullError::io(root, source))? {
+        let entry = entry.map_err(|source| BullError::io(root, source))?;
         let path = entry.path();
         if path.is_dir() {
             collect_data_files(&path, files)?;

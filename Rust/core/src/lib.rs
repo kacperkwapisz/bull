@@ -41,4 +41,4 @@ pub mod tool_args;
 pub mod ui_coverage;
 pub mod validation_labels;
 
-pub use error::{GooseError, GooseResult};
+pub use error::{BullError, BullResult};

@@ -7,9 +7,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{GooseError, GooseResult};
+use crate::{BullError, BullResult};
 
-pub const UI_COVERAGE_AUDIT_SCHEMA: &str = "goose.ui-coverage-audit.v1";
+pub const UI_COVERAGE_AUDIT_SCHEMA: &str = "bull.ui-coverage-audit.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UiCoverageAuditInput {
@@ -74,7 +74,7 @@ pub struct NavigationCoverageRule {
     #[serde(default)]
     pub class_prefix: Option<String>,
     pub status: UiCoverageStatus,
-    pub goose_area: String,
+    pub bull_area: String,
     #[serde(default)]
     pub target_level: Option<String>,
     #[serde(default)]
@@ -89,7 +89,7 @@ pub struct LayoutCoverageRule {
     #[serde(default)]
     pub category: Option<String>,
     pub status: UiCoverageStatus,
-    pub goose_area: String,
+    pub bull_area: String,
     #[serde(default)]
     pub target_level: Option<String>,
     #[serde(default)]
@@ -106,7 +106,7 @@ pub struct UiResourceCoverageRule {
     #[serde(default)]
     pub resource: Option<String>,
     pub status: UiCoverageStatus,
-    pub goose_area: String,
+    pub bull_area: String,
     #[serde(default)]
     pub target_level: Option<String>,
     #[serde(default)]
@@ -123,7 +123,7 @@ pub struct SourceClassCoverageRule {
     #[serde(default)]
     pub module: Option<String>,
     pub status: UiCoverageStatus,
-    pub goose_area: String,
+    pub bull_area: String,
     #[serde(default)]
     pub target_level: Option<String>,
     #[serde(default)]
@@ -198,7 +198,7 @@ pub struct DeferredUiSurface {
     pub group: String,
     pub path: String,
     pub rule_id: String,
-    pub goose_area: String,
+    pub bull_area: String,
     pub reason: String,
 }
 
@@ -221,7 +221,7 @@ type CsvRow = BTreeMap<String, String>;
 pub fn run_ui_coverage_audit(
     input: &UiCoverageAuditInput,
     base_dir: &Path,
-) -> GooseResult<UiCoverageAuditReport> {
+) -> BullResult<UiCoverageAuditReport> {
     let mut issues = Vec::new();
     if input.schema != UI_COVERAGE_AUDIT_SCHEMA {
         issues.push(format!("unsupported_schema:{}", input.schema));
@@ -334,8 +334,8 @@ pub fn run_ui_coverage_audit(
     );
 
     Ok(UiCoverageAuditReport {
-        schema: "goose.ui-coverage-audit-report.v1".to_string(),
-        generated_by: "goose-ui-coverage-audit".to_string(),
+        schema: "bull.ui-coverage-audit-report.v1".to_string(),
+        generated_by: "bull-ui-coverage-audit".to_string(),
         inventory_valid,
         coverage_map_valid,
         all_surfaces_classified,
@@ -386,7 +386,7 @@ fn audit_navigation(
                 group,
                 path,
                 &rule.rule_id,
-                &rule.goose_area,
+                &rule.bull_area,
                 rule.reason.as_deref(),
             );
             increment_rule_match(rule_matches, "navigation", &rule.rule_id);
@@ -424,7 +424,7 @@ fn audit_layouts(
                 group,
                 path,
                 &rule.rule_id,
-                &rule.goose_area,
+                &rule.bull_area,
                 rule.reason.as_deref(),
             );
             increment_rule_match(rule_matches, "layout", &rule.rule_id);
@@ -464,7 +464,7 @@ fn audit_ui_resources(
                 resource_type,
                 path,
                 &rule.rule_id,
-                &rule.goose_area,
+                &rule.bull_area,
                 rule.reason.as_deref(),
             );
             increment_rule_match(rule_matches, "ui_resource", &rule.rule_id);
@@ -502,7 +502,7 @@ fn audit_source_classes(
                 group,
                 path,
                 &rule.rule_id,
-                &rule.goose_area,
+                &rule.bull_area,
                 rule.reason.as_deref(),
             );
             increment_rule_match(rule_matches, "source_class", &rule.rule_id);
@@ -554,7 +554,7 @@ fn record_deferred_surface(
     group: &str,
     path: &str,
     rule_id: &str,
-    goose_area: &str,
+    bull_area: &str,
     reason: Option<&str>,
 ) {
     if status != UiCoverageStatus::Defer {
@@ -565,7 +565,7 @@ fn record_deferred_surface(
         group: group.to_string(),
         path: path.to_string(),
         rule_id: rule_id.to_string(),
-        goose_area: goose_area.to_string(),
+        bull_area: bull_area.to_string(),
         reason: reason.unwrap_or_default().to_string(),
     });
 }
@@ -653,7 +653,7 @@ fn ui_coverage_issue_next_action(issue: &str) -> UiCoverageNextAction {
     };
     let action = match issue_kind {
         "unsupported_schema" => {
-            "Update the coverage-map schema to goose.ui-coverage-audit.v1, then rerun UI coverage audit."
+            "Update the coverage-map schema to bull.ui-coverage-audit.v1, then rerun UI coverage audit."
         }
         "navigation_rule_id_required"
         | "layout_rule_id_required"
@@ -667,11 +667,11 @@ fn ui_coverage_issue_next_action(issue: &str) -> UiCoverageNextAction {
         | "source_class_rule_selector_required" => {
             "Add a selector to the rule so it matches a concrete APK surface, then rerun UI coverage audit."
         }
-        "navigation_rule_goose_area_required"
-        | "layout_rule_goose_area_required"
-        | "ui_resource_rule_goose_area_required"
-        | "source_class_rule_goose_area_required" => {
-            "Set goose_area to the Goose screen or area responsible for this surface, then rerun UI coverage audit."
+        "navigation_rule_bull_area_required"
+        | "layout_rule_bull_area_required"
+        | "ui_resource_rule_bull_area_required"
+        | "source_class_rule_bull_area_required" => {
+            "Set bull_area to the Bull screen or area responsible for this surface, then rerun UI coverage audit."
         }
         "navigation_rule_reason_required"
         | "layout_rule_reason_required"
@@ -683,7 +683,7 @@ fn ui_coverage_issue_next_action(issue: &str) -> UiCoverageNextAction {
         | "layout_rule_target_level_required"
         | "ui_resource_rule_target_level_required"
         | "source_class_rule_target_level_required" => {
-            "Set target_level for the implemented, approximate, or debug-only Goose coverage target, then rerun UI coverage audit."
+            "Set target_level for the implemented, approximate, or debug-only Bull coverage target, then rerun UI coverage audit."
         }
         "coverage_rule_matched_no_surfaces" => {
             "Remove the stale coverage rule or update its selector to match the current APK inventory, then rerun UI coverage audit."
@@ -695,7 +695,7 @@ fn ui_coverage_issue_next_action(issue: &str) -> UiCoverageNextAction {
             "Regenerate the APK UI inventory CSVs with tools/analysis/extract_apk_ui_inventory.py, then rerun UI coverage audit."
         }
         _ if issue_kind.ends_with("_missing_coverage") => {
-            "Add or update a coverage-map rule for this APK surface with a status, Goose area, target level or reason, then rerun UI coverage audit."
+            "Add or update a coverage-map rule for this APK surface with a status, Bull area, target level or reason, then rerun UI coverage audit."
         }
         _ => {
             "Resolve the UI coverage audit issue, update the coverage map or inventory, then rerun UI coverage audit."
@@ -745,7 +745,7 @@ fn validate_rules(coverage: &UiCoverageRules, issues: &mut Vec<String>) {
             "navigation",
             &rule.rule_id,
             rule.status,
-            &rule.goose_area,
+            &rule.bull_area,
             rule.target_level.as_deref(),
             rule.reason.as_deref(),
             issues,
@@ -763,7 +763,7 @@ fn validate_rules(coverage: &UiCoverageRules, issues: &mut Vec<String>) {
             "layout",
             &rule.rule_id,
             rule.status,
-            &rule.goose_area,
+            &rule.bull_area,
             rule.target_level.as_deref(),
             rule.reason.as_deref(),
             issues,
@@ -784,7 +784,7 @@ fn validate_rules(coverage: &UiCoverageRules, issues: &mut Vec<String>) {
             "ui_resource",
             &rule.rule_id,
             rule.status,
-            &rule.goose_area,
+            &rule.bull_area,
             rule.target_level.as_deref(),
             rule.reason.as_deref(),
             issues,
@@ -805,7 +805,7 @@ fn validate_rules(coverage: &UiCoverageRules, issues: &mut Vec<String>) {
             "source_class",
             &rule.rule_id,
             rule.status,
-            &rule.goose_area,
+            &rule.bull_area,
             rule.target_level.as_deref(),
             rule.reason.as_deref(),
             issues,
@@ -817,13 +817,13 @@ fn validate_decision(
     surface_kind: &str,
     rule_id: &str,
     status: UiCoverageStatus,
-    goose_area: &str,
+    bull_area: &str,
     target_level: Option<&str>,
     reason: Option<&str>,
     issues: &mut Vec<String>,
 ) {
-    if goose_area.trim().is_empty() {
-        issues.push(format!("{surface_kind}_rule_goose_area_required:{rule_id}"));
+    if bull_area.trim().is_empty() {
+        issues.push(format!("{surface_kind}_rule_bull_area_required:{rule_id}"));
     }
     if status.requires_reason() && reason.is_none_or(|value| value.trim().is_empty()) {
         issues.push(format!("{surface_kind}_rule_reason_required:{rule_id}"));
@@ -839,8 +839,8 @@ fn load_csv_rows(
     path: &Path,
     required_headers: &[&str],
     issues: &mut Vec<String>,
-) -> GooseResult<Vec<CsvRow>> {
-    let raw = fs::read_to_string(path).map_err(|source| GooseError::io(path, source))?;
+) -> BullResult<Vec<CsvRow>> {
+    let raw = fs::read_to_string(path).map_err(|source| BullError::io(path, source))?;
     let mut lines = raw.lines();
     let Some(header_line) = lines.next() else {
         issues.push(format!("csv_empty:{}", path.display()));
@@ -878,8 +878,8 @@ fn load_csv_rows(
     Ok(rows)
 }
 
-fn file_sha256(path: &Path) -> GooseResult<String> {
-    let bytes = fs::read(path).map_err(|source| GooseError::io(path, source))?;
+fn file_sha256(path: &Path) -> BullResult<String> {
+    let bytes = fs::read(path).map_err(|source| BullError::io(path, source))?;
     let digest = Sha256::digest(&bytes);
     Ok(format!("{digest:x}"))
 }

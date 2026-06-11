@@ -7,10 +7,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{GooseError, GooseResult};
+use crate::{BullError, BullResult};
 
-pub const CAPTURE_SANITIZE_REPORT_SCHEMA: &str = "goose.capture-sanitize-report.v1";
-pub const CAPTURE_SANITIZE_MANIFEST_SCHEMA: &str = "goose.capture-sanitize-manifest.v1";
+pub const CAPTURE_SANITIZE_REPORT_SCHEMA: &str = "bull.capture-sanitize-report.v1";
+pub const CAPTURE_SANITIZE_MANIFEST_SCHEMA: &str = "bull.capture-sanitize-manifest.v1";
 
 #[derive(Debug, Clone)]
 pub struct CaptureSanitizeOptions<'a> {
@@ -132,16 +132,16 @@ enum KeyTreatment {
 
 pub fn sanitize_capture_path(
     options: CaptureSanitizeOptions<'_>,
-) -> GooseResult<CaptureSanitizeReport> {
+) -> BullResult<CaptureSanitizeReport> {
     if options.salt.trim().is_empty() {
-        return Err(GooseError::message("sanitize salt must not be empty"));
+        return Err(BullError::message("sanitize salt must not be empty"));
     }
 
     let input_path = options.input_path;
     let output_path = options.output_path;
 
     if !input_path.exists() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "input path does not exist: {}",
             input_path.display()
         )));
@@ -154,7 +154,7 @@ pub fn sanitize_capture_path(
 
     if input_path.is_dir() {
         reject_output_inside_input(input_path, output_path)?;
-        fs::create_dir_all(output_path).map_err(|source| GooseError::io(output_path, source))?;
+        fs::create_dir_all(output_path).map_err(|source| BullError::io(output_path, source))?;
         let mut paths = Vec::new();
         collect_files(input_path, &mut paths)?;
         paths.sort();
@@ -189,7 +189,7 @@ pub fn sanitize_capture_path(
         if let Some(parent) = output_path.parent()
             && !parent.as_os_str().is_empty()
         {
-            fs::create_dir_all(parent).map_err(|source| GooseError::io(parent, source))?;
+            fs::create_dir_all(parent).map_err(|source| BullError::io(parent, source))?;
         }
         let output_root = output_path
             .parent()
@@ -199,7 +199,7 @@ pub fn sanitize_capture_path(
         let target_path = output_root.join(&relative);
         if temp_result.written && target_path != output_path {
             fs::rename(&target_path, output_path)
-                .map_err(|source| GooseError::io(output_path, source))?;
+                .map_err(|source| BullError::io(output_path, source))?;
         }
         merge_file_result(&mut totals, &temp_result);
         warnings.extend(
@@ -255,7 +255,7 @@ pub fn sanitize_capture_path(
 
     Ok(CaptureSanitizeReport {
         schema: CAPTURE_SANITIZE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-capture-sanitize".to_string(),
+        generated_by: "bull-capture-sanitize".to_string(),
         input_path: input_path.display().to_string(),
         output_path: output_path.display().to_string(),
         pass: sanitize_ready,
@@ -306,8 +306,8 @@ fn sanitize_one_file(
     relative_path: &Path,
     output_root: &Path,
     salt: &str,
-) -> GooseResult<SanitizedFileReport> {
-    let bytes = fs::read(input_path).map_err(|source| GooseError::io(input_path, source))?;
+) -> BullResult<SanitizedFileReport> {
+    let bytes = fs::read(input_path).map_err(|source| BullError::io(input_path, source))?;
     let input_sha256 = sha256_hex(&bytes);
     let format = classify_file(input_path, &bytes);
     let mut warnings = Vec::new();
@@ -342,7 +342,7 @@ fn sanitize_one_file(
     }
 
     let text = String::from_utf8(bytes.clone()).map_err(|source| {
-        GooseError::message(format!("{} is not UTF-8: {source}", input_path.display()))
+        BullError::message(format!("{} is not UTF-8: {source}", input_path.display()))
     })?;
 
     let sanitized = match format {
@@ -350,7 +350,7 @@ fn sanitize_one_file(
             Ok(mut value) => {
                 redactions += sanitize_json_value(&mut value, salt);
                 serde_json::to_string_pretty(&value).map_err(|source| {
-                    GooseError::message(format!("cannot serialize sanitized JSON: {source}"))
+                    BullError::message(format!("cannot serialize sanitized JSON: {source}"))
                 })? + "\n"
             }
             Err(source) => {
@@ -377,10 +377,10 @@ fn sanitize_one_file(
 
     let output_path = output_root.join(relative_path);
     if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| GooseError::io(parent, source))?;
+        fs::create_dir_all(parent).map_err(|source| BullError::io(parent, source))?;
     }
     fs::write(&output_path, sanitized.as_bytes())
-        .map_err(|source| GooseError::io(&output_path, source))?;
+        .map_err(|source| BullError::io(&output_path, source))?;
     let output_sha256 = sha256_hex(sanitized.as_bytes());
 
     Ok(SanitizedFileReport {
@@ -502,7 +502,7 @@ fn sanitize_jsonl_text(
     salt: &str,
     warnings: &mut Vec<String>,
     redactions: &mut CaptureSanitizeRedactions,
-) -> GooseResult<String> {
+) -> BullResult<String> {
     let mut output = Vec::new();
 
     for (index, line) in text.lines().enumerate() {
@@ -515,7 +515,7 @@ fn sanitize_jsonl_text(
             Ok(mut value) => {
                 *redactions += sanitize_json_value(&mut value, salt);
                 output.push(serde_json::to_string(&value).map_err(|source| {
-                    GooseError::message(format!("cannot serialize sanitized JSONL: {source}"))
+                    BullError::message(format!("cannot serialize sanitized JSONL: {source}"))
                 })?);
             }
             Err(source) => {
@@ -723,7 +723,7 @@ fn write_sanitize_manifest(
     files: &[SanitizedFileReport],
     totals: &CaptureSanitizeTotals,
     warnings: &[String],
-) -> GooseResult<()> {
+) -> BullResult<()> {
     let manifest_files = files
         .iter()
         .filter(|file| file.written)
@@ -739,16 +739,16 @@ fn write_sanitize_manifest(
         .collect();
     let manifest = CaptureSanitizeManifest {
         schema: CAPTURE_SANITIZE_MANIFEST_SCHEMA.to_string(),
-        generated_by: "goose-capture-sanitize".to_string(),
+        generated_by: "bull-capture-sanitize".to_string(),
         files: manifest_files,
         totals: totals.clone(),
         warnings: warnings.to_vec(),
     };
     let manifest_json = serde_json::to_vec_pretty(&manifest).map_err(|source| {
-        GooseError::message(format!("cannot serialize sanitize manifest: {source}"))
+        BullError::message(format!("cannot serialize sanitize manifest: {source}"))
     })?;
     fs::write(output_path.join("sanitize-manifest.json"), manifest_json)
-        .map_err(|source| GooseError::io(output_path.join("sanitize-manifest.json"), source))?;
+        .map_err(|source| BullError::io(output_path.join("sanitize-manifest.json"), source))?;
     Ok(())
 }
 
@@ -768,9 +768,9 @@ fn merge_file_result(totals: &mut CaptureSanitizeTotals, result: &SanitizedFileR
     totals.jwt_redactions += result.redactions.jwt_redactions;
 }
 
-fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> GooseResult<()> {
-    for entry in fs::read_dir(root).map_err(|source| GooseError::io(root, source))? {
-        let entry = entry.map_err(|source| GooseError::io(root, source))?;
+fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> BullResult<()> {
+    for entry in fs::read_dir(root).map_err(|source| BullError::io(root, source))? {
+        let entry = entry.map_err(|source| BullError::io(root, source))?;
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, files)?;
@@ -781,16 +781,16 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> GooseResult<()> {
     Ok(())
 }
 
-fn reject_output_inside_input(input_path: &Path, output_path: &Path) -> GooseResult<()> {
+fn reject_output_inside_input(input_path: &Path, output_path: &Path) -> BullResult<()> {
     let input = input_path
         .canonicalize()
-        .map_err(|source| GooseError::io(input_path, source))?;
+        .map_err(|source| BullError::io(input_path, source))?;
     let output_parent = output_path.parent().unwrap_or_else(|| Path::new("."));
     let output_parent = output_parent
         .canonicalize()
         .unwrap_or_else(|_| output_parent.to_path_buf());
     if output_parent.starts_with(&input) {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "output path must not be inside the input capture directory",
         ));
     }

@@ -1,5 +1,5 @@
 {
-  "id": "synthetic.goose.recovery.calibration.linear",
+  "id": "synthetic.bull.recovery.calibration.linear",
   "path": "synthetic/recovery_calibration_linear.json",
   "kind": "synthetic",
   "source": "Hand-derived calibration fixture for date-split linear score calibration.",
@@ -7,12 +7,12 @@
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.calibration-dataset.v1",
+  "schema": "bull.calibration-dataset.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "Train rows before 2026-05-04 and holdout rows on/after 2026-05-04 follow label = 1.2 * prediction - 5.",
   "expected": {
-    "algorithm_id": "goose.recovery.v0",
+    "algorithm_id": "bull.recovery.v0",
     "version": "0.1.0",
     "split_at": "2026-05-04T00:00:00Z",
     "slope": 1.2,

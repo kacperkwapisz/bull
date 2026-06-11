@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use goose_core::{
+use bull_core::{
     capture_import::{
         CaptureImportOptions, CaptureSqliteImportOptions, CapturedFrameBatchOptions,
         CapturedFrameInput, import_capture_sqlite, import_captured_frame_batch,
@@ -8,7 +8,7 @@ use goose_core::{
     },
     fixtures::build_fixture_index,
     protocol::DeviceType,
-    store::{CaptureSessionInput, GooseStore},
+    store::{CaptureSessionInput, BullStore},
 };
 use rusqlite::{Connection, params};
 
@@ -17,8 +17,8 @@ const GET_HELLO_FRAME: &str = "aa0108000001e67123019101363e5c8d";
 #[test]
 fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
 
@@ -28,7 +28,7 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
 
@@ -42,7 +42,7 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
     let fixture = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.get_hello_frame")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.get_hello_frame")
         .unwrap();
     assert_eq!(fixture.packet_type, Some(35));
     assert_eq!(fixture.packet_type_name.as_deref(), Some("COMMAND"));
@@ -53,7 +53,7 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
     let historical = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.historical_k18_packet")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.historical_k18_packet")
         .unwrap();
     assert_eq!(historical.packet_type, Some(47));
     assert_eq!(
@@ -69,7 +69,7 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
     let event = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.temperature_event")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.temperature_event")
         .unwrap();
     assert_eq!(event.packet_type, Some(48));
     assert_eq!(event.packet_type_name.as_deref(), Some("EVENT"));
@@ -79,11 +79,11 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
     let motion = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.k10_motion_summary_short")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.k10_motion_summary_short")
         .unwrap();
     assert_eq!(motion.parsed_payload_kind.as_deref(), Some("data_packet"));
     let decoded_motion = store
-        .decoded_frame("synthetic.goose.v5.k10_motion_summary_short.frame.0")
+        .decoded_frame("synthetic.bull.v5.k10_motion_summary_short.frame.0")
         .unwrap()
         .unwrap();
     let parsed_payload: serde_json::Value =
@@ -115,8 +115,8 @@ fn imports_indexed_frame_fixture_into_sqlite_raw_and_decoded_tables() {
 #[test]
 fn repeated_import_is_idempotent() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
 
@@ -126,7 +126,7 @@ fn repeated_import_is_idempotent() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     let second = import_fixture_index(
@@ -135,7 +135,7 @@ fn repeated_import_is_idempotent() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
 
@@ -151,13 +151,13 @@ fn repeated_import_is_idempotent() {
 
 #[test]
 fn imports_app_captured_frame_batch_and_returns_timeline_rows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "capture-import-session",
             source: "ios.corebluetooth.notification",
             started_at_unix_ms: 1770000000000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: "{}",
         })
@@ -167,18 +167,18 @@ fn imports_app_captured_frame_batch_and_returns_timeline_rows() {
         frame_id: None,
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-28T12:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: GET_HELLO_FRAME.to_string(),
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: Some("capture-import-session".to_string()),
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
 
     let report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -204,24 +204,24 @@ fn imports_app_captured_frame_batch_and_returns_timeline_rows() {
 
 #[test]
 fn captured_frame_batch_preserves_raw_bytes_when_session_reference_is_broken() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![CapturedFrameInput {
         evidence_id: "app-capture-missing-session".to_string(),
         frame_id: None,
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-28T12:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: GET_HELLO_FRAME.to_string(),
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: Some("missing-capture-session".to_string()),
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
 
     let report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -251,24 +251,24 @@ fn captured_frame_batch_preserves_raw_bytes_when_session_reference_is_broken() {
 
 #[test]
 fn captured_frame_batch_preserves_raw_bytes_when_parse_fails() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![CapturedFrameInput {
         evidence_id: "app-capture-malformed".to_string(),
         frame_id: None,
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-28T12:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: "00010203".to_string(),
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
 
     let report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -308,24 +308,24 @@ fn captured_frame_batch_preserves_raw_bytes_when_parse_fails() {
 
 #[test]
 fn repeated_captured_frame_batch_import_is_idempotent() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![CapturedFrameInput {
         evidence_id: "app-capture-repeat".to_string(),
         frame_id: Some("app-capture-repeat.frame.known".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-28T12:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: GET_HELLO_FRAME.to_string(),
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
 
     let first = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -333,7 +333,7 @@ fn repeated_captured_frame_batch_import_is_idempotent() {
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -350,7 +350,7 @@ fn repeated_captured_frame_batch_import_is_idempotent() {
 
 #[test]
 fn captured_frame_batch_reports_next_actions_for_invalid_hex_and_empty_input() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let invalid_hex = import_captured_frame_batch(
         &store,
         &[CapturedFrameInput {
@@ -358,14 +358,14 @@ fn captured_frame_batch_reports_next_actions_for_invalid_hex_and_empty_input() {
             frame_id: None,
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-28T12:00:00Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: "not hex".to_string(),
             sensitivity: "user-owned-capture".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         }],
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -383,7 +383,7 @@ fn captured_frame_batch_reports_next_actions_for_invalid_hex_and_empty_input() {
         &store,
         &[],
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -399,22 +399,22 @@ fn captured_frame_batch_reports_next_actions_for_invalid_hex_and_empty_input() {
 }
 
 #[test]
-fn imports_processed_capture_sqlite_into_owned_goose_session() {
+fn imports_processed_capture_sqlite_into_owned_bull_session() {
     let tempdir = tempfile::tempdir().unwrap();
     let source_path = tempdir.path().join("capture.sqlite");
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     seed_processed_capture_sqlite(&source_path, &[("2026-05-29T00:50:27.270763+00:00", 3)]);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let first = import_capture_sqlite(
         &store,
         CaptureSqliteImportOptions {
             source_database_path: &source_path,
             target_database_path: &db_path,
             session_id: "capture.sqlite.import.test",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             sensitivity: "user-owned-capture",
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -457,9 +457,9 @@ fn imports_processed_capture_sqlite_into_owned_goose_session() {
             source_database_path: &source_path,
             target_database_path: &db_path,
             session_id: "capture.sqlite.import.test",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             sensitivity: "user-owned-capture",
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -477,22 +477,22 @@ fn imports_processed_capture_sqlite_into_owned_goose_session() {
 fn capture_sqlite_import_preserves_raw_evidence_for_parser_failures() {
     let tempdir = tempfile::tempdir().unwrap();
     let source_path = tempdir.path().join("capture.sqlite");
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     seed_processed_capture_sqlite_with_hex(
         &source_path,
         &[("2026-05-29T00:50:27Z", 3, "00010203")],
     );
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let report = import_capture_sqlite(
         &store,
         CaptureSqliteImportOptions {
             source_database_path: &source_path,
             target_database_path: &db_path,
             session_id: "capture.sqlite.malformed",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             sensitivity: "user-owned-capture",
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();

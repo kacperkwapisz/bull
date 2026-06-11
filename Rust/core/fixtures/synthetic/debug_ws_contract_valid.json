@@ -1,7 +1,7 @@
 {
-  "schema": "goose.debug-ws-contract.v1",
+  "schema": "bull.debug-ws-contract.v1",
   "bridge": {
-    "url": "ws://127.0.0.1:49152/goose-debug/stream?token=<redacted>",
+    "url": "ws://127.0.0.1:49152/bull-debug/stream?token=<redacted>",
     "bind_host": "127.0.0.1",
     "token_required": true,
     "token_present": true,
@@ -10,7 +10,7 @@
   },
   "commands": [
     {
-      "schema": "goose.debug.command.v1",
+      "schema": "bull.debug.command.v1",
       "command_id": "cmd-capture-start",
       "command": "capture.start",
       "args": {
@@ -19,7 +19,7 @@
       "dry_run": false
     },
     {
-      "schema": "goose.debug.command.v1",
+      "schema": "bull.debug.command.v1",
       "command_id": "cmd-export-bundle",
       "command": "export.bundle",
       "args": {
@@ -32,7 +32,7 @@
   ],
   "events": [
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000000,
       "sequence": 1,
@@ -46,7 +46,7 @@
       }
     },
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000050,
       "sequence": 2,
@@ -59,7 +59,7 @@
       }
     },
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000100,
       "sequence": 3,
@@ -73,7 +73,7 @@
       }
     },
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000200,
       "sequence": 4,
@@ -87,7 +87,7 @@
       }
     },
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000250,
       "sequence": 5,
@@ -101,7 +101,7 @@
       }
     },
     {
-      "schema": "goose.debug.event.v1",
+      "schema": "bull.debug.event.v1",
       "session_id": "debug-session-1",
       "time_unix_ms": 1779840000300,
       "sequence": 6,

@@ -8,14 +8,14 @@ fn algo_benchmark_reports_runtime_coverage_and_label_error() {
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("sleep-benchmark.json");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
             "--algorithm",
-            "goose.sleep.v0",
+            "bull.sleep.v0",
             "--input",
-            "fixtures/synthetic/sleep_goose_v0_hand_derived.json",
+            "fixtures/synthetic/sleep_bull_v0_hand_derived.json",
             "--label-value",
             "86.0",
             "--label-unit",
@@ -35,7 +35,7 @@ fn algo_benchmark_reports_runtime_coverage_and_label_error() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algo-benchmark-report.v1");
+    assert_eq!(report["schema"], "bull.algo-benchmark-report.v1");
     assert_eq!(report["pass"], true);
     assert!(report["runtime_ms"].as_f64().unwrap() >= 0.0);
     assert_eq!(report["data_coverage"]["input_ids_count"], 1);
@@ -71,14 +71,14 @@ fn algo_benchmark_rejects_private_api_label_source_in_report() {
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("private-label-benchmark.json");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
             "--algorithm",
-            "goose.sleep.v0",
+            "bull.sleep.v0",
             "--input",
-            "fixtures/synthetic/sleep_goose_v0_hand_derived.json",
+            "fixtures/synthetic/sleep_bull_v0_hand_derived.json",
             "--label-value",
             "86.0",
             "--label-unit",
@@ -123,14 +123,14 @@ fn algo_benchmark_fails_label_threshold_without_hiding_error_value() {
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("threshold-benchmark.json");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
             "--algorithm",
-            "goose.strain.v0",
+            "bull.strain.v0",
             "--input",
-            "fixtures/synthetic/strain_goose_v0_hand_derived.json",
+            "fixtures/synthetic/strain_bull_v0_hand_derived.json",
             "--label-value",
             "10.0",
             "--label-unit",
@@ -184,7 +184,7 @@ fn algo_benchmark_reference_comparison_reports_runtime_and_coverage() {
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("reference-comparison.json");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -192,7 +192,7 @@ fn algo_benchmark_reference_comparison_reports_runtime_and_coverage() {
             "--family",
             "hrv",
             "--input",
-            "fixtures/synthetic/hrv_goose_v0_hand_derived.json",
+            "fixtures/synthetic/hrv_bull_v0_hand_derived.json",
             "--output",
             output_path.to_str().unwrap(),
         ])
@@ -202,7 +202,7 @@ fn algo_benchmark_reference_comparison_reports_runtime_and_coverage() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["pass"], true);
     assert!(report["runtime_ms"].as_f64().unwrap() >= 0.0);
     assert_eq!(report["data_coverage"]["input_ids_count"], 1);
@@ -240,7 +240,7 @@ fn algo_benchmark_reference_comparison_supports_sleep_v1_input() {
             "model_status": {
                 "sleep_permission_granted": true,
                 "imported_platform_sleep_nights": 10,
-                "trusted_goose_sleep_nights": 2,
+                "trusted_bull_sleep_nights": 2,
                 "motion_coverage_fraction": 0.94,
                 "heart_rate_coverage_fraction": 0.82
             },
@@ -258,7 +258,7 @@ fn algo_benchmark_reference_comparison_supports_sleep_v1_input() {
     )
     .unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -266,7 +266,7 @@ fn algo_benchmark_reference_comparison_supports_sleep_v1_input() {
             "--family",
             "sleep",
             "--algorithm",
-            "goose.sleep.v1",
+            "bull.sleep.v1",
             "--input",
             input_path.to_str().unwrap(),
             "--output",
@@ -278,16 +278,16 @@ fn algo_benchmark_reference_comparison_supports_sleep_v1_input() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["pass"], true);
-    assert_eq!(report["goose_algorithm_id"], "goose.sleep.v1");
+    assert_eq!(report["bull_algorithm_id"], "bull.sleep.v1");
     assert_eq!(
         report["reference_algorithm_id"],
         "reference.sleep.actigraphy_summary.v1"
     );
     assert_eq!(report["data_coverage"]["input_ids_count"], 1);
     assert_eq!(
-        report["data_coverage"]["goose_output_data_coverage_fraction"],
+        report["data_coverage"]["bull_output_data_coverage_fraction"],
         0.92
     );
     assert!(
@@ -304,7 +304,7 @@ fn algo_benchmark_reference_comparison_supports_stress() {
     let output_dir = tempfile::tempdir().unwrap();
     let output_path = output_dir.path().join("stress-reference-comparison.json");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -312,7 +312,7 @@ fn algo_benchmark_reference_comparison_supports_stress() {
             "--family",
             "stress",
             "--input",
-            "fixtures/synthetic/stress_goose_v0_hand_derived.json",
+            "fixtures/synthetic/stress_bull_v0_hand_derived.json",
             "--output",
             output_path.to_str().unwrap(),
         ])
@@ -322,7 +322,7 @@ fn algo_benchmark_reference_comparison_supports_stress() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["family"], "stress");
     assert_eq!(report["pass"], true);
     assert_eq!(
@@ -341,7 +341,7 @@ fn algo_benchmark_reference_comparison_accepts_external_sleep_report() {
     fs::write(
         &reference_path,
         r#"{
-  "schema": "goose.reference-algo-report.v1",
+  "schema": "bull.reference-algo-report.v1",
   "family": "sleep",
   "algorithm_id": "reference.sleep.ggir_summary.v1",
   "algorithm_version": "1.0.0",
@@ -375,7 +375,7 @@ fn algo_benchmark_reference_comparison_accepts_external_sleep_report() {
     )
     .unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -383,7 +383,7 @@ fn algo_benchmark_reference_comparison_accepts_external_sleep_report() {
             "--family",
             "sleep",
             "--input",
-            "fixtures/synthetic/sleep_goose_v0_hand_derived.json",
+            "fixtures/synthetic/sleep_bull_v0_hand_derived.json",
             "--reference-report",
             reference_path.to_str().unwrap(),
             "--output",
@@ -395,7 +395,7 @@ fn algo_benchmark_reference_comparison_accepts_external_sleep_report() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["family"], "sleep");
     assert_eq!(report["pass"], true);
     assert_eq!(report["reference_contract_valid"], true);
@@ -420,7 +420,7 @@ fn algo_benchmark_external_reference_report_requires_unit_contract() {
     fs::write(
         &reference_path,
         r#"{
-  "schema": "goose.reference-algo-report.v1",
+  "schema": "bull.reference-algo-report.v1",
   "family": "sleep",
   "algorithm_id": "reference.sleep.ggir_summary.v1",
   "algorithm_version": "1.0.0",
@@ -438,7 +438,7 @@ fn algo_benchmark_external_reference_report_requires_unit_contract() {
     )
     .unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -446,7 +446,7 @@ fn algo_benchmark_external_reference_report_requires_unit_contract() {
             "--family",
             "sleep",
             "--input",
-            "fixtures/synthetic/sleep_goose_v0_hand_derived.json",
+            "fixtures/synthetic/sleep_bull_v0_hand_derived.json",
             "--reference-report",
             reference_path.to_str().unwrap(),
             "--output",
@@ -458,10 +458,10 @@ fn algo_benchmark_external_reference_report_requires_unit_contract() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["reference_contract_valid"], false);
-    assert_eq!(report["goose_output_ready"], true);
+    assert_eq!(report["bull_output_ready"], true);
     assert_eq!(report["reference_output_ready"], true);
     assert_eq!(report["shared_fields_ready"], false);
     assert!(
@@ -503,7 +503,7 @@ fn algo_benchmark_reference_comparison_reports_next_actions_when_outputs_missing
     )
     .unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-algo-benchmark"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-algo-benchmark"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .args([
@@ -521,7 +521,7 @@ fn algo_benchmark_reference_comparison_reports_next_actions_when_outputs_missing
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.algorithm-comparison-report.v1");
+    assert_eq!(report["schema"], "bull.algorithm-comparison-report.v1");
     assert_eq!(report["pass"], false);
     assert!(
         report["next_actions"]
@@ -535,7 +535,7 @@ fn algo_benchmark_reference_comparison_reports_next_actions_when_outputs_missing
             .as_array()
             .unwrap()
             .iter()
-            .any(|action| action["reason"] == "goose_algorithm_error")
+            .any(|action| action["reason"] == "bull_algorithm_error")
     );
 }
 

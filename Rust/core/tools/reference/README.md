@@ -1,32 +1,32 @@
 # Reference Adapters
 
 These scripts are optional local benchmark adapters for
-`goose-reference-algo-runner`. They must print `goose.external-reference-output.v1`
+`bull-reference-algo-runner`. They must print `bull.external-reference-output.v1`
 JSON to stdout and keep outputs `benchmark-only`.
 
 ## NeuroKit2 HRV
 
 ```bash
 python3 tools/reference/neurokit_hrv.py \
-  --input fixtures/synthetic/hrv_goose_v0_hand_derived.json \
+  --input fixtures/synthetic/hrv_bull_v0_hand_derived.json \
   --family hrv \
   --provider external.neurokit2.hrv \
-  --output-format goose.external-reference-output.v1
+  --output-format bull.external-reference-output.v1
 ```
 
 With NeuroKit2 installed, the adapter converts RR intervals to peaks and runs
 time-domain HRV. Without NeuroKit2, it emits a structured
 `neurokit2_not_installed` report. `--allow-hand-derived-fallback` exists only so
-CI can test the Goose contract without external Python science packages.
+CI can test the Bull contract without external Python science packages.
 
 ## pyHRV Time Domain
 
 ```bash
 python3 tools/reference/pyhrv_time_domain.py \
-  --input fixtures/synthetic/hrv_goose_v0_hand_derived.json \
+  --input fixtures/synthetic/hrv_bull_v0_hand_derived.json \
   --family hrv \
   --provider external.pyhrv.hrv \
-  --output-format goose.external-reference-output.v1
+  --output-format bull.external-reference-output.v1
 ```
 
 With pyHRV installed, the adapter runs the time-domain NNI functions for mean
@@ -40,7 +40,7 @@ python3 tools/reference/pyactigraphy_sadeh.py \
   --input fixtures/synthetic/sleep_actigraphy_counts_sadeh_hand_derived.json \
   --family sleep \
   --provider external.pyactigraphy.sadeh \
-  --output-format goose.external-reference-output.v1
+  --output-format bull.external-reference-output.v1
 ```
 
 With pyActigraphy and pandas installed, the adapter runs Sadeh sleep/wake
@@ -55,7 +55,7 @@ python3 tools/reference/ggir_sleep_summary.py \
   --input fixtures/synthetic/sleep_ggir_summary_hand_derived.json \
   --family sleep \
   --provider external.ggir.sleep \
-  --output-format goose.external-reference-output.v1
+  --output-format bull.external-reference-output.v1
 ```
 
 This adapter ingests exported GGIR part4/part5-style sleep summary rows. It

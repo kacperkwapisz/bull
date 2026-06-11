@@ -1,8 +1,8 @@
-use goose_core::{
+use bull_core::{
     step_counter::{
-        ActivityUnavailableDailyStatusOptions, GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID,
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION, GOOSE_STEPS_DEVICE_COUNTER_V0_ID,
-        GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION, StepCounterDailyRollupOptions,
+        ActivityUnavailableDailyStatusOptions, BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID,
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION, BULL_STEPS_DEVICE_COUNTER_V0_ID,
+        BULL_STEPS_DEVICE_COUNTER_V0_VERSION, StepCounterDailyRollupOptions,
         StepCounterHourlyRollupOptions, persist_step_counter_discovery,
         rollup_activity_unavailable_daily_status_for_store, rollup_device_step_counter_day,
         rollup_device_step_counter_hour,
@@ -11,13 +11,13 @@ use goose_core::{
         StepCaptureValidationOptions, StepPacketDiscoveryOptions, run_step_capture_validation,
         run_step_packet_discovery,
     },
-    store::{DailyActivityMetricInput, DecodedFrameRow, GooseStore, StepCounterSampleInput},
+    store::{DailyActivityMetricInput, DecodedFrameRow, BullStore, StepCounterSampleInput},
 };
 use serde_json::json;
 
 #[test]
 fn step_counter_ingest_persists_decoded_device_counter_candidates() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let rows = vec![
         decoded_frame_row(
             "step-frame-1",
@@ -73,7 +73,7 @@ fn step_counter_ingest_persists_decoded_device_counter_candidates() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(report.schema, "goose.step-counter-ingest-report.v1");
+    assert_eq!(report.schema, "bull.step-counter-ingest-report.v1");
     assert_eq!(report.counter_candidate_count, 2);
     assert_eq!(report.cadence_sample_count, 2);
     assert_eq!(report.activity_state_sample_count, 2);
@@ -575,7 +575,7 @@ fn step_delta_selection_prefers_labels_then_explicit_counters() {
 
 #[test]
 fn step_counter_daily_rollup_writes_device_counter_activity_metric() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_step_sample(
         &store,
         "s1",
@@ -615,7 +615,7 @@ fn step_counter_daily_rollup_writes_device_counter_activity_metric() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(report.schema, "goose.step-counter-daily-rollup-report.v1");
+    assert_eq!(report.schema, "bull.step-counter-daily-rollup-report.v1");
     assert_eq!(report.sample_count, 3);
     assert_eq!(report.cadence_sample_count, 3);
     assert_eq!(report.activity_state_sample_count, 3);
@@ -638,17 +638,17 @@ fn step_counter_daily_rollup_writes_device_counter_activity_metric() {
     assert!(
         metric
             .provenance_json
-            .contains("goose.steps.device_counter.v0")
+            .contains("bull.steps.device_counter.v0")
     );
     let metric_provenance: serde_json::Value =
         serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         metric_provenance["algorithm"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_ID
+        BULL_STEPS_DEVICE_COUNTER_V0_ID
     );
     assert_eq!(
         metric_provenance["algorithm_version"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION
+        BULL_STEPS_DEVICE_COUNTER_V0_VERSION
     );
     assert_eq!(metric_provenance["source_kind"], "device_counter");
     let provenance_rows = store
@@ -659,17 +659,17 @@ fn step_counter_daily_rollup_writes_device_counter_activity_metric() {
         serde_json::from_str(&provenance_rows[0].provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_ID
+        BULL_STEPS_DEVICE_COUNTER_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION
+        BULL_STEPS_DEVICE_COUNTER_V0_VERSION
     );
 }
 
 #[test]
 fn step_counter_daily_rollup_refreshes_existing_device_counter_activity_metric() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_step_sample(
         &store,
         "s1",
@@ -726,7 +726,7 @@ fn step_counter_daily_rollup_refreshes_existing_device_counter_activity_metric()
 
 #[test]
 fn step_counter_hourly_rollup_writes_device_counter_activity_metric() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_step_sample(
         &store,
         "s1",
@@ -766,7 +766,7 @@ fn step_counter_hourly_rollup_writes_device_counter_activity_metric() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(report.schema, "goose.step-counter-hourly-rollup-report.v1");
+    assert_eq!(report.schema, "bull.step-counter-hourly-rollup-report.v1");
     assert_eq!(report.sample_count, 3);
     assert_eq!(report.steps, Some(105));
     assert_eq!(report.average_cadence_spm, Some(94.0));
@@ -791,17 +791,17 @@ fn step_counter_hourly_rollup_writes_device_counter_activity_metric() {
         serde_json::from_str(&provenance_rows[0].provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_ID
+        BULL_STEPS_DEVICE_COUNTER_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION
+        BULL_STEPS_DEVICE_COUNTER_V0_VERSION
     );
 }
 
 #[test]
 fn step_counter_daily_rollup_handles_counter_reset_without_negative_steps() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_step_sample(&store, "s1", 1_780_387_200_000, 990, None, None);
     insert_step_sample(&store, "s2", 1_780_387_260_000, 1_000, None, None);
     insert_step_sample(&store, "s3", 1_780_387_320_000, 3, None, None);
@@ -834,7 +834,7 @@ fn step_counter_daily_rollup_handles_counter_reset_without_negative_steps() {
 
 #[test]
 fn step_counter_daily_rollup_blocks_without_two_samples() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_step_sample(&store, "s1", 1_780_387_200_000, 990, None, None);
 
     let report = rollup_device_step_counter_day(
@@ -863,7 +863,7 @@ fn step_counter_daily_rollup_blocks_without_two_samples() {
 
 #[test]
 fn activity_unavailable_status_writes_steps_activity_metric_with_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let report = rollup_activity_unavailable_daily_status_for_store(
         &store,
@@ -881,7 +881,7 @@ fn activity_unavailable_status_writes_steps_activity_metric_with_provenance() {
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(
         report.schema,
-        "goose.activity-unavailable-daily-status-report.v1"
+        "bull.activity-unavailable-daily-status-report.v1"
     );
     assert_eq!(report.available_step_metric_count, 0);
     assert_eq!(report.unavailable_metric_count, 1);
@@ -916,11 +916,11 @@ fn activity_unavailable_status_writes_steps_activity_metric_with_provenance() {
         serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         metric_provenance["algorithm"],
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID
     );
     assert_eq!(
         metric_provenance["algorithm_version"],
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION
     );
     assert_eq!(metric_provenance["source_kind"], "unavailable");
 
@@ -933,7 +933,7 @@ fn activity_unavailable_status_writes_steps_activity_metric_with_provenance() {
 
 #[test]
 fn activity_unavailable_status_skips_steps_when_available_metric_exists() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     store
         .upsert_daily_activity_metric(DailyActivityMetricInput {
             daily_metric_id: "daily-activity-steps-2026-06-02-europe-london-local-estimate-v0",
@@ -950,7 +950,7 @@ fn activity_unavailable_status_skips_steps_when_available_metric_exists() {
             confidence: 0.72,
             inputs_json: r#"{"validated":true}"#,
             quality_flags_json: r#"["validated_local_step_estimate"]"#,
-            provenance_json: r#"{"algorithm":"goose.steps.raw_motion_estimate.v0","source_kind":"local_estimate"}"#,
+            provenance_json: r#"{"algorithm":"bull.steps.raw_motion_estimate.v0","source_kind":"local_estimate"}"#,
         })
         .unwrap();
 
@@ -976,7 +976,7 @@ fn activity_unavailable_status_skips_steps_when_available_metric_exists() {
 }
 
 fn insert_step_sample(
-    store: &GooseStore,
+    store: &BullStore,
     sample_id: &str,
     sample_time_unix_ms: i64,
     value: i64,
@@ -1012,7 +1012,7 @@ fn decoded_frame_row(
         frame_id: frame_id.to_string(),
         evidence_id: format!("{frame_id}.evidence"),
         captured_at: captured_at.to_string(),
-        device_type: "GOOSE".to_string(),
+        device_type: "BULL".to_string(),
         raw_len: 0,
         header_len: 0,
         declared_len: 0,
@@ -1025,7 +1025,7 @@ fn decoded_frame_row(
         sequence: None,
         command_or_event: None,
         parsed_payload_json: parsed_payload.to_string(),
-        parser_version: "goose-core/step-counter-test".to_string(),
+        parser_version: "bull-core/step-counter-test".to_string(),
         warnings_json: "[]".to_string(),
     }
 }

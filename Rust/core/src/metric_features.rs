@@ -4,47 +4,47 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     capture_correlation::{
         CaptureCorrelationOptions, CaptureCorrelationReport,
         DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY, run_capture_correlation_for_store,
     },
     metrics::{
-        AlgorithmRunResult, GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, HrvInput, HrvOutput,
+        AlgorithmRunResult, BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, HrvInput, HrvOutput,
         RecoveryInput, RecoveryScoreOutput, SleepInput, SleepScoreOutput, StrainInput,
-        StrainScoreOutput, StressInput, StressScoreOutput, goose_hrv_v0, goose_recovery_v0,
-        goose_sleep_v0, goose_strain_v0, goose_stress_v0,
+        StrainScoreOutput, StressInput, StressScoreOutput, bull_hrv_v0, bull_recovery_v0,
+        bull_sleep_v0, bull_strain_v0, bull_stress_v0,
     },
     protocol::{
         DataPacketBodySummary, I16SeriesSummary, ParsedPayload, decode_hex_with_whitespace,
     },
-    store::{DecodedFrameRow, GooseStore},
+    store::{DecodedFrameRow, BullStore},
     validation_labels::{
         OFFICIAL_WHOOP_LABEL_POLICY, official_label_policy_issue_action,
         official_label_policy_issues,
     },
 };
 
-pub const MOTION_FEATURE_REPORT_SCHEMA: &str = "goose.motion-feature-report.v1";
-pub const HEART_RATE_FEATURE_REPORT_SCHEMA: &str = "goose.heart-rate-feature-report.v1";
-pub const HRV_FEATURE_REPORT_SCHEMA: &str = "goose.hrv-feature-report.v1";
-pub const HRV_CAPTURE_VALIDATION_REPORT_SCHEMA: &str = "goose.hrv-capture-validation-report.v1";
-pub const VITAL_EVENT_FEATURE_REPORT_SCHEMA: &str = "goose.vital-event-feature-report.v1";
+pub const MOTION_FEATURE_REPORT_SCHEMA: &str = "bull.motion-feature-report.v1";
+pub const HEART_RATE_FEATURE_REPORT_SCHEMA: &str = "bull.heart-rate-feature-report.v1";
+pub const HRV_FEATURE_REPORT_SCHEMA: &str = "bull.hrv-feature-report.v1";
+pub const HRV_CAPTURE_VALIDATION_REPORT_SCHEMA: &str = "bull.hrv-capture-validation-report.v1";
+pub const VITAL_EVENT_FEATURE_REPORT_SCHEMA: &str = "bull.vital-event-feature-report.v1";
 pub const RESPIRATORY_RATE_CAPTURE_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.respiratory-rate-capture-validation-report.v1";
+    "bull.respiratory-rate-capture-validation-report.v1";
 pub const OXYGEN_SATURATION_CAPTURE_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.oxygen-saturation-capture-validation-report.v1";
+    "bull.oxygen-saturation-capture-validation-report.v1";
 pub const TEMPERATURE_CAPTURE_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.temperature-capture-validation-report.v1";
+    "bull.temperature-capture-validation-report.v1";
 pub const RECOVERY_SENSOR_DISCOVERY_REPORT_SCHEMA: &str =
-    "goose.recovery-sensor-discovery-report.v1";
-pub const METRIC_WINDOW_FEATURE_REPORT_SCHEMA: &str = "goose.metric-window-feature-report.v1";
+    "bull.recovery-sensor-discovery-report.v1";
+pub const METRIC_WINDOW_FEATURE_REPORT_SCHEMA: &str = "bull.metric-window-feature-report.v1";
 pub const RESTING_HEART_RATE_FEATURE_REPORT_SCHEMA: &str =
-    "goose.resting-heart-rate-feature-report.v1";
-pub const SLEEP_FEATURE_SCORE_REPORT_SCHEMA: &str = "goose.sleep-feature-score-report.v1";
-pub const RECOVERY_FEATURE_SCORE_REPORT_SCHEMA: &str = "goose.recovery-feature-score-report.v1";
-pub const STRAIN_FEATURE_SCORE_REPORT_SCHEMA: &str = "goose.strain-feature-score-report.v1";
-pub const STRESS_FEATURE_SCORE_REPORT_SCHEMA: &str = "goose.stress-feature-score-report.v1";
+    "bull.resting-heart-rate-feature-report.v1";
+pub const SLEEP_FEATURE_SCORE_REPORT_SCHEMA: &str = "bull.sleep-feature-score-report.v1";
+pub const RECOVERY_FEATURE_SCORE_REPORT_SCHEMA: &str = "bull.recovery-feature-score-report.v1";
+pub const STRAIN_FEATURE_SCORE_REPORT_SCHEMA: &str = "bull.strain-feature-score-report.v1";
+pub const STRESS_FEATURE_SCORE_REPORT_SCHEMA: &str = "bull.stress-feature-score-report.v1";
 const MIN_SMOOTHED_SLEEP_STAGE_DURATION_MINUTES: f64 = 5.0;
 const RESTING_HR_LOW_MOTION_INTENSITY_MAX: f64 = 0.08;
 const RESTING_HR_MOTION_MATCH_WINDOW_MS: i64 = 10 * 60 * 1_000;
@@ -58,15 +58,15 @@ pub struct MotionFeatureOptions {
 pub type HeartRateFeatureOptions = MotionFeatureOptions;
 pub type VitalEventFeatureOptions = MotionFeatureOptions;
 
-pub const GOOSE_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_ID: &str =
-    "goose.respiratory_rate.history_candidate.v0";
-pub const GOOSE_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_ID: &str =
-    "goose.oxygen_saturation.packet_candidate.v0";
-pub const GOOSE_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_ID: &str =
-    "goose.skin_temperature.history_candidate.v0";
-pub const GOOSE_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_VERSION: &str = "0.1.0";
+pub const BULL_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_ID: &str =
+    "bull.respiratory_rate.history_candidate.v0";
+pub const BULL_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_VERSION: &str = "0.1.0";
+pub const BULL_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_ID: &str =
+    "bull.oxygen_saturation.packet_candidate.v0";
+pub const BULL_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_VERSION: &str = "0.1.0";
+pub const BULL_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_ID: &str =
+    "bull.skin_temperature.history_candidate.v0";
+pub const BULL_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Clone, Copy)]
 pub struct HrvFeatureOptions {
@@ -1071,12 +1071,12 @@ struct NormalizedSampleTime {
 }
 
 pub fn run_motion_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: MotionFeatureOptions,
-) -> GooseResult<MotionFeatureReport> {
+) -> BullResult<MotionFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -1095,7 +1095,7 @@ pub fn run_motion_feature_report(
     decoded_rows: &[DecodedFrameRow],
     correlation: &CaptureCorrelationReport,
     options: MotionFeatureOptions,
-) -> GooseResult<MotionFeatureReport> {
+) -> BullResult<MotionFeatureReport> {
     let trusted_frames =
         trusted_frames_for_summary_kinds(correlation, &["raw_motion_k10", "raw_motion_k21"]);
     let mut issues = Vec::new();
@@ -1128,7 +1128,7 @@ pub fn run_motion_feature_report(
 
     Ok(MotionFeatureReport {
         schema: MOTION_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-motion-feature-extractor".to_string(),
+        generated_by: "bull-motion-feature-extractor".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         capture_correlation_pass: correlation.pass,
@@ -1142,12 +1142,12 @@ pub fn run_motion_feature_report(
 }
 
 pub fn run_heart_rate_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: HeartRateFeatureOptions,
-) -> GooseResult<HeartRateFeatureReport> {
+) -> BullResult<HeartRateFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -1166,7 +1166,7 @@ pub fn run_heart_rate_feature_report(
     decoded_rows: &[DecodedFrameRow],
     correlation: &CaptureCorrelationReport,
     options: HeartRateFeatureOptions,
-) -> GooseResult<HeartRateFeatureReport> {
+) -> BullResult<HeartRateFeatureReport> {
     let trusted_frames =
         trusted_frames_for_summary_kinds(correlation, &["normal_history", "raw_motion_k10"]);
     let mut issues = Vec::new();
@@ -1198,7 +1198,7 @@ pub fn run_heart_rate_feature_report(
 
     Ok(HeartRateFeatureReport {
         schema: HEART_RATE_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-heart-rate-feature-extractor".to_string(),
+        generated_by: "bull-heart-rate-feature-extractor".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         capture_correlation_pass: correlation.pass,
@@ -1212,12 +1212,12 @@ pub fn run_heart_rate_feature_report(
 }
 
 pub fn run_vital_event_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: VitalEventFeatureOptions,
-) -> GooseResult<VitalEventFeatureReport> {
+) -> BullResult<VitalEventFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -1233,12 +1233,12 @@ pub fn run_vital_event_feature_report_for_store(
 }
 
 pub fn run_respiratory_rate_capture_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: RespiratoryRateCaptureValidationOptions,
-) -> GooseResult<RespiratoryRateCaptureValidationReport> {
+) -> BullResult<RespiratoryRateCaptureValidationReport> {
     validate_respiratory_rate_validation_options(&options)?;
     let vital_event_report = run_vital_event_feature_report_for_store(
         store,
@@ -1308,7 +1308,7 @@ pub fn run_respiratory_rate_capture_validation_for_store(
 
     Ok(RespiratoryRateCaptureValidationReport {
         schema: RESPIRATORY_RATE_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-respiratory-rate-capture-validator".to_string(),
+        generated_by: "bull-respiratory-rate-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start_time: start.to_string(),
@@ -1327,8 +1327,8 @@ pub fn run_respiratory_rate_capture_validation_for_store(
         trusted_candidate_count: vital_event_report.trusted_respiratory_rate_input_count,
         selected_candidate_schema_field,
         selected_candidate_sample_time,
-        decoder_id: GOOSE_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_ID.to_string(),
-        decoder_version: GOOSE_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_VERSION.to_string(),
+        decoder_id: BULL_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_ID.to_string(),
+        decoder_version: BULL_RESPIRATORY_RATE_HISTORY_CANDIDATE_V0_VERSION.to_string(),
         promotion_status: "validation_only_respiratory_rate_semantics_still_unverified".to_string(),
         quality_flags: quality_flags.into_iter().collect(),
         vital_event_report,
@@ -1338,12 +1338,12 @@ pub fn run_respiratory_rate_capture_validation_for_store(
 }
 
 pub fn run_oxygen_saturation_capture_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: OxygenSaturationCaptureValidationOptions,
-) -> GooseResult<OxygenSaturationCaptureValidationReport> {
+) -> BullResult<OxygenSaturationCaptureValidationReport> {
     validate_oxygen_saturation_validation_options(&options)?;
     let vital_event_report = run_vital_event_feature_report_for_store(
         store,
@@ -1403,7 +1403,7 @@ pub fn run_oxygen_saturation_capture_validation_for_store(
 
     Ok(OxygenSaturationCaptureValidationReport {
         schema: OXYGEN_SATURATION_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-oxygen-saturation-capture-validator".to_string(),
+        generated_by: "bull-oxygen-saturation-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start_time: start.to_string(),
@@ -1421,8 +1421,8 @@ pub fn run_oxygen_saturation_capture_validation_for_store(
         candidate_count: vital_event_report.pulse_information_packet_count,
         trusted_candidate_count: 0,
         pulse_information_packet_count: vital_event_report.pulse_information_packet_count,
-        decoder_id: GOOSE_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_ID.to_string(),
-        decoder_version: GOOSE_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_VERSION.to_string(),
+        decoder_id: BULL_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_ID.to_string(),
+        decoder_version: BULL_OXYGEN_SATURATION_PACKET_CANDIDATE_V0_VERSION.to_string(),
         source_kind: "unavailable".to_string(),
         promotion_status: "validation_only_oxygen_saturation_decoder_not_implemented".to_string(),
         quality_flags: quality_flags.into_iter().collect(),
@@ -1433,12 +1433,12 @@ pub fn run_oxygen_saturation_capture_validation_for_store(
 }
 
 pub fn run_temperature_capture_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: TemperatureCaptureValidationOptions,
-) -> GooseResult<TemperatureCaptureValidationReport> {
+) -> BullResult<TemperatureCaptureValidationReport> {
     validate_temperature_validation_options(&options)?;
     let vital_event_report = run_vital_event_feature_report_for_store(
         store,
@@ -1524,7 +1524,7 @@ pub fn run_temperature_capture_validation_for_store(
 
     Ok(TemperatureCaptureValidationReport {
         schema: TEMPERATURE_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-temperature-capture-validator".to_string(),
+        generated_by: "bull-temperature-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start_time: start.to_string(),
@@ -1545,8 +1545,8 @@ pub fn run_temperature_capture_validation_for_store(
         selected_candidate_schema_field,
         selected_candidate_sample_time,
         selected_candidate_source_signal,
-        decoder_id: GOOSE_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_ID.to_string(),
-        decoder_version: GOOSE_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_VERSION.to_string(),
+        decoder_id: BULL_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_ID.to_string(),
+        decoder_version: BULL_SKIN_TEMPERATURE_HISTORY_CANDIDATE_V0_VERSION.to_string(),
         source_kind: "unavailable".to_string(),
         promotion_status: "validation_only_temperature_units_still_unverified".to_string(),
         quality_flags: quality_flags.into_iter().collect(),
@@ -1560,7 +1560,7 @@ pub fn run_vital_event_feature_report(
     decoded_rows: &[DecodedFrameRow],
     correlation: &CaptureCorrelationReport,
     options: VitalEventFeatureOptions,
-) -> GooseResult<VitalEventFeatureReport> {
+) -> BullResult<VitalEventFeatureReport> {
     let trusted_frames = trusted_frames_for_summary_kinds(
         correlation,
         &["event_temperature_level", "normal_history"],
@@ -1627,7 +1627,7 @@ pub fn run_vital_event_feature_report(
 
     Ok(VitalEventFeatureReport {
         schema: VITAL_EVENT_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-vital-event-feature-extractor".to_string(),
+        generated_by: "bull-vital-event-feature-extractor".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         capture_correlation_pass: correlation.pass,
@@ -1651,12 +1651,12 @@ pub fn run_vital_event_feature_report(
 }
 
 pub fn run_hrv_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: HrvFeatureOptions,
-) -> GooseResult<HrvFeatureReport> {
+) -> BullResult<HrvFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -1672,12 +1672,12 @@ pub fn run_hrv_feature_report_for_store(
 }
 
 pub fn run_hrv_capture_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: HrvCaptureValidationOptions,
-) -> GooseResult<HrvCaptureValidationReport> {
+) -> BullResult<HrvCaptureValidationReport> {
     validate_hrv_validation_options(&options)?;
     let hrv_report = run_hrv_feature_report_for_store(
         store,
@@ -1729,7 +1729,7 @@ pub fn run_hrv_capture_validation_for_store(
 
     Ok(HrvCaptureValidationReport {
         schema: HRV_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-hrv-capture-validator".to_string(),
+        generated_by: "bull-hrv-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start_time: start.to_string(),
@@ -1747,8 +1747,8 @@ pub fn run_hrv_capture_validation_for_store(
         rr_interval_count: hrv_report.rr_interval_count,
         trusted_rr_interval_count: hrv_report.trusted_rr_interval_count,
         trusted_feature_count: hrv_report.trusted_feature_count,
-        algorithm_id: GOOSE_HRV_V0_ID.to_string(),
-        algorithm_version: GOOSE_HRV_V0_VERSION.to_string(),
+        algorithm_id: BULL_HRV_V0_ID.to_string(),
+        algorithm_version: BULL_HRV_V0_VERSION.to_string(),
         promotion_status: "validation_only_rr_interval_scale_still_unverified".to_string(),
         quality_flags,
         hrv_report,
@@ -1763,7 +1763,7 @@ pub fn run_hrv_feature_report(
     start: &str,
     end: &str,
     options: HrvFeatureOptions,
-) -> GooseResult<HrvFeatureReport> {
+) -> BullResult<HrvFeatureReport> {
     let trusted_frames =
         trusted_frames_for_summary_kinds(correlation, &["r17_optical_or_labrador_filtered"]);
     let mut issues = Vec::new();
@@ -1830,7 +1830,7 @@ pub fn run_hrv_feature_report(
     } else {
         None
     };
-    let score_result = hrv_input.as_ref().map(goose_hrv_v0);
+    let score_result = hrv_input.as_ref().map(bull_hrv_v0);
     if score_result
         .as_ref()
         .is_some_and(|result| !result.errors.is_empty())
@@ -1847,7 +1847,7 @@ pub fn run_hrv_feature_report(
 
     Ok(HrvFeatureReport {
         schema: HRV_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-hrv-feature-extractor".to_string(),
+        generated_by: "bull-hrv-feature-extractor".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         capture_correlation_pass: correlation.pass,
@@ -1873,12 +1873,12 @@ pub fn run_hrv_feature_report(
 }
 
 pub fn run_recovery_sensor_discovery_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: RecoverySensorDiscoveryOptions,
-) -> GooseResult<RecoverySensorDiscoveryReport> {
+) -> BullResult<RecoverySensorDiscoveryReport> {
     let hrv_report = run_hrv_feature_report_for_store(
         store,
         database_path,
@@ -1908,7 +1908,7 @@ pub fn run_recovery_sensor_discovery_report_for_store(
 
     Ok(RecoverySensorDiscoveryReport {
         schema: RECOVERY_SENSOR_DISCOVERY_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-recovery-sensor-discovery-gate".to_string(),
+        generated_by: "bull-recovery-sensor-discovery-gate".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -1922,12 +1922,12 @@ pub fn run_recovery_sensor_discovery_report_for_store(
 }
 
 pub fn run_metric_window_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: MetricWindowFeatureOptions,
-) -> GooseResult<MetricWindowFeatureReport> {
+) -> BullResult<MetricWindowFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -1948,7 +1948,7 @@ pub fn run_metric_window_feature_report(
     start: &str,
     end: &str,
     options: MetricWindowFeatureOptions,
-) -> GooseResult<MetricWindowFeatureReport> {
+) -> BullResult<MetricWindowFeatureReport> {
     let feature_options = MotionFeatureOptions {
         min_owned_captures_per_summary: options.min_owned_captures_per_summary,
         require_trusted_evidence: options.require_trusted_evidence,
@@ -1990,7 +1990,7 @@ pub fn run_metric_window_feature_report(
 
     Ok(MetricWindowFeatureReport {
         schema: METRIC_WINDOW_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-metric-window-feature-aggregator".to_string(),
+        generated_by: "bull-metric-window-feature-aggregator".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -2006,12 +2006,12 @@ pub fn run_metric_window_feature_report(
 }
 
 pub fn run_resting_heart_rate_feature_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: RestingHeartRateFeatureOptions,
-) -> GooseResult<RestingHeartRateFeatureReport> {
+) -> BullResult<RestingHeartRateFeatureReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
@@ -2032,7 +2032,7 @@ pub fn run_resting_heart_rate_feature_report(
     start: &str,
     end: &str,
     options: RestingHeartRateFeatureOptions,
-) -> GooseResult<RestingHeartRateFeatureReport> {
+) -> BullResult<RestingHeartRateFeatureReport> {
     let heart_rate_report = run_heart_rate_feature_report(
         decoded_rows,
         correlation,
@@ -2080,7 +2080,7 @@ pub fn run_resting_heart_rate_feature_report(
 
     Ok(RestingHeartRateFeatureReport {
         schema: RESTING_HEART_RATE_FEATURE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-resting-heart-rate-feature-extractor".to_string(),
+        generated_by: "bull-resting-heart-rate-feature-extractor".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         require_baseline: options.require_baseline,
@@ -2097,12 +2097,12 @@ pub fn run_resting_heart_rate_feature_report(
 }
 
 pub fn run_sleep_feature_score_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: SleepFeatureScoreOptions,
-) -> GooseResult<SleepFeatureScoreReport> {
+) -> BullResult<SleepFeatureScoreReport> {
     let motion_report = run_motion_feature_report_for_store(
         store,
         database_path,
@@ -2181,7 +2181,7 @@ pub fn run_sleep_feature_score_report_for_store(
             heart_rate_dip_percent: window.heart_rate_dip_percent,
             input_ids: window.input_ids.clone(),
         };
-        let result = goose_sleep_v0(&input);
+        let result = bull_sleep_v0(&input);
         if !result.errors.is_empty() {
             issues.push("sleep_score_errors".to_string());
         }
@@ -2195,7 +2195,7 @@ pub fn run_sleep_feature_score_report_for_store(
 
     Ok(SleepFeatureScoreReport {
         schema: SLEEP_FEATURE_SCORE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-sleep-feature-score-builder".to_string(),
+        generated_by: "bull-sleep-feature-score-builder".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -2212,7 +2212,7 @@ pub fn run_sleep_feature_score_report_for_store(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_recovery_feature_score_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
@@ -2227,7 +2227,7 @@ pub fn run_recovery_feature_score_report_for_store(
     prior_strain_start: &str,
     prior_strain_end: &str,
     options: RecoveryFeatureScoreOptions,
-) -> GooseResult<RecoveryFeatureScoreReport> {
+) -> BullResult<RecoveryFeatureScoreReport> {
     let hrv_report = run_hrv_feature_report_for_store(
         store,
         database_path,
@@ -2438,7 +2438,7 @@ pub fn run_recovery_feature_score_report_for_store(
             prior_strain_0_to_21,
             input_ids,
         };
-        let mut result = goose_recovery_v0(&input);
+        let mut result = bull_recovery_v0(&input);
         result
             .quality_flags
             .extend(vitals.quality_flags.iter().cloned());
@@ -2458,7 +2458,7 @@ pub fn run_recovery_feature_score_report_for_store(
 
     Ok(RecoveryFeatureScoreReport {
         schema: RECOVERY_FEATURE_SCORE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-recovery-feature-score-builder".to_string(),
+        generated_by: "bull-recovery-feature-score-builder".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -2505,14 +2505,14 @@ fn attach_recovery_provided_vitals_provenance(
 }
 
 pub fn run_strain_feature_score_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     resting_start: &str,
     resting_end: &str,
     options: StrainFeatureScoreOptions,
-) -> GooseResult<StrainFeatureScoreReport> {
+) -> BullResult<StrainFeatureScoreReport> {
     let resting_report = run_resting_heart_rate_feature_report_for_store(
         store,
         database_path,
@@ -2617,7 +2617,7 @@ pub fn run_strain_feature_score_report_for_store(
                         hr_zone_minutes: window.hr_zone_minutes.clone(),
                         input_ids,
                     };
-                    let mut result = goose_strain_v0(&input);
+                    let mut result = bull_strain_v0(&input);
                     if max_hr_basis.as_deref() == Some("observed_window_max_hr_bpm") {
                         result
                             .quality_flags
@@ -2646,7 +2646,7 @@ pub fn run_strain_feature_score_report_for_store(
 
     Ok(StrainFeatureScoreReport {
         schema: STRAIN_FEATURE_SCORE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-strain-feature-score-builder".to_string(),
+        generated_by: "bull-strain-feature-score-builder".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -2664,7 +2664,7 @@ pub fn run_strain_feature_score_report_for_store(
 }
 
 pub fn run_stress_feature_score_report_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
@@ -2675,7 +2675,7 @@ pub fn run_stress_feature_score_report_for_store(
     hrv_baseline_start: &str,
     hrv_baseline_end: &str,
     options: StressFeatureScoreOptions,
-) -> GooseResult<StressFeatureScoreReport> {
+) -> BullResult<StressFeatureScoreReport> {
     let feature_options = MotionFeatureOptions {
         min_owned_captures_per_summary: options.min_owned_captures_per_summary,
         require_trusted_evidence: options.require_trusted_evidence,
@@ -2830,7 +2830,7 @@ pub fn run_stress_feature_score_report_for_store(
             motion_intensity_0_to_1,
             input_ids,
         };
-        let result = goose_stress_v0(&input);
+        let result = bull_stress_v0(&input);
         if !result.errors.is_empty() {
             issues.push("stress_score_errors".to_string());
         }
@@ -2844,7 +2844,7 @@ pub fn run_stress_feature_score_report_for_store(
 
     Ok(StressFeatureScoreReport {
         schema: STRESS_FEATURE_SCORE_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-stress-feature-score-builder".to_string(),
+        generated_by: "bull-stress-feature-score-builder".to_string(),
         pass: issues.is_empty(),
         require_trusted_evidence: options.require_trusted_evidence,
         start_time: start.to_string(),
@@ -2867,13 +2867,13 @@ pub fn run_stress_feature_score_report_for_store(
     })
 }
 
-fn validate_hrv_validation_options(options: &HrvCaptureValidationOptions) -> GooseResult<()> {
+fn validate_hrv_validation_options(options: &HrvCaptureValidationOptions) -> BullResult<()> {
     if !options.tolerance_ms.is_finite() || options.tolerance_ms < 0.0 {
-        return Err(GooseError::message("tolerance_ms must be nonnegative"));
+        return Err(BullError::message("tolerance_ms must be nonnegative"));
     }
     if let Some(value) = options.official_whoop_hrv_rmssd_ms {
         if !value.is_finite() || value < 0.0 {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "official_whoop_hrv_rmssd_ms must be nonnegative",
             ));
         }
@@ -2883,13 +2883,13 @@ fn validate_hrv_validation_options(options: &HrvCaptureValidationOptions) -> Goo
 
 fn validate_respiratory_rate_validation_options(
     options: &RespiratoryRateCaptureValidationOptions,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !options.tolerance_rpm.is_finite() || options.tolerance_rpm < 0.0 {
-        return Err(GooseError::message("tolerance_rpm must be nonnegative"));
+        return Err(BullError::message("tolerance_rpm must be nonnegative"));
     }
     if let Some(value) = options.official_whoop_respiratory_rate_rpm {
         if !value.is_finite() || value <= 0.0 {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "official_whoop_respiratory_rate_rpm must be positive",
             ));
         }
@@ -2899,13 +2899,13 @@ fn validate_respiratory_rate_validation_options(
 
 fn validate_oxygen_saturation_validation_options(
     options: &OxygenSaturationCaptureValidationOptions,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !options.tolerance_percent.is_finite() || options.tolerance_percent < 0.0 {
-        return Err(GooseError::message("tolerance_percent must be nonnegative"));
+        return Err(BullError::message("tolerance_percent must be nonnegative"));
     }
     if let Some(value) = options.official_whoop_oxygen_saturation_percent {
         if !value.is_finite() || !(0.0..=100.0).contains(&value) {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "official_whoop_oxygen_saturation_percent must be between 0 and 100",
             ));
         }
@@ -2915,13 +2915,13 @@ fn validate_oxygen_saturation_validation_options(
 
 fn validate_temperature_validation_options(
     options: &TemperatureCaptureValidationOptions,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !options.tolerance_c.is_finite() || options.tolerance_c < 0.0 {
-        return Err(GooseError::message("tolerance_c must be nonnegative"));
+        return Err(BullError::message("tolerance_c must be nonnegative"));
     }
     if let Some(value) = options.official_whoop_skin_temperature_delta_c {
         if !value.is_finite() {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "official_whoop_skin_temperature_delta_c must be finite",
             ));
         }
@@ -3955,10 +3955,10 @@ fn issue_reason(issue: &str) -> &'static str {
     }
 }
 
-fn motion_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<MotionPlan>> {
+fn motion_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<MotionPlan>> {
     let parsed_payload: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} parsed_payload_json invalid: {error}",
                 row.frame_id
             ))
@@ -3998,7 +3998,7 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<MotionPlan>
     })
 }
 
-fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<HeartRatePlan>> {
+fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<HeartRatePlan>> {
     let parsed_payload = parsed_payload_from_row(row)?;
     let Some(ParsedPayload::DataPacket {
         timestamp_seconds,
@@ -4040,9 +4040,9 @@ fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<HeartRa
     })
 }
 
-fn parsed_payload_from_row(row: &DecodedFrameRow) -> GooseResult<Option<ParsedPayload>> {
+fn parsed_payload_from_row(row: &DecodedFrameRow) -> BullResult<Option<ParsedPayload>> {
     serde_json::from_str(&row.parsed_payload_json).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "{} parsed_payload_json invalid: {error}",
             row.frame_id
         ))
@@ -4146,10 +4146,10 @@ fn respiratory_rate_plan_from_payload(
     }
 }
 
-fn hrv_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<HrvPlan>> {
+fn hrv_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<HrvPlan>> {
     let parsed_payload: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} parsed_payload_json invalid: {error}",
                 row.frame_id
             ))
@@ -4182,7 +4182,7 @@ fn motion_feature_from_plan(
     payload: &[u8],
     plan: MotionPlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<Option<MotionFeature>> {
+) -> BullResult<Option<MotionFeature>> {
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("preliminary_raw_i16_scale".to_string());
     for warning in parse_warnings(row)? {
@@ -4265,7 +4265,7 @@ fn hrv_feature_from_plan(
     payload: &[u8],
     plan: HrvPlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<Option<HrvFeature>> {
+) -> BullResult<Option<HrvFeature>> {
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("preliminary_r17_i16_rr_interval_candidate".to_string());
     quality_flags.insert("rr_interval_scale_unvalidated".to_string());
@@ -4343,7 +4343,7 @@ fn heart_rate_feature_from_plan(
     row: &DecodedFrameRow,
     plan: HeartRatePlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<Option<HeartRateFeature>> {
+) -> BullResult<Option<HeartRateFeature>> {
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert(plan.quality_flag.to_string());
     for warning in parse_warnings(row)? {
@@ -4406,7 +4406,7 @@ fn vital_event_feature_from_plan(
     row: &DecodedFrameRow,
     plan: VitalEventPlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<VitalEventFeature> {
+) -> BullResult<VitalEventFeature> {
     let raw_body = decode_hex_with_whitespace(&plan.data_hex)?;
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("units_unresolved".to_string());
@@ -4467,7 +4467,7 @@ fn skin_temperature_feature_from_plan(
     row: &DecodedFrameRow,
     plan: SkinTemperaturePlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<Option<SkinTemperatureFeature>> {
+) -> BullResult<Option<SkinTemperatureFeature>> {
     let payload = decode_hex_with_whitespace(&row.payload_hex)?;
     let Some(raw_bytes) = payload.get(plan.raw_absolute_offset..plan.raw_absolute_offset + 2)
     else {
@@ -4559,7 +4559,7 @@ fn respiratory_rate_feature_from_plan(
     row: &DecodedFrameRow,
     plan: RespiratoryRatePlan,
     trusted_frames: &BTreeMap<String, bool>,
-) -> GooseResult<Option<RespiratoryRateFeature>> {
+) -> BullResult<Option<RespiratoryRateFeature>> {
     let payload = decode_hex_with_whitespace(&row.payload_hex)?;
     let Some(raw_bytes) = payload.get(plan.raw_absolute_offset..plan.raw_absolute_offset + 2)
     else {
@@ -4651,7 +4651,7 @@ fn aggregate_metric_window(
     heart_rate_features: &[&HeartRateFeature],
     motion_features: &[&MotionFeature],
     options: MetricWindowFeatureOptions,
-) -> GooseResult<MetricWindowFeature> {
+) -> BullResult<MetricWindowFeature> {
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("preliminary_feature_window".to_string());
 
@@ -5094,7 +5094,7 @@ fn sleep_window_feature(
         wake_episode_count,
         midpoint_deviation_minutes,
         disturbance_count,
-        stage_model_version: "goose_sleep_stage_heuristic_v1_transition_smoothed".to_string(),
+        stage_model_version: "bull_sleep_stage_heuristic_v1_transition_smoothed".to_string(),
         stage_segments,
         stage_minutes,
         average_sleep_hr_bpm,
@@ -5129,7 +5129,7 @@ fn sleep_window_feature(
             "low_motion_threshold_0_to_1": options.low_motion_threshold_0_to_1,
             "disturbance_motion_threshold_0_to_1": options.disturbance_motion_threshold_0_to_1,
             "target_midpoint_minutes_since_midnight": options.target_midpoint_minutes_since_midnight,
-            "stage_model_version": "goose_sleep_stage_heuristic_v1_transition_smoothed",
+            "stage_model_version": "bull_sleep_stage_heuristic_v1_transition_smoothed",
             "stage_smoothing_policy": "merge_short_non_awake_stage_islands_between_matching_non_awake_neighbors",
             "minimum_smoothed_stage_duration_minutes": MIN_SMOOTHED_SLEEP_STAGE_DURATION_MINUTES,
             "coverage": {
@@ -5888,7 +5888,7 @@ fn daily_hrv_features(
                 rr_intervals_ms,
                 input_ids: input_ids.clone(),
             };
-            let result = goose_hrv_v0(&input);
+            let result = bull_hrv_v0(&input);
             let output = result.output?;
             Some(HrvDayFeature {
                 date,
@@ -6220,9 +6220,9 @@ fn trusted_frames_for_summary_kinds(
     frames
 }
 
-fn parse_warnings(row: &DecodedFrameRow) -> GooseResult<Vec<String>> {
+fn parse_warnings(row: &DecodedFrameRow) -> BullResult<Vec<String>> {
     serde_json::from_str(&row.warnings_json).map_err(|error| {
-        GooseError::message(format!("{} warnings_json invalid: {error}", row.frame_id))
+        BullError::message(format!("{} warnings_json invalid: {error}", row.frame_id))
     })
 }
 

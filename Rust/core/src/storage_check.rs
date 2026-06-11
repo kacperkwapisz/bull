@@ -6,10 +6,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GooseResult,
+    BullResult,
     protocol::{DeviceType, parse_frame_hex},
     store::{
-        CURRENT_SCHEMA_VERSION, DecodedFrameInput, GooseStore, RawEvidenceInput, known_tables,
+        CURRENT_SCHEMA_VERSION, DecodedFrameInput, BullStore, RawEvidenceInput, known_tables,
     },
 };
 
@@ -86,8 +86,8 @@ pub struct StorageCheckNextAction {
     pub action: String,
 }
 
-pub fn check_storage_database(options: StorageCheckOptions<'_>) -> GooseResult<StorageCheckReport> {
-    let store = GooseStore::open(options.database_path)?;
+pub fn check_storage_database(options: StorageCheckOptions<'_>) -> BullResult<StorageCheckReport> {
+    let store = BullStore::open(options.database_path)?;
     let actual_schema_version = store.schema_version()?;
     let foreign_keys_enabled = store.foreign_keys_enabled()?;
     let integrity_check = store.integrity_check()?;
@@ -154,8 +154,8 @@ pub fn check_storage_database(options: StorageCheckOptions<'_>) -> GooseResult<S
         && issues.is_empty();
 
     Ok(StorageCheckReport {
-        schema: "goose.storage-check-report.v1".to_string(),
-        generated_by: "goose-storage-check".to_string(),
+        schema: "bull.storage-check-report.v1".to_string(),
+        generated_by: "bull-storage-check".to_string(),
         database_path: options.database_path.display().to_string(),
         pass: storage_ready,
         schema_version_valid,
@@ -177,7 +177,7 @@ pub fn check_storage_database(options: StorageCheckOptions<'_>) -> GooseResult<S
     })
 }
 
-fn check_table(store: &GooseStore, table: &str, required: &[&str]) -> StorageTableCheck {
+fn check_table(store: &BullStore, table: &str, required: &[&str]) -> StorageTableCheck {
     let mut issues = Vec::new();
     let columns = match store.table_columns(table) {
         Ok(columns) => columns,
@@ -222,10 +222,10 @@ fn check_table(store: &GooseStore, table: &str, required: &[&str]) -> StorageTab
     }
 }
 
-fn run_storage_self_test(store: &GooseStore) -> StorageSelfTestReport {
+fn run_storage_self_test(store: &BullStore) -> StorageSelfTestReport {
     let mut issues = Vec::new();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap_or_default();
-    let parsed = match parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME) {
+    let parsed = match parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME) {
         Ok(parsed) => parsed,
         Err(error) => {
             return StorageSelfTestReport {
@@ -248,10 +248,10 @@ fn run_storage_self_test(store: &GooseStore) -> StorageSelfTestReport {
     };
 
     let raw_input = RawEvidenceInput {
-        evidence_id: "goose.storage-check.raw",
-        source: "goose.storage-check",
+        evidence_id: "bull.storage-check.raw",
+        source: "bull.storage-check",
         captured_at: "2026-05-28T00:00:00Z",
-        device_model: "WHOOP 5.0 Goose",
+        device_model: "WHOOP 5.0 Bull",
         payload: &raw,
         sensitivity: "synthetic-self-test",
         capture_session_id: None,
@@ -273,10 +273,10 @@ fn run_storage_self_test(store: &GooseStore) -> StorageSelfTestReport {
     };
 
     let decoded_inserted = match store.insert_decoded_frame(DecodedFrameInput {
-        frame_id: "goose.storage-check.frame",
-        evidence_id: "goose.storage-check.raw",
+        frame_id: "bull.storage-check.frame",
+        evidence_id: "bull.storage-check.raw",
         parsed: &parsed,
-        parser_version: "goose-storage-check",
+        parser_version: "bull-storage-check",
     }) {
         Ok(inserted) => inserted,
         Err(error) => {
@@ -285,7 +285,7 @@ fn run_storage_self_test(store: &GooseStore) -> StorageSelfTestReport {
         }
     };
 
-    let query_roundtrip = match store.raw_evidence("goose.storage-check.raw") {
+    let query_roundtrip = match store.raw_evidence("bull.storage-check.raw") {
         Ok(Some(row)) if row.payload_hex == GET_HELLO_FRAME && row.sha256.len() == 64 => true,
         Ok(Some(_)) => {
             issues.push("raw evidence roundtrip returned unexpected row".to_string());
@@ -302,10 +302,10 @@ fn run_storage_self_test(store: &GooseStore) -> StorageSelfTestReport {
     };
 
     let foreign_key_rejected = match store.insert_decoded_frame(DecodedFrameInput {
-        frame_id: "goose.storage-check.missing-evidence-frame",
-        evidence_id: "goose.storage-check.missing-evidence",
+        frame_id: "bull.storage-check.missing-evidence-frame",
+        evidence_id: "bull.storage-check.missing-evidence",
         parsed: &parsed,
-        parser_version: "goose-storage-check",
+        parser_version: "bull-storage-check",
     }) {
         Ok(_) => {
             issues.push("decoded frame insert unexpectedly accepted missing evidence".to_string());
@@ -353,13 +353,13 @@ fn storage_check_report_next_actions(
             actions.push(StorageCheckNextAction {
                 scope: "database:schema_version".to_string(),
                 reason: "schema_version_mismatch".to_string(),
-                action: "Back up the SQLite store, run Goose migrations with the current Rust core, then rerun storage.check before capture/import/export writes.".to_string(),
+                action: "Back up the SQLite store, run Bull migrations with the current Rust core, then rerun storage.check before capture/import/export writes.".to_string(),
             });
         } else if issue == "SQLite foreign key enforcement is disabled" {
             actions.push(StorageCheckNextAction {
                 scope: "database:foreign_keys".to_string(),
                 reason: "foreign_keys_disabled".to_string(),
-                action: "Reopen the database through GooseStore or enable PRAGMA foreign_keys before any write path uses the connection.".to_string(),
+                action: "Reopen the database through BullStore or enable PRAGMA foreign_keys before any write path uses the connection.".to_string(),
             });
         } else if issue.starts_with("SQLite integrity_check returned") {
             actions.push(StorageCheckNextAction {
@@ -389,7 +389,7 @@ fn storage_table_next_actions(table: &str, issues: &[String]) -> Vec<StorageChec
                     StorageCheckNextAction {
                         scope: table.to_string(),
                         reason: "missing_table".to_string(),
-                        action: "Run Goose migrations on this SQLite store before trusting app capture, metrics, export, debug, or health-sync paths.".to_string(),
+                        action: "Run Bull migrations on this SQLite store before trusting app capture, metrics, export, debug, or health-sync paths.".to_string(),
                     }
                 } else if let Some(column) = issue.strip_prefix("missing column ") {
                     StorageCheckNextAction {
@@ -488,7 +488,7 @@ fn dedupe_storage_next_actions(
 
 fn required_columns() -> BTreeMap<&'static str, Vec<&'static str>> {
     let mut columns = BTreeMap::new();
-    columns.insert("goose_schema_migrations", vec!["version", "applied_at"]);
+    columns.insert("bull_schema_migrations", vec!["version", "applied_at"]);
     columns.insert(
         "raw_evidence",
         vec![

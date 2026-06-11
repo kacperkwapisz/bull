@@ -1,5 +1,5 @@
 {
-  "schema": "goose.historical-sync-dry-run.v1",
+  "schema": "bull.historical-sync-dry-run.v1",
   "generation": "gen5",
   "device_connected": true,
   "safety_gate_ready": true,

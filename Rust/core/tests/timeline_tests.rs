@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use goose_core::{
+use bull_core::{
     capture_import::{CaptureImportOptions, import_fixture_index},
     debug_ws::{
         DEBUG_EVENT_TOPIC_ACTIVITY_CANDIDATE_CORRECTED,
@@ -14,7 +14,7 @@ use goose_core::{
         DEBUG_EVENT_TOPIC_HEALTH_SYNC_ACTIVITY_PLANNED,
     },
     fixtures::build_fixture_index,
-    store::{DebugEventRow, DecodedFrameRow, GooseStore, RawEvidenceRow},
+    store::{DebugEventRow, DecodedFrameRow, BullStore, RawEvidenceRow},
     timeline::{
         ObservabilityStage, PacketTimelineRow, observability_timeline_from_rows,
         packet_timeline_between, packet_timeline_from_decoded_frames,
@@ -23,7 +23,7 @@ use goose_core::{
 
 #[test]
 fn timeline_normalizes_command_event_history_and_batch_rows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let report = import_fixture_index(
@@ -32,7 +32,7 @@ fn timeline_normalizes_command_event_history_and_batch_rows() {
         CaptureImportOptions {
             fixture_root,
             database_path: Path::new(":memory:"),
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(report.pass, "{:?}", report.issues);
@@ -44,7 +44,7 @@ fn timeline_normalizes_command_event_history_and_batch_rows() {
 
     let command = rows
         .iter()
-        .find(|row| row.evidence_id == "synthetic.goose.v5.get_hello_frame")
+        .find(|row| row.evidence_id == "synthetic.bull.v5.get_hello_frame")
         .unwrap();
     assert_eq!(command.category, "command");
     assert_eq!(command.title, "Command GET_HELLO");
@@ -52,7 +52,7 @@ fn timeline_normalizes_command_event_history_and_batch_rows() {
 
     let event = rows
         .iter()
-        .find(|row| row.evidence_id == "synthetic.goose.v5.temperature_event")
+        .find(|row| row.evidence_id == "synthetic.bull.v5.temperature_event")
         .unwrap();
     assert_eq!(event.category, "event");
     assert_eq!(event.title, "Event TEMPERATURE_LEVEL");
@@ -61,7 +61,7 @@ fn timeline_normalizes_command_event_history_and_batch_rows() {
 
     let historical = rows
         .iter()
-        .find(|row| row.evidence_id == "synthetic.goose.v5.historical_k18_packet")
+        .find(|row| row.evidence_id == "synthetic.bull.v5.historical_k18_packet")
         .unwrap();
     assert_eq!(historical.category, "data_packet");
     assert_eq!(
@@ -93,7 +93,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         evidence_id: "synthetic.raw.evidence-1".to_string(),
         source: "synthetic.activity".to_string(),
         captured_at: "2026-05-27T06:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         payload_hex: "deadbeef".to_string(),
         sha256: "sha256-raw-1".to_string(),
         sensitivity: "public-test-fixture".to_string(),
@@ -124,7 +124,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 1,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000100,
             source: "rust".to_string(),
             level: "debug".to_string(),
@@ -142,7 +142,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 2,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000200,
             source: "rust".to_string(),
             level: "info".to_string(),
@@ -160,7 +160,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 3,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000250,
             source: "rust".to_string(),
             level: "warn".to_string(),
@@ -178,7 +178,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 4,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000300,
             source: "rust".to_string(),
             level: "info".to_string(),
@@ -195,7 +195,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 5,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000400,
             source: "metric".to_string(),
             level: "info".to_string(),
@@ -214,7 +214,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 6,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000500,
             source: "sqlite".to_string(),
             level: "debug".to_string(),
@@ -233,7 +233,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 7,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000550,
             source: "sqlite".to_string(),
             level: "info".to_string(),
@@ -244,14 +244,14 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
                 "export_job_id": "export-1",
                 "activity_session_id": "session-1",
                 "row_count": 3,
-                "bundle_path": "export.goosebundle"
+                "bundle_path": "export.bullbundle"
             })
             .to_string(),
         },
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 8,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000600,
             source: "rust".to_string(),
             level: "info".to_string(),
@@ -269,7 +269,7 @@ fn observability_timeline_links_raw_packets_feature_windows_candidates_promotion
         DebugEventRow {
             session_id: "debug-observability".to_string(),
             sequence: 9,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840000700,
             source: "rust".to_string(),
             level: "warn".to_string(),
@@ -351,7 +351,7 @@ fn observability_timeline_threads_capture_session_story_and_imports() {
         evidence_id: "synthetic.raw.capture-live-1".to_string(),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-27T06:00:01Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         payload_hex: "deadbeef".to_string(),
         sha256: "sha256-raw-2".to_string(),
         sensitivity: "user-owned-live-notification".to_string(),
@@ -516,7 +516,7 @@ fn timeline_reports_malformed_decoded_payload_json() {
         frame_id: "bad-frame".to_string(),
         evidence_id: "evidence-1".to_string(),
         captured_at: "2026-05-27T00:00:00Z".to_string(),
-        device_type: "GOOSE".to_string(),
+        device_type: "BULL".to_string(),
         raw_len: 1,
         header_len: 1,
         declared_len: 1,
@@ -552,7 +552,7 @@ fn capture_session_story_event(
     DebugEventRow {
         session_id: "debug-capture-session".to_string(),
         sequence,
-        schema: "goose.debug.event.v1".to_string(),
+        schema: "bull.debug.event.v1".to_string(),
         time_unix_ms,
         source: source.to_string(),
         level: level.to_string(),

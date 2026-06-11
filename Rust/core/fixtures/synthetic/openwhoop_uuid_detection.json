@@ -1,5 +1,5 @@
 {
-  "schema": "goose.openwhoop-reference-fixture.v1",
+  "schema": "bull.openwhoop-reference-fixture.v1",
   "service_uuid_probes": [
     {
       "label": "gen4_trimmed_uppercase",

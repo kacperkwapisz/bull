@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use goose_core::{
+use bull_core::{
     calibration::{
         CalibrationDataset, CalibrationOptions, calibration_run_record, evaluate_linear_calibration,
     },
@@ -11,8 +11,8 @@ use goose_core::{
     export::{RawExportFilters, RawExportOptions, export_raw_timeframe, validate_export_bundle},
     fixtures::build_fixture_index,
     metrics::{
-        GOOSE_SLEEP_V1_ID, HrvInput, SleepInput, SleepModelStatusInput, SleepV1Input,
-        algorithm_run_record, built_in_algorithm_definitions, goose_hrv_v0, goose_sleep_v1,
+        BULL_SLEEP_V1_ID, HrvInput, SleepInput, SleepModelStatusInput, SleepV1Input,
+        algorithm_run_record, built_in_algorithm_definitions, bull_hrv_v0, bull_sleep_v1,
         hrv_run_record,
     },
     protocol::{DeviceType, PACKET_TYPE_REALTIME_RAW_DATA, build_v5_payload_frame},
@@ -21,7 +21,7 @@ use goose_core::{
         AlgorithmDefinitionRecord, AlgorithmRunRecord, CalibrationLabelInput, CalibrationRunRecord,
         CalibrationRunTimes, CaptureSessionInput, CommandValidationRecord,
         DailyActivityMetricInput, DailyRecoveryMetricInput, DebugCommandRow, DebugEventRow,
-        DebugSessionRow, GooseStore, HourlyActivityMetricInput, MetricProvenanceInput,
+        DebugSessionRow, BullStore, HourlyActivityMetricInput, MetricProvenanceInput,
     },
 };
 use rusqlite::Connection;
@@ -53,7 +53,7 @@ fn validates_manifest_file_checksum_and_required_shape() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -98,7 +98,7 @@ fn rejects_checksum_mismatch() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -159,7 +159,7 @@ fn rejects_csv_row_count_mismatch_and_missing_required_csv_artifact() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -198,7 +198,7 @@ fn rejects_csv_row_count_mismatch_and_missing_required_csv_artifact() {
         missing_csv_dir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -238,7 +238,7 @@ fn rejects_unknown_data_family_and_unselected_artifact_files() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -278,21 +278,21 @@ fn rejects_sqlite_manifest_when_raw_bytes_are_redacted() {
     let tempdir = tempfile::tempdir().unwrap();
     fs::create_dir(tempdir.path().join("data")).unwrap();
     let sqlite_bytes = b"sqlite copy";
-    fs::write(tempdir.path().join("data/goose.sqlite"), sqlite_bytes).unwrap();
+    fs::write(tempdir.path().join("data/bull.sqlite"), sqlite_bytes).unwrap();
     let checksum = sha256_hex(sqlite_bytes);
 
     fs::write(
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
   "data_families": ["sqlite"],
   "filters": {{"include_raw_bytes": false}},
   "official_labels_are_labels": true,
-  "files": [{{"path": "data/goose.sqlite", "sha256": "{checksum}", "kind": "sqlite"}}]
+  "files": [{{"path": "data/bull.sqlite", "sha256": "{checksum}", "kind": "sqlite"}}]
 }}"#
         ),
     )
@@ -330,7 +330,7 @@ fn rejects_jsonl_row_count_and_evidence_reimport_mismatch() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"}},
@@ -369,9 +369,9 @@ fn rejects_jsonl_row_count_and_evidence_reimport_mismatch() {
 #[test]
 fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -380,30 +380,30 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
     let definition = built_in_algorithm_definitions().remove(0);
     store.upsert_algorithm_definition(&definition).unwrap();
-    let hrv_result = goose_hrv_v0(&HrvInput {
+    let hrv_result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:15:00Z".to_string(),
         end_time: "2026-05-27T00:20:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
-        input_ids: vec!["synthetic.goose.v5.get_hello_frame".to_string()],
+        input_ids: vec!["synthetic.bull.v5.get_hello_frame".to_string()],
     });
     let hrv_record = hrv_run_record("hrv-run-1", &hrv_result).unwrap();
     store.insert_algorithm_run(&hrv_record).unwrap();
     store
         .upsert_algorithm_definition(&AlgorithmDefinitionRecord {
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             version: "0.1.0".to_string(),
             metric_family: "recovery".to_string(),
-            display_name: "Goose Recovery v0".to_string(),
+            display_name: "Bull Recovery v0".to_string(),
             implementation: "rust".to_string(),
             license: "UNLICENSED".to_string(),
-            input_schema: "goose.recovery-input.v1".to_string(),
-            output_schema: "goose.recovery-output.v1".to_string(),
+            input_schema: "bull.recovery-input.v1".to_string(),
+            output_schema: "bull.recovery-output.v1".to_string(),
             input_requirements_json: "{}".to_string(),
             params_json: "{}".to_string(),
             quality_gates_json: "[]".to_string(),
@@ -418,7 +418,7 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
         &calibration_dataset,
         &CalibrationOptions {
             metric_family: "recovery".to_string(),
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             algorithm_version: "0.1.0".to_string(),
             split_at: "2026-05-04T00:00:00Z".to_string(),
             min_train_rows: 2,
@@ -444,7 +444,7 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
         .insert_debug_session(&DebugSessionRow {
             session_id: "debug-export-session".to_string(),
             started_at_unix_ms: 1779840000000,
-            bridge_url: "ws://127.0.0.1:49152/goose-debug/stream?token=secret-token".to_string(),
+            bridge_url: "ws://127.0.0.1:49152/bull-debug/stream?token=secret-token".to_string(),
             bind_host: "127.0.0.1".to_string(),
             token_required: true,
             token_present: true,
@@ -456,9 +456,9 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
         .insert_debug_command(&DebugCommandRow {
             command_id: "debug-export-command".to_string(),
             session_id: "debug-export-session".to_string(),
-            schema: "goose.debug.command.v1".to_string(),
+            schema: "bull.debug.command.v1".to_string(),
             command: "export.raw_timeframe".to_string(),
-            args_json: r#"{"url":"ws://127.0.0.1/goose-debug/stream?token=secret-token"}"#
+            args_json: r#"{"url":"ws://127.0.0.1/bull-debug/stream?token=secret-token"}"#
                 .to_string(),
             dry_run: false,
             received_at_unix_ms: 1779840060000,
@@ -468,14 +468,14 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
         .insert_debug_event(&DebugEventRow {
             session_id: "debug-export-session".to_string(),
             sequence: 1,
-            schema: "goose.debug.event.v1".to_string(),
+            schema: "bull.debug.event.v1".to_string(),
             time_unix_ms: 1779840120000,
             source: "app".to_string(),
             level: "info".to_string(),
             topic: "export.started".to_string(),
             message: "export requested".to_string(),
             command_id: Some("debug-export-command".to_string()),
-            data_json: r#"{"bind_url":"ws://127.0.0.1/goose-debug/stream?token=secret-token&client=agent"}"#
+            data_json: r#"{"bind_url":"ws://127.0.0.1/bull-debug/stream?token=secret-token&client=agent"}"#
                 .to_string(),
         })
         .unwrap();
@@ -486,8 +486,8 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -530,7 +530,7 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
             .manifest
             .files
             .iter()
-            .any(|file| file.path == "data/goose.sqlite")
+            .any(|file| file.path == "data/bull.sqlite")
     );
     assert!(
         report
@@ -624,11 +624,11 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
     assert!(export_dir.join("data/debug_events.csv").exists());
     assert!(export_dir.join("data/command_validation.jsonl").exists());
     assert!(export_dir.join("data/command_validation.csv").exists());
-    assert!(export_dir.join("data/goose.sqlite").exists());
-    let exported_sqlite = Connection::open(export_dir.join("data/goose.sqlite")).unwrap();
+    assert!(export_dir.join("data/bull.sqlite").exists());
+    let exported_sqlite = Connection::open(export_dir.join("data/bull.sqlite")).unwrap();
     let schema_version: i64 = exported_sqlite
         .query_row(
-            "SELECT version FROM goose_schema_migrations ORDER BY version DESC LIMIT 1",
+            "SELECT version FROM bull_schema_migrations ORDER BY version DESC LIMIT 1",
             [],
             |row| row.get(0),
         )
@@ -648,7 +648,7 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
     assert!(sensor_samples.contains("normal_history_hr_marker"));
     assert!(sensor_samples.contains("r17_samples"));
     assert!(sensor_samples.contains("\"sample_value\":-1000"));
-    assert!(metric_features.contains("goose.motion-feature-report.v1"));
+    assert!(metric_features.contains("bull.motion-feature-report.v1"));
     assert!(metric_features.contains("sleep_score_from_features"));
     assert!(metric_values.contains("\"metric_value_id\":\"hrv-run-1.mean_nn_ms\""));
     assert!(metric_values.contains("\"quality_flags\":[\"low_interval_count\"]"));
@@ -707,9 +707,9 @@ fn exports_sqlite_timeframe_to_jsonl_csv_and_sqlite_bundle() {
 #[test]
 fn raw_export_sqlite_family_snapshots_live_wal_database() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("wal-snapshot.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("wal-snapshot.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let source_connection = Connection::open(&db_path).unwrap();
     source_connection
         .execute_batch(
@@ -736,8 +736,8 @@ fn raw_export_sqlite_family_snapshots_live_wal_database() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sqlite".to_string()],
             filters: RawExportFilters::default(),
             sqlite_source_path: Some(&db_path),
@@ -747,10 +747,10 @@ fn raw_export_sqlite_family_snapshots_live_wal_database() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    let exported_path = export_dir.join("data/goose.sqlite");
+    let exported_path = export_dir.join("data/bull.sqlite");
     assert!(exported_path.exists());
-    assert!(!export_dir.join("data/goose.sqlite-wal").exists());
-    assert!(!export_dir.join("data/goose.sqlite-shm").exists());
+    assert!(!export_dir.join("data/bull.sqlite-wal").exists());
+    assert!(!export_dir.join("data/bull.sqlite-shm").exists());
     let exported_connection = Connection::open(exported_path).unwrap();
     let value: i64 = exported_connection
         .query_row(
@@ -765,9 +765,9 @@ fn raw_export_sqlite_family_snapshots_live_wal_database() {
 #[test]
 fn raw_export_can_limit_selected_data_families() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -776,7 +776,7 @@ fn raw_export_can_limit_selected_data_families() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -787,8 +787,8 @@ fn raw_export_can_limit_selected_data_families() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "decoded_frames".to_string(),
                 "raw_evidence".to_string(),
@@ -827,7 +827,7 @@ fn raw_export_can_limit_selected_data_families() {
     assert!(!export_dir.join("data/algorithm_runs.jsonl").exists());
     assert!(!export_dir.join("data/debug_events.jsonl").exists());
     assert!(!export_dir.join("data/command_validation.jsonl").exists());
-    assert!(!export_dir.join("data/goose.sqlite").exists());
+    assert!(!export_dir.join("data/bull.sqlite").exists());
     assert!(
         report
             .manifest
@@ -852,9 +852,9 @@ fn raw_export_can_limit_selected_data_families() {
 #[test]
 fn raw_export_can_select_sensor_samples_only() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("sensor-samples.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("sensor-samples.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -863,7 +863,7 @@ fn raw_export_can_select_sensor_samples_only() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -874,8 +874,8 @@ fn raw_export_can_select_sensor_samples_only() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sensor_samples".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -916,28 +916,28 @@ fn raw_export_can_select_sensor_samples_only() {
 #[test]
 fn raw_export_sensor_samples_store_sample_time_separate_from_capture_time() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     let export_dir = tempdir
         .path()
-        .join("timestamped-sensor-samples.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+        .join("timestamped-sensor-samples.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let frames = vec![CapturedFrameInput {
         evidence_id: "timestamped-motion".to_string(),
         frame_id: Some("timestamped-motion.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-01-01T20:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: k10_motion_frame_hex_with_timestamp(1_767_304_800),
         sensitivity: "user-owned-live-notification".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -949,8 +949,8 @@ fn raw_export_sensor_samples_store_sample_time_separate_from_capture_time() {
             output_dir: &export_dir,
             start: "2026-01-01T19:00:00Z",
             end: "2026-01-01T21:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sensor_samples".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -978,28 +978,28 @@ fn raw_export_sensor_samples_store_sample_time_separate_from_capture_time() {
 #[test]
 fn raw_export_sensor_samples_reject_invalid_device_timestamp_subseconds() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     let export_dir = tempdir
         .path()
-        .join("invalid-subsecond-sensor-samples.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+        .join("invalid-subsecond-sensor-samples.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let frames = vec![CapturedFrameInput {
         evidence_id: "invalid-subsecond-motion".to_string(),
         frame_id: Some("invalid-subsecond-motion.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-01-01T20:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: k10_motion_frame_hex_with_timestamp_subseconds(1_767_304_800, 1_500),
         sensitivity: "user-owned-live-notification".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -1011,8 +1011,8 @@ fn raw_export_sensor_samples_reject_invalid_device_timestamp_subseconds() {
             output_dir: &export_dir,
             start: "2026-01-01T19:00:00Z",
             end: "2026-01-01T21:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sensor_samples".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -1034,9 +1034,9 @@ fn raw_export_sensor_samples_reject_invalid_device_timestamp_subseconds() {
 #[test]
 fn raw_export_can_select_metric_feature_reports_only() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("metric-features.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("metric-features.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -1045,7 +1045,7 @@ fn raw_export_can_select_metric_feature_reports_only() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -1056,8 +1056,8 @@ fn raw_export_can_select_metric_feature_reports_only() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["metric_features".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -1096,15 +1096,15 @@ fn raw_export_can_select_metric_feature_reports_only() {
 #[test]
 fn raw_export_can_select_metric_outputs_only() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("metric-outputs.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("metric-outputs.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let definition = built_in_algorithm_definitions()
         .into_iter()
-        .find(|definition| definition.algorithm_id == "goose.hrv.v0")
+        .find(|definition| definition.algorithm_id == "bull.hrv.v0")
         .unwrap();
     store.upsert_algorithm_definition(&definition).unwrap();
-    let hrv_result = goose_hrv_v0(&HrvInput {
+    let hrv_result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:15:00Z".to_string(),
         end_time: "2026-05-27T00:20:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
@@ -1119,8 +1119,8 @@ fn raw_export_can_select_metric_outputs_only() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["metric_outputs".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -1163,18 +1163,18 @@ fn raw_export_can_select_metric_outputs_only() {
 }
 
 #[test]
-fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
+fn raw_export_preserves_sleep_v1_output_components_and_bull_provenance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("sleep-v1-export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("sleep-v1-export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let definition = built_in_algorithm_definitions()
         .into_iter()
-        .find(|definition| definition.algorithm_id == GOOSE_SLEEP_V1_ID)
+        .find(|definition| definition.algorithm_id == BULL_SLEEP_V1_ID)
         .unwrap();
     store.upsert_algorithm_definition(&definition).unwrap();
 
-    let sleep_result = goose_sleep_v1(&SleepV1Input {
+    let sleep_result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1198,7 +1198,7 @@ fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 10,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.82),
             ..Default::default()
@@ -1226,8 +1226,8 @@ fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-29T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["metric_outputs".to_string(), "algorithm_runs".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -1255,10 +1255,10 @@ fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
     let algorithm_runs = fs::read_to_string(export_dir.join("data/algorithm_runs.jsonl")).unwrap();
     let algorithm_run: serde_json::Value =
         serde_json::from_str(algorithm_runs.lines().next().unwrap()).unwrap();
-    assert_eq!(algorithm_run["algorithm_id"], GOOSE_SLEEP_V1_ID);
+    assert_eq!(algorithm_run["algorithm_id"], BULL_SLEEP_V1_ID);
     let output: serde_json::Value =
         serde_json::from_str(algorithm_run["output_json"].as_str().unwrap()).unwrap();
-    assert_eq!(output["algorithm_id"], GOOSE_SLEEP_V1_ID);
+    assert_eq!(output["algorithm_id"], BULL_SLEEP_V1_ID);
     assert_eq!(output["sleep_hr_trend_bpm_per_hour"], -1.2);
     assert_eq!(output["quality_flags"], serde_json::json!([]));
     assert_eq!(
@@ -1296,7 +1296,7 @@ fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
     assert!(component_names.contains(&"context_adjustment"));
     assert!(component_names.contains(&"data_confidence"));
     for row in component_rows {
-        assert_eq!(row["algorithm_id"], GOOSE_SLEEP_V1_ID);
+        assert_eq!(row["algorithm_id"], BULL_SLEEP_V1_ID);
         assert_eq!(
             row["provenance"]["input_source"],
             "algorithm_run.output_json.components"
@@ -1315,9 +1315,9 @@ fn raw_export_preserves_sleep_v1_output_components_and_goose_provenance() {
 #[test]
 fn raw_export_can_export_and_validate_activity_families() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("activity.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("activity.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let session_provenance = serde_json::json!({
         "source": "official_capture",
@@ -1427,8 +1427,8 @@ fn raw_export_can_export_and_validate_activity_families() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "activity_sessions".to_string(),
                 "activity_metrics".to_string(),
@@ -1511,12 +1511,12 @@ fn raw_export_can_export_and_validate_activity_families() {
 #[test]
 fn raw_export_can_export_and_validate_local_health_metric_family() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("local-health.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("local-health.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let daily_inputs = serde_json::json!({
-        "algorithm": "goose.energy.local_estimate.v0",
+        "algorithm": "bull.energy.local_estimate.v0",
         "raw_payload_hex": "aa11",
         "nested": {
             "frame_hex": "bb22"
@@ -1586,7 +1586,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
     })
     .to_string();
     let unavailable_recovery_provenance = serde_json::json!({
-        "algorithm": "goose.recovery.unavailable_status.v0",
+        "algorithm": "bull.recovery.unavailable_status.v0",
         "source_kind": "unavailable",
         "metric_id": "hrv_rmssd_ms",
         "value_policy": "no_metric_value_written_until_packet_semantics_are_verified",
@@ -1594,7 +1594,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
     })
     .to_string();
     let unavailable_activity_provenance = serde_json::json!({
-        "algorithm": "goose.activity.unavailable_status.v0",
+        "algorithm": "bull.activity.unavailable_status.v0",
         "source_kind": "unavailable",
         "metric_id": "steps",
         "value_policy": "no_step_value_written_until_whoop_device_counter_or_validated_local_estimator_exists",
@@ -1602,7 +1602,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
     })
     .to_string();
     let unavailable_energy_provenance = serde_json::json!({
-        "algorithm": "goose.energy.unavailable_status.v0",
+        "algorithm": "bull.energy.unavailable_status.v0",
         "algorithm_version": "0.1.0",
         "source_kind": "unavailable",
         "metric_id": "total_kcal",
@@ -1745,7 +1745,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
                 metric_scope: "daily_activity",
                 metric_id: "daily-activity-2026-05-27-energy",
                 source_kind: "local_estimate",
-                source_detail: "goose.energy.local_estimate.v0",
+                source_detail: "bull.energy.local_estimate.v0",
                 confidence: Some(0.72),
                 inputs_json: &daily_inputs,
                 quality_flags_json: &quality_flags,
@@ -1790,7 +1790,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
                 metric_scope: "hourly_activity",
                 metric_id: "hourly-activity-2026-05-27-10-step",
                 source_kind: "device_counter",
-                source_detail: "goose.step_counter_hourly_rollup.v0",
+                source_detail: "bull.step_counter_hourly_rollup.v0",
                 confidence: Some(0.94),
                 inputs_json: &hourly_inputs,
                 quality_flags_json: &quality_flags,
@@ -1805,7 +1805,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
                 metric_scope: "daily_recovery",
                 metric_id: "daily-recovery-2026-05-27-rhr",
                 source_kind: "device_sensor",
-                source_detail: "goose.resting_hr_daily_rollup.v0",
+                source_detail: "bull.resting_hr_daily_rollup.v0",
                 confidence: Some(0.88),
                 inputs_json: &recovery_inputs,
                 quality_flags_json: &quality_flags,
@@ -1835,8 +1835,8 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["local_health_metrics".to_string()],
             filters: RawExportFilters {
                 include_raw_bytes: false,
@@ -1943,7 +1943,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
         serde_json::from_str(unavailable_activity["provenance_json"].as_str().unwrap()).unwrap();
     assert_eq!(
         unavailable_activity_provenance["algorithm"],
-        "goose.activity.unavailable_status.v0"
+        "bull.activity.unavailable_status.v0"
     );
     let unavailable_energy_inputs: serde_json::Value =
         serde_json::from_str(unavailable_energy["inputs_json"].as_str().unwrap()).unwrap();
@@ -1951,7 +1951,7 @@ fn raw_export_can_export_and_validate_local_health_metric_family() {
         serde_json::from_str(unavailable_energy["provenance_json"].as_str().unwrap()).unwrap();
     assert_eq!(
         unavailable_energy_provenance["algorithm"],
-        "goose.energy.unavailable_status.v0"
+        "bull.energy.unavailable_status.v0"
     );
     let unavailable_recovery_inputs: serde_json::Value =
         serde_json::from_str(unavailable_recovery["inputs_json"].as_str().unwrap()).unwrap();
@@ -2152,9 +2152,9 @@ fn validate_export_rejects_malformed_local_health_metric_rows() {
     fs::write(
         tempdir.path().join("manifest.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": "goose.export.v1",
-            "app_version": "goose-app/test",
-            "core_version": "goose-core/test",
+            "schema_version": "bull.export.v1",
+            "app_version": "bull-app/test",
+            "core_version": "bull-core/test",
             "time_window": {"start": "2026-06-02T00:00:00Z", "end": "2026-06-03T00:00:00Z"},
             "data_families": ["local_health_metrics"],
             "filters": {"include_raw_bytes": false},
@@ -2346,9 +2346,9 @@ fn validate_export_rejects_invalid_activity_metric_reimport() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
-  "app_version": "goose-app/test",
-  "core_version": "goose-core/test",
+  "schema_version": "bull.export.v1",
+  "app_version": "bull-app/test",
+  "core_version": "bull-core/test",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-28T00:00:00Z"}},
   "data_families": ["activity_sessions", "activity_metrics"],
   "filters": {{"include_raw_bytes": false}},
@@ -2447,9 +2447,9 @@ fn validate_export_rejects_invalid_activity_session_reimport() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
-  "app_version": "goose-app/test",
-  "core_version": "goose-core/test",
+  "schema_version": "bull.export.v1",
+  "app_version": "bull-app/test",
+  "core_version": "bull-core/test",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-28T00:00:00Z"}},
   "data_families": ["activity_sessions"],
   "filters": {{"include_raw_bytes": false}},
@@ -2482,20 +2482,20 @@ fn validate_export_rejects_invalid_activity_session_reimport() {
 #[test]
 fn export_validator_rejects_algorithm_runs_with_untrusted_provided_vitals() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("bad-algorithm-run.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("bad-algorithm-run.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
     store
         .insert_algorithm_run(&AlgorithmRunRecord {
             run_id: "bad-recovery-run".to_string(),
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             version: "0.1.0".to_string(),
             start_time: "2026-05-27T00:00:00Z".to_string(),
             end_time: "2026-05-27T23:59:00Z".to_string(),
-            output_json: r#"{"algorithm_id":"goose.recovery.v0","algorithm_version":"0.1.0","score_0_to_100":72.0,"components":[]}"#
+            output_json: r#"{"algorithm_id":"bull.recovery.v0","algorithm_version":"0.1.0","score_0_to_100":72.0,"components":[]}"#
                 .to_string(),
             quality_flags_json: "[]".to_string(),
             provenance_json: r#"{"provenance":{"input_ids":["manual-vitals"],"provided_vitals":{"metric_input_id":"provided_recovery_vitals.2026-05-27","source":"manual_test","trusted_metric_input":false,"quality_flags":["provided_resp_temp_inputs_not_packet_derived","provided_resp_temp_provenance_untrusted"],"provenance":{"input_source":"manual_test","provided_vitals_provenance":{}}}},"errors":[]}"#
@@ -2509,8 +2509,8 @@ fn export_validator_rejects_algorithm_runs_with_untrusted_provided_vitals() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["algorithm_runs".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -2555,16 +2555,16 @@ fn export_validator_rejects_algorithm_runs_with_untrusted_provided_vitals() {
 #[test]
 fn export_validator_rejects_failed_or_malformed_calibration_runs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("bad-calibration-run.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("bad-calibration-run.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
     store
         .insert_calibration_run(&CalibrationRunRecord {
             calibration_run_id: "bad-calibration-run".to_string(),
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             version: "0.1.0".to_string(),
             times: CalibrationRunTimes {
                 train_start: "2026-05-01T00:00:00Z".to_string(),
@@ -2610,8 +2610,8 @@ fn export_validator_rejects_failed_or_malformed_calibration_runs() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["calibration_runs".to_string()],
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -2649,17 +2649,17 @@ fn export_validator_rejects_failed_or_malformed_calibration_runs() {
 fn export_validator_rejects_malformed_debug_rows() {
     let tempdir = tempfile::tempdir().unwrap();
     fs::create_dir(tempdir.path().join("data")).unwrap();
-    let session_rows = br#"{"session_id":"debug-session-1","started_at_unix_ms":1,"bridge_url":"ws://0.0.0.0:49152/goose-debug/stream?token=secret","bind_host":"0.0.0.0","token_required":false,"token_present":false,"remote_bind_enabled":true,"visible_remote_bind_toggle":false}
+    let session_rows = br#"{"session_id":"debug-session-1","started_at_unix_ms":1,"bridge_url":"ws://0.0.0.0:49152/bull-debug/stream?token=secret","bind_host":"0.0.0.0","token_required":false,"token_present":false,"remote_bind_enabled":true,"visible_remote_bind_toggle":false}
 "#;
-    let command_rows = br#"{"command_id":"debug-command-1","session_id":"missing-session","schema":"bad.schema","command":"export.raw_timeframe","args_json":"{\"frame_hex\":\"aa\",\"url\":\"ws://127.0.0.1/goose-debug/stream?token=secret\"}","dry_run":false,"received_at_unix_ms":2}
+    let command_rows = br#"{"command_id":"debug-command-1","session_id":"missing-session","schema":"bad.schema","command":"export.raw_timeframe","args_json":"{\"frame_hex\":\"aa\",\"url\":\"ws://127.0.0.1/bull-debug/stream?token=secret\"}","dry_run":false,"received_at_unix_ms":2}
 "#;
-    let event_rows = br#"{"session_id":"debug-session-1","sequence":1,"schema":"goose.debug.event.v1","time_unix_ms":3,"source":"app","level":"info","topic":"export.started","message":"stream token=secret","command_id":"missing-command","data_json":"{\"payload_hex\":\"aa\",\"url\":\"ws://127.0.0.1/goose-debug/stream?token=secret\"}"}
+    let event_rows = br#"{"session_id":"debug-session-1","sequence":1,"schema":"bull.debug.event.v1","time_unix_ms":3,"source":"app","level":"info","topic":"export.started","message":"stream token=secret","command_id":"missing-command","data_json":"{\"payload_hex\":\"aa\",\"url\":\"ws://127.0.0.1/bull-debug/stream?token=secret\"}"}
 {"session_id":"debug-session-1","sequence":1,"schema":"bad.event","time_unix_ms":2,"source":"app","level":"info","topic":"export.started","message":"duplicate","command_id":"debug-command-1","data_json":"{}"}
 "#;
-    let session_csv = b"session_id,started_at_unix_ms,bridge_url,bind_host,token_required,token_present,remote_bind_enabled,visible_remote_bind_toggle\ndebug-session-1,1,ws://0.0.0.0:49152/goose-debug/stream?token=secret,0.0.0.0,false,false,true,false\n";
+    let session_csv = b"session_id,started_at_unix_ms,bridge_url,bind_host,token_required,token_present,remote_bind_enabled,visible_remote_bind_toggle\ndebug-session-1,1,ws://0.0.0.0:49152/bull-debug/stream?token=secret,0.0.0.0,false,false,true,false\n";
     let command_csv =
         b"command_id,session_id,schema,command,args_json,dry_run,received_at_unix_ms\ndebug-command-1,missing-session,bad.schema,export.raw_timeframe,{},false,2\n";
-    let event_csv = b"session_id,sequence,schema,time_unix_ms,source,level,topic,message,command_id,data_json\ndebug-session-1,1,goose.debug.event.v1,3,app,info,export.started,stream token=secret,missing-command,{}\ndebug-session-1,1,bad.event,2,app,info,export.started,duplicate,debug-command-1,{}\n";
+    let event_csv = b"session_id,sequence,schema,time_unix_ms,source,level,topic,message,command_id,data_json\ndebug-session-1,1,bull.debug.event.v1,3,app,info,export.started,stream token=secret,missing-command,{}\ndebug-session-1,1,bad.event,2,app,info,export.started,duplicate,debug-command-1,{}\n";
     fs::write(
         tempdir.path().join("data/debug_sessions.jsonl"),
         session_rows,
@@ -2678,7 +2678,7 @@ fn export_validator_rejects_malformed_debug_rows() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-28T00:00:00Z"}},
@@ -2714,7 +2714,7 @@ fn export_validator_rejects_malformed_debug_rows() {
         issue.contains("debug session debug-session-1 bind_host must be loopback")
     }));
     assert!(report.issues.iter().any(|issue| {
-        issue.contains("debug command debug-command-1 schema must be goose.debug.command.v1")
+        issue.contains("debug command debug-command-1 schema must be bull.debug.command.v1")
     }));
     assert!(report.issues.iter().any(|issue| {
         issue.contains("debug command debug-command-1 session_id missing-session is missing from debug session export")
@@ -2739,13 +2739,13 @@ fn export_validator_rejects_malformed_debug_rows() {
 #[test]
 fn raw_export_filters_algorithm_outputs_and_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("filtered-metrics.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("filtered-metrics.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
-    let hrv_result = goose_hrv_v0(&HrvInput {
+    let hrv_result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:15:00Z".to_string(),
         end_time: "2026-05-27T00:20:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
@@ -2756,11 +2756,11 @@ fn raw_export_filters_algorithm_outputs_and_labels() {
     store
         .insert_algorithm_run(&AlgorithmRunRecord {
             run_id: "filter-recovery-run".to_string(),
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             version: "0.1.0".to_string(),
             start_time: "2026-05-27T00:00:00Z".to_string(),
             end_time: "2026-05-27T23:59:00Z".to_string(),
-            output_json: r#"{"algorithm_id":"goose.recovery.v0","algorithm_version":"0.1.0","score_0_to_100":72.0,"components":[]}"#
+            output_json: r#"{"algorithm_id":"bull.recovery.v0","algorithm_version":"0.1.0","score_0_to_100":72.0,"components":[]}"#
                 .to_string(),
             quality_flags_json: "[]".to_string(),
             provenance_json: r#"{"input_ids":["metric-filter-recovery"]}"#.to_string(),
@@ -2795,8 +2795,8 @@ fn raw_export_filters_algorithm_outputs_and_labels() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "metric_outputs".to_string(),
                 "algorithm_runs".to_string(),
@@ -2808,7 +2808,7 @@ fn raw_export_filters_algorithm_outputs_and_labels() {
                 packet_type_names: Vec::new(),
                 sensor_source_signals: Vec::new(),
                 metric_families: vec![" hrv ".to_string(), "hrv".to_string()],
-                algorithm_ids: vec!["goose.hrv.v0".to_string()],
+                algorithm_ids: vec!["bull.hrv.v0".to_string()],
                 algorithm_versions: vec!["0.1.0".to_string()],
             },
             sqlite_source_path: Some(&db_path),
@@ -2823,7 +2823,7 @@ fn raw_export_filters_algorithm_outputs_and_labels() {
     assert_eq!(report.metric_component_rows, 4);
     assert_eq!(report.calibration_label_rows, 1);
     assert_eq!(report.manifest.filters.metric_families, vec!["hrv"]);
-    assert_eq!(report.manifest.filters.algorithm_ids, vec!["goose.hrv.v0"]);
+    assert_eq!(report.manifest.filters.algorithm_ids, vec!["bull.hrv.v0"]);
 
     let algorithm_runs = fs::read_to_string(export_dir.join("data/algorithm_runs.jsonl")).unwrap();
     let metric_values = fs::read_to_string(export_dir.join("data/metric_values.jsonl")).unwrap();
@@ -2845,9 +2845,9 @@ fn raw_export_filters_algorithm_outputs_and_labels() {
 #[test]
 fn raw_export_filters_metric_feature_reports_by_metric_family() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("filtered-features.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("filtered-features.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -2856,7 +2856,7 @@ fn raw_export_filters_metric_feature_reports_by_metric_family() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -2867,8 +2867,8 @@ fn raw_export_filters_metric_feature_reports_by_metric_family() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["metric_features".to_string()],
             filters: RawExportFilters {
                 include_raw_bytes: true,
@@ -2900,9 +2900,9 @@ fn raw_export_filters_metric_feature_reports_by_metric_family() {
 #[test]
 fn raw_export_filters_capture_session_rows() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("filtered-capture-session.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("filtered-capture-session.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     for session_id in ["capture-session-a", "capture-session-b"] {
         store
@@ -2910,7 +2910,7 @@ fn raw_export_filters_capture_session_rows() {
                 session_id,
                 source: "ios.corebluetooth.notification",
                 started_at_unix_ms: 1770000000000,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 active_device_id: None,
                 provenance_json: "{}",
             })
@@ -2923,29 +2923,29 @@ fn raw_export_filters_capture_session_rows() {
             frame_id: Some("capture-a-k10.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:00Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: K10_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: Some("capture-session-a".to_string()),
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
         CapturedFrameInput {
             evidence_id: "capture-b-k10".to_string(),
             frame_id: Some("capture-b-k10.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:01Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: K10_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: Some("capture-session-b".to_string()),
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
     ];
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -2956,8 +2956,8 @@ fn raw_export_filters_capture_session_rows() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "raw_evidence".to_string(),
                 "decoded_frames".to_string(),
@@ -3017,9 +3017,9 @@ fn raw_export_filters_capture_session_rows() {
 #[test]
 fn raw_export_filters_packet_type_and_sensor_source_rows() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("filtered-packet-signal.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("filtered-packet-signal.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let frames = vec![
         CapturedFrameInput {
@@ -3027,29 +3027,29 @@ fn raw_export_filters_packet_type_and_sensor_source_rows() {
             frame_id: Some("command-frame.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:00Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: GET_HELLO_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
         CapturedFrameInput {
             evidence_id: "motion-k10-frame".to_string(),
             frame_id: Some("motion-k10-frame.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:01Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: K10_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
     ];
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -3060,8 +3060,8 @@ fn raw_export_filters_packet_type_and_sensor_source_rows() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "raw_evidence".to_string(),
                 "decoded_frames".to_string(),
@@ -3127,26 +3127,26 @@ fn raw_export_filters_packet_type_and_sensor_source_rows() {
 #[test]
 fn raw_export_can_omit_raw_bytes_but_keep_hashes_and_decoded_samples() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("hash-only.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("hash-only.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let frames = vec![CapturedFrameInput {
         evidence_id: "hash-only-motion".to_string(),
         frame_id: Some("hash-only-motion.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-27T00:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: K10_FRAME.to_string(),
         sensitivity: "user-owned-live-notification".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -3159,8 +3159,8 @@ fn raw_export_can_omit_raw_bytes_but_keep_hashes_and_decoded_samples() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "raw_evidence".to_string(),
                 "decoded_frames".to_string(),
@@ -3234,9 +3234,9 @@ fn raw_export_can_omit_raw_bytes_but_keep_hashes_and_decoded_samples() {
 #[test]
 fn raw_export_rejects_sqlite_when_raw_bytes_are_omitted() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("hash-only-sqlite.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("hash-only-sqlite.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let report = export_raw_timeframe(
         &store,
@@ -3244,8 +3244,8 @@ fn raw_export_rejects_sqlite_when_raw_bytes_are_omitted() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sqlite".to_string()],
             filters: RawExportFilters {
                 include_raw_bytes: false,
@@ -3276,10 +3276,10 @@ fn raw_export_rejects_sqlite_when_raw_bytes_are_omitted() {
 #[test]
 fn raw_export_rejects_unknown_or_unavailable_data_families() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let unknown_export_dir = tempdir.path().join("unknown.goosebundle");
-    let sqlite_export_dir = tempdir.path().join("sqlite.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let unknown_export_dir = tempdir.path().join("unknown.bullbundle");
+    let sqlite_export_dir = tempdir.path().join("sqlite.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let unknown_report = export_raw_timeframe(
         &store,
@@ -3287,8 +3287,8 @@ fn raw_export_rejects_unknown_or_unavailable_data_families() {
             output_dir: &unknown_export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["raw_evidence".to_string(), "private_api".to_string()],
             filters: Default::default(),
             sqlite_source_path: None,
@@ -3318,8 +3318,8 @@ fn raw_export_rejects_unknown_or_unavailable_data_families() {
             output_dir: &sqlite_export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec!["sqlite".to_string()],
             filters: Default::default(),
             sqlite_source_path: None,
@@ -3359,7 +3359,7 @@ fn rejects_unreimportable_raw_rows_and_unmarked_calibration_labels() {
         tempdir.path().join("manifest.json"),
         format!(
             r#"{{
-  "schema_version": "goose.export.v1",
+  "schema_version": "bull.export.v1",
   "app_version": "0.1.0",
   "core_version": "0.1.0",
   "time_window": {{"start": "2026-05-27T00:00:00Z", "end": "2026-05-28T00:00:00Z"}},
@@ -3395,12 +3395,12 @@ fn rejects_unreimportable_raw_rows_and_unmarked_calibration_labels() {
 }
 
 #[test]
-fn exports_and_validates_zipped_goosebundle_without_extracting() {
+fn exports_and_validates_zipped_bullbundle_without_extracting() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let zip_path = tempdir.path().join("export.goosebundle.zip");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let zip_path = tempdir.path().join("export.bullbundle.zip");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -3409,7 +3409,7 @@ fn exports_and_validates_zipped_goosebundle_without_extracting() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -3420,8 +3420,8 @@ fn exports_and_validates_zipped_goosebundle_without_extracting() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -3446,16 +3446,16 @@ fn exports_and_validates_zipped_goosebundle_without_extracting() {
         validation
             .files
             .iter()
-            .any(|file| file.path == "data/goose.sqlite")
+            .any(|file| file.path == "data/bull.sqlite")
     );
 }
 
 #[test]
 fn raw_export_applies_half_open_time_window() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -3464,7 +3464,7 @@ fn raw_export_applies_half_open_time_window() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass);
@@ -3475,8 +3475,8 @@ fn raw_export_applies_half_open_time_window() {
             output_dir: &export_dir,
             start: "2026-05-28T00:00:00Z",
             end: "2026-05-29T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: None,
@@ -3505,9 +3505,9 @@ fn raw_export_applies_half_open_time_window() {
 #[test]
 fn raw_export_rejects_inverted_time_window() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let report = export_raw_timeframe(
         &store,
@@ -3515,8 +3515,8 @@ fn raw_export_rejects_inverted_time_window() {
             output_dir: &export_dir,
             start: "2026-05-29T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: None,
@@ -3541,7 +3541,7 @@ fn raw_export_rejects_inverted_time_window() {
     );
 }
 
-fn seed_command_validation_record(store: &GooseStore) {
+fn seed_command_validation_record(store: &BullStore) {
     let command_report = serde_json::json!({
         "command": "get_hello",
         "command_number": 145,

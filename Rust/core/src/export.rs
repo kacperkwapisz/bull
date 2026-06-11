@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::FileOptions};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     metric_features::{
         HeartRateFeatureOptions, HrvFeatureOptions, MetricWindowFeatureOptions,
         MotionFeatureOptions, RestingHeartRateFeatureOptions, SleepFeatureScoreOptions,
@@ -29,7 +29,7 @@ use crate::{
         ActivityIntervalRow, ActivityLabelRow, ActivityMetricRow, ActivitySessionRow,
         AlgorithmRunRecord, CalibrationLabelRow, CalibrationRunRecord, CommandValidationRecord,
         DailyActivityMetricRow, DailyRecoveryMetricRow, DebugCommandRow, DebugEventRow,
-        DebugSessionRow, DecodedFrameRow, GooseStore, HourlyActivityMetricRow, MetricProvenanceRow,
+        DebugSessionRow, DecodedFrameRow, BullStore, HourlyActivityMetricRow, MetricProvenanceRow,
         RawEvidenceRow,
     },
     timeline::{PacketTimelineRow, packet_timeline_from_decoded_frames},
@@ -540,7 +540,7 @@ struct ExportMetricComponentRow {
     provenance: Value,
 }
 
-pub fn validate_export_bundle(path: &Path) -> GooseResult<ExportValidationReport> {
+pub fn validate_export_bundle(path: &Path) -> BullResult<ExportValidationReport> {
     if path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -561,9 +561,9 @@ pub fn validate_export_bundle(path: &Path) -> GooseResult<ExportValidationReport
     };
 
     let manifest_raw = fs::read_to_string(&manifest_path)
-        .map_err(|source| GooseError::io(&manifest_path, source))?;
+        .map_err(|source| BullError::io(&manifest_path, source))?;
     let manifest: ExportManifest = serde_json::from_str(&manifest_raw)
-        .map_err(|source| GooseError::json(&manifest_path, source))?;
+        .map_err(|source| BullError::json(&manifest_path, source))?;
 
     let mut manifest_issues = Vec::new();
     validate_manifest_shape(&manifest, &mut manifest_issues);
@@ -583,7 +583,7 @@ pub fn validate_export_bundle(path: &Path) -> GooseResult<ExportValidationReport
     }
     let content = validate_export_contents(&manifest, |relative_path| {
         fs::read_to_string(base_dir.join(relative_path))
-            .map_err(|source| GooseError::io(base_dir.join(relative_path), source))
+            .map_err(|source| BullError::io(base_dir.join(relative_path), source))
     });
     issues.extend(content.issues.iter().cloned());
 
@@ -602,9 +602,9 @@ pub fn default_raw_export_data_families(include_sqlite: bool) -> Vec<String> {
 }
 
 pub fn export_raw_timeframe(
-    store: &GooseStore,
+    store: &BullStore,
     options: RawExportOptions<'_>,
-) -> GooseResult<RawExportReport> {
+) -> BullResult<RawExportReport> {
     let mut issues = Vec::new();
     let family_issue_start = issues.len();
     let selected_data_families = normalize_raw_export_data_families(
@@ -708,19 +708,19 @@ pub fn export_raw_timeframe(
     }
     let debug_window = debug_window
         .transpose()
-        .map_err(GooseError::message)?
+        .map_err(BullError::message)?
         .unwrap_or((0, 0));
     let (debug_start_unix_ms, debug_end_unix_ms) = debug_window;
     let activity_window = activity_window
         .transpose()
-        .map_err(GooseError::message)?
+        .map_err(BullError::message)?
         .unwrap_or((0, 0));
     let (activity_start_unix_ms, activity_end_unix_ms) = activity_window;
 
     fs::create_dir_all(options.output_dir)
-        .map_err(|source| GooseError::io(options.output_dir, source))?;
+        .map_err(|source| BullError::io(options.output_dir, source))?;
     fs::create_dir_all(options.output_dir.join("data"))
-        .map_err(|source| GooseError::io(options.output_dir.join("data"), source))?;
+        .map_err(|source| BullError::io(options.output_dir.join("data"), source))?;
 
     let raw_rows =
         if raw_export_family_selected(&selected_data_families, RAW_EXPORT_RAW_EVIDENCE_FAMILY) {
@@ -1435,16 +1435,16 @@ pub fn export_raw_timeframe(
     if raw_export_family_selected(&selected_data_families, RAW_EXPORT_SQLITE_FAMILY) {
         let sqlite_source_path = options
             .sqlite_source_path
-            .ok_or_else(|| GooseError::message("sqlite data family requires sqlite_source_path"))?;
-        let sqlite_target_path = options.output_dir.join("data/goose.sqlite");
+            .ok_or_else(|| BullError::message("sqlite data family requires sqlite_source_path"))?;
+        let sqlite_target_path = options.output_dir.join("data/bull.sqlite");
         snapshot_sqlite_database(sqlite_source_path, &sqlite_target_path)?;
         let bytes = fs::read(&sqlite_target_path)
-            .map_err(|source| GooseError::io(&sqlite_target_path, source))?;
-        manifest_files.push(manifest_file("data/goose.sqlite", &bytes, None, "sqlite"));
+            .map_err(|source| BullError::io(&sqlite_target_path, source))?;
+        manifest_files.push(manifest_file("data/bull.sqlite", &bytes, None, "sqlite"));
     }
 
     let manifest = ExportManifest {
-        schema_version: "goose.export.v1".to_string(),
+        schema_version: "bull.export.v1".to_string(),
         app_version: options.app_version.to_string(),
         core_version: options.core_version.to_string(),
         time_window: ExportTimeWindow {
@@ -1458,9 +1458,9 @@ pub fn export_raw_timeframe(
     };
 
     let manifest_json = serde_json::to_vec_pretty(&manifest)
-        .map_err(|error| GooseError::message(format!("cannot serialize manifest: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot serialize manifest: {error}")))?;
     fs::write(options.output_dir.join("manifest.json"), manifest_json)
-        .map_err(|source| GooseError::io(options.output_dir.join("manifest.json"), source))?;
+        .map_err(|source| BullError::io(options.output_dir.join("manifest.json"), source))?;
 
     if let Some(zip_output_path) = options.zip_output_path {
         write_export_zip(options.output_dir, zip_output_path, &manifest)?;
@@ -1480,8 +1480,8 @@ pub fn export_raw_timeframe(
     let export_ready =
         input_valid && manifest_ready && files_written && zip_ready && issues.is_empty();
     Ok(RawExportReport {
-        schema: "goose.raw-export-report.v1".to_string(),
-        generated_by: "goose-raw-export".to_string(),
+        schema: "bull.raw-export-report.v1".to_string(),
+        generated_by: "bull-raw-export".to_string(),
         output_dir: options.output_dir.display().to_string(),
         zip_path: options
             .zip_output_path
@@ -1575,7 +1575,7 @@ fn validate_manifest_shape(manifest: &ExportManifest, issues: &mut Vec<String>) 
             )),
             Some(_) => {}
             None => issues.push(format!(
-                "{} is not a recognized Goose export artifact path",
+                "{} is not a recognized Bull export artifact path",
                 file.path
             )),
         }
@@ -1613,13 +1613,13 @@ struct RawExportReadinessInput {
     zip_ready: bool,
 }
 
-fn snapshot_sqlite_database(source_path: &Path, target_path: &Path) -> GooseResult<()> {
-    fs::metadata(source_path).map_err(|source| GooseError::io(source_path, source))?;
+fn snapshot_sqlite_database(source_path: &Path, target_path: &Path) -> BullResult<()> {
+    fs::metadata(source_path).map_err(|source| BullError::io(source_path, source))?;
     if target_path.exists() {
-        fs::remove_file(target_path).map_err(|source| GooseError::io(target_path, source))?;
+        fs::remove_file(target_path).map_err(|source| BullError::io(target_path, source))?;
     }
     let connection = Connection::open(source_path).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot open SQLite source for raw export snapshot: {error}"
         ))
     })?;
@@ -1627,7 +1627,7 @@ fn snapshot_sqlite_database(source_path: &Path, target_path: &Path) -> GooseResu
     connection
         .execute_batch(&format!("VACUUM INTO {target_literal};"))
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot snapshot SQLite source for raw export: {error}"
             ))
         })?;
@@ -1644,7 +1644,7 @@ fn raw_export_report(
     filters: RawExportFilters,
     readiness: RawExportReadinessInput,
     issues: Vec<String>,
-) -> GooseResult<RawExportReport> {
+) -> BullResult<RawExportReport> {
     let input_valid = readiness.data_families_valid
         && readiness.filters_valid
         && readiness.time_window_valid
@@ -1656,8 +1656,8 @@ fn raw_export_report(
         && readiness.zip_ready
         && issues.is_empty();
     Ok(RawExportReport {
-        schema: "goose.raw-export-report.v1".to_string(),
-        generated_by: "goose-raw-export".to_string(),
+        schema: "bull.raw-export-report.v1".to_string(),
+        generated_by: "bull-raw-export".to_string(),
         output_dir: options.output_dir.display().to_string(),
         zip_path: options
             .zip_output_path
@@ -1696,7 +1696,7 @@ fn raw_export_report(
         debug_event_rows: 0,
         command_validation_rows: 0,
         manifest: ExportManifest {
-            schema_version: "goose.export.v1".to_string(),
+            schema_version: "bull.export.v1".to_string(),
             app_version: options.app_version.to_string(),
             core_version: options.core_version.to_string(),
             time_window: ExportTimeWindow {
@@ -1813,11 +1813,11 @@ fn raw_export_family_selected(data_families: &[String], family: &str) -> bool {
 }
 
 fn raw_evidence_rows_between_for_raw_export(
-    store: &GooseStore,
+    store: &BullStore,
     start: &str,
     end: &str,
     filters: &RawExportFilters,
-) -> GooseResult<Vec<RawEvidenceRow>> {
+) -> BullResult<Vec<RawEvidenceRow>> {
     let rows = raw_evidence_rows_between_capture_scoped(store, start, end, filters)?;
     if !decoded_scope_filters_active(filters) {
         return Ok(rows);
@@ -1829,11 +1829,11 @@ fn raw_evidence_rows_between_for_raw_export(
 }
 
 fn decoded_rows_between_for_raw_export(
-    store: &GooseStore,
+    store: &BullStore,
     start: &str,
     end: &str,
     filters: &RawExportFilters,
-) -> GooseResult<Vec<DecodedFrameRow>> {
+) -> BullResult<Vec<DecodedFrameRow>> {
     let mut rows = store.decoded_frames_between(start, end)?;
 
     if !filters.capture_session_ids.is_empty() {
@@ -1847,11 +1847,11 @@ fn decoded_rows_between_for_raw_export(
 }
 
 fn raw_evidence_rows_between_capture_scoped(
-    store: &GooseStore,
+    store: &BullStore,
     start: &str,
     end: &str,
     filters: &RawExportFilters,
-) -> GooseResult<Vec<RawEvidenceRow>> {
+) -> BullResult<Vec<RawEvidenceRow>> {
     let rows = store.raw_evidence_between(start, end)?;
     Ok(filter_raw_evidence_rows_by_capture_session(rows, filters))
 }
@@ -1921,7 +1921,7 @@ fn filter_decoded_rows_by_packet_type(
 fn filter_decoded_rows_by_sensor_source(
     rows: Vec<DecodedFrameRow>,
     filters: &RawExportFilters,
-) -> GooseResult<Vec<DecodedFrameRow>> {
+) -> BullResult<Vec<DecodedFrameRow>> {
     if filters.sensor_source_signals.is_empty() {
         return Ok(rows);
     }
@@ -1970,7 +1970,7 @@ fn raw_evidence_rows_for_raw_byte_policy(
 fn decoded_rows_for_raw_byte_policy(
     rows: &[DecodedFrameRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<DecodedFrameRow>> {
+) -> BullResult<Vec<DecodedFrameRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -2004,7 +2004,7 @@ fn packet_timeline_rows_for_raw_byte_policy(
 fn debug_commands_for_raw_byte_policy(
     rows: &[ExportDebugCommandRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ExportDebugCommandRow>> {
+) -> BullResult<Vec<ExportDebugCommandRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -2020,7 +2020,7 @@ fn debug_commands_for_raw_byte_policy(
 fn debug_events_for_raw_byte_policy(
     rows: &[ExportDebugEventRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ExportDebugEventRow>> {
+) -> BullResult<Vec<ExportDebugEventRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -2049,19 +2049,19 @@ fn command_validation_rows_for_raw_byte_policy(
         .collect()
 }
 
-fn raw_byte_policy_json_text(text: &str) -> GooseResult<String> {
+fn raw_byte_policy_json_text(text: &str) -> BullResult<String> {
     let value: Value = serde_json::from_str(text).map_err(|error| {
-        GooseError::message(format!("cannot parse JSON for raw-byte policy: {error}"))
+        BullError::message(format!("cannot parse JSON for raw-byte policy: {error}"))
     })?;
     serde_json::to_string(&raw_byte_policy_json_value(value)).map_err(|error| {
-        GooseError::message(format!("cannot serialize raw-byte policy JSON: {error}"))
+        BullError::message(format!("cannot serialize raw-byte policy JSON: {error}"))
     })
 }
 
-fn raw_byte_policy_json_text_if_valid(text: &str) -> GooseResult<String> {
+fn raw_byte_policy_json_text_if_valid(text: &str) -> BullResult<String> {
     match serde_json::from_str::<Value>(text) {
         Ok(value) => serde_json::to_string(&raw_byte_policy_json_value(value)).map_err(|error| {
-            GooseError::message(format!("cannot serialize raw-byte policy JSON: {error}"))
+            BullError::message(format!("cannot serialize raw-byte policy JSON: {error}"))
         }),
         Err(_) => Ok(text.to_string()),
     }
@@ -2101,24 +2101,24 @@ fn is_raw_byte_json_key(key: &str) -> bool {
         || key == "data_hex"
 }
 
-fn write_jsonl<T: Serialize>(path: &Path, rows: &[T]) -> GooseResult<Vec<u8>> {
+fn write_jsonl<T: Serialize>(path: &Path, rows: &[T]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     for row in rows {
         serde_json::to_writer(&mut bytes, row)
-            .map_err(|error| GooseError::message(format!("cannot serialize JSONL row: {error}")))?;
+            .map_err(|error| BullError::message(format!("cannot serialize JSONL row: {error}")))?;
         bytes.push(b'\n');
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_raw_csv(path: &Path, rows: &[RawEvidenceRow]) -> GooseResult<Vec<u8>> {
+fn write_raw_csv(path: &Path, rows: &[RawEvidenceRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "evidence_id,source,captured_at,device_model,payload_hex,sha256,sensitivity,capture_session_id"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -2134,17 +2134,17 @@ fn write_raw_csv(path: &Path, rows: &[RawEvidenceRow]) -> GooseResult<Vec<u8>> {
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_decoded_csv(path: &Path, rows: &[DecodedFrameRow]) -> GooseResult<Vec<u8>> {
+fn write_decoded_csv(path: &Path, rows: &[DecodedFrameRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "frame_id,evidence_id,captured_at,device_type,raw_len,header_len,declared_len,payload_hex,payload_crc_hex,header_crc_valid,payload_crc_valid,packet_type,packet_type_name,sequence,command_or_event,parsed_payload_json,parser_version,warnings_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -2176,17 +2176,17 @@ fn write_decoded_csv(path: &Path, rows: &[DecodedFrameRow]) -> GooseResult<Vec<u
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_packet_timeline_csv(path: &Path, rows: &[PacketTimelineRow]) -> GooseResult<Vec<u8>> {
+fn write_packet_timeline_csv(path: &Path, rows: &[PacketTimelineRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "timeline_id,frame_id,evidence_id,captured_at,category,title,packet_type_name,sequence,command_or_event,device_timestamp_seconds,device_timestamp_subseconds,body_hex,summary,warnings"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -2213,24 +2213,24 @@ fn write_packet_timeline_csv(path: &Path, rows: &[PacketTimelineRow]) -> GooseRe
                 row.body_hex.as_deref().unwrap_or_default(),
                 &row.summary.to_string(),
                 &serde_json::to_string(&row.warnings)
-                    .map_err(|error| GooseError::message(error.to_string()))?,
+                    .map_err(|error| BullError::message(error.to_string()))?,
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_sensor_samples_csv(path: &Path, rows: &[ExportSensorSampleRow]) -> GooseResult<Vec<u8>> {
+fn write_sensor_samples_csv(path: &Path, rows: &[ExportSensorSampleRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "sample_id,frame_id,evidence_id,captured_at,sample_time,sample_time_unix_ms,sample_time_source,source_signal,packet_type_name,packet_k,domain,series_name,sample_index,payload_offset,raw_i16,raw_u8,sample_value,unit,device_timestamp_seconds,device_timestamp_subseconds,parser_version,quality_flags_json,provenance_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let quality_flags_json = serde_json::to_string(&row.quality_flags)
-            .map_err(|error| GooseError::message(error.to_string()))?;
+            .map_err(|error| BullError::message(error.to_string()))?;
         write_csv_row(
             &mut bytes,
             &[
@@ -2272,18 +2272,18 @@ fn write_sensor_samples_csv(path: &Path, rows: &[ExportSensorSampleRow]) -> Goos
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn export_sensor_samples(
     decoded_rows: &[DecodedFrameRow],
-) -> GooseResult<Vec<ExportSensorSampleRow>> {
+) -> BullResult<Vec<ExportSensorSampleRow>> {
     let mut rows = Vec::new();
     for row in decoded_rows {
         let parsed_payload: ParsedPayload = serde_json::from_str(&row.parsed_payload_json)
             .map_err(|error| {
-                GooseError::message(format!(
+                BullError::message(format!(
                     "{} parsed_payload_json invalid for sensor export: {error}",
                     row.frame_id
                 ))
@@ -2417,13 +2417,13 @@ fn push_i16_sensor_series(
     source_signal: &str,
     series: &I16SeriesSummary,
     summary_warnings: &[String],
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if series.parsed_count < series.expected_count {
         if !summary_warnings
             .iter()
             .any(|warning| warning == &format!("{}_truncated", series.name))
         {
-            return Err(GooseError::message(format!(
+            return Err(BullError::message(format!(
                 "{} summary for {} is truncated without a warning",
                 context.row.frame_id, series.name
             )));
@@ -2432,7 +2432,7 @@ fn push_i16_sensor_series(
     for sample_index in 0..series.parsed_count {
         let payload_offset = series.offset + sample_index * 2;
         let value = read_i16_le_at(payload, payload_offset).ok_or_else(|| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} {} sample {} is outside payload",
                 context.row.frame_id, series.name, sample_index
             ))
@@ -2635,13 +2635,13 @@ fn plausible_unix_timestamp_seconds(seconds: u32) -> bool {
 fn write_metric_feature_reports_csv(
     path: &Path,
     rows: &[ExportMetricFeatureReportRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "report_kind,schema,start_time,end_time,pass,feature_count,trusted_feature_count,issue_count,issues_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -2658,16 +2658,16 @@ fn write_metric_feature_reports_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn export_metric_feature_reports(
-    store: &GooseStore,
+    store: &BullStore,
     evidence_scope: &str,
     start: &str,
     end: &str,
-) -> GooseResult<Vec<ExportMetricFeatureReportRow>> {
+) -> BullResult<Vec<ExportMetricFeatureReportRow>> {
     let mut rows = Vec::new();
     push_metric_feature_report(
         &mut rows,
@@ -2769,9 +2769,9 @@ fn push_metric_feature_report(
     start: &str,
     end: &str,
     report: impl Serialize,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     let report_json = serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize metric feature report: {error}"))
+        BullError::message(format!("cannot serialize metric feature report: {error}"))
     })?;
     let schema = string_field(&report_json, "schema").unwrap_or_default();
     let issues_json = report_json
@@ -2779,7 +2779,7 @@ fn push_metric_feature_report(
         .cloned()
         .unwrap_or_else(|| json!([]));
     let issues_json = serde_json::to_string(&issues_json)
-        .map_err(|error| GooseError::message(format!("cannot serialize report issues: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot serialize report issues: {error}")))?;
     rows.push(ExportMetricFeatureReportRow {
         report_kind: report_kind.to_string(),
         schema,
@@ -2961,16 +2961,16 @@ fn usize_field(value: &Value, field: &str) -> Option<usize> {
         .and_then(|count| usize::try_from(count).ok())
 }
 
-fn write_metric_values_csv(path: &Path, rows: &[ExportMetricValueRow]) -> GooseResult<Vec<u8>> {
+fn write_metric_values_csv(path: &Path, rows: &[ExportMetricValueRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "metric_value_id,run_id,algorithm_id,version,metric_family,name,value,unit,start_time,end_time,quality_flags_json,provenance_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let quality_flags_json = serde_json::to_string(&row.quality_flags)
-            .map_err(|error| GooseError::message(error.to_string()))?;
+            .map_err(|error| BullError::message(error.to_string()))?;
         write_csv_row(
             &mut bytes,
             &[
@@ -2989,23 +2989,23 @@ fn write_metric_values_csv(path: &Path, rows: &[ExportMetricValueRow]) -> GooseR
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_metric_components_csv(
     path: &Path,
     rows: &[ExportMetricComponentRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "metric_component_id,run_id,algorithm_id,version,metric_family,component_name,value,unit,score_0_to_100,weight,contribution,contribution_json,start_time,end_time,quality_flags_json,provenance_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let quality_flags_json = serde_json::to_string(&row.quality_flags)
-            .map_err(|error| GooseError::message(error.to_string()))?;
+            .map_err(|error| BullError::message(error.to_string()))?;
         write_csv_row(
             &mut bytes,
             &[
@@ -3034,18 +3034,18 @@ fn write_metric_components_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn export_metric_outputs(
     algorithm_runs: &[AlgorithmRunRecord],
-) -> GooseResult<(Vec<ExportMetricValueRow>, Vec<ExportMetricComponentRow>)> {
+) -> BullResult<(Vec<ExportMetricValueRow>, Vec<ExportMetricComponentRow>)> {
     let mut values = Vec::new();
     let mut components = Vec::new();
     for run in algorithm_runs {
         let output: Value = serde_json::from_str(&run.output_json).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} output_json invalid for metric output export: {error}",
                 run.run_id
             ))
@@ -3138,10 +3138,10 @@ fn export_metric_outputs(
     Ok((values, components))
 }
 
-fn parse_quality_flags_for_metric_output(run: &AlgorithmRunRecord) -> GooseResult<Vec<String>> {
+fn parse_quality_flags_for_metric_output(run: &AlgorithmRunRecord) -> BullResult<Vec<String>> {
     let quality_flags: Vec<String> =
         serde_json::from_str(&run.quality_flags_json).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} quality_flags_json invalid for metric output export: {error}",
                 run.run_id
             ))
@@ -3194,13 +3194,13 @@ fn unit_for_metric_value(name: &str) -> String {
     .to_string()
 }
 
-fn write_algorithm_runs_csv(path: &Path, rows: &[AlgorithmRunRecord]) -> GooseResult<Vec<u8>> {
+fn write_algorithm_runs_csv(path: &Path, rows: &[AlgorithmRunRecord]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "run_id,algorithm_id,version,start_time,end_time,output_json,quality_flags_json,provenance_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3216,20 +3216,20 @@ fn write_algorithm_runs_csv(path: &Path, rows: &[AlgorithmRunRecord]) -> GooseRe
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_calibration_labels_csv(
     path: &Path,
     rows: &[ExportCalibrationLabelRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "label_id,metric_family,label_source,captured_at,value,unit,provenance_json,official_labels_are_labels"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3245,7 +3245,7 @@ fn write_calibration_labels_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
@@ -3265,9 +3265,9 @@ fn export_calibration_labels(rows: Vec<CalibrationLabelRow>) -> Vec<ExportCalibr
 }
 
 fn export_activity_labels(
-    store: &GooseStore,
+    store: &BullStore,
     session_rows: &[ActivitySessionRow],
-) -> GooseResult<Vec<ActivityLabelRow>> {
+) -> BullResult<Vec<ActivityLabelRow>> {
     let mut rows = Vec::new();
     for session in session_rows {
         rows.extend(store.activity_labels_for_session(&session.session_id)?);
@@ -3276,11 +3276,11 @@ fn export_activity_labels(
 }
 
 fn export_metric_provenance_rows(
-    store: &GooseStore,
+    store: &BullStore,
     daily_activity_rows: &[DailyActivityMetricRow],
     hourly_activity_rows: &[HourlyActivityMetricRow],
     daily_recovery_rows: &[DailyRecoveryMetricRow],
-) -> GooseResult<Vec<MetricProvenanceRow>> {
+) -> BullResult<Vec<MetricProvenanceRow>> {
     let mut rows = Vec::new();
     let mut seen = BTreeSet::new();
     for row in daily_activity_rows {
@@ -3314,12 +3314,12 @@ fn export_metric_provenance_rows(
 }
 
 fn append_metric_provenance_rows(
-    store: &GooseStore,
+    store: &BullStore,
     metric_scope: &str,
     metric_id: &str,
     seen: &mut BTreeSet<String>,
     rows: &mut Vec<MetricProvenanceRow>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     for row in store.metric_provenance_for_metric(metric_scope, metric_id)? {
         if seen.insert(row.provenance_id.clone()) {
             rows.push(row);
@@ -3331,7 +3331,7 @@ fn append_metric_provenance_rows(
 fn activity_session_rows_for_raw_byte_policy(
     rows: &[ActivitySessionRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ActivitySessionRow>> {
+) -> BullResult<Vec<ActivitySessionRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3347,7 +3347,7 @@ fn activity_session_rows_for_raw_byte_policy(
 fn activity_metric_rows_for_raw_byte_policy(
     rows: &[ActivityMetricRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ActivityMetricRow>> {
+) -> BullResult<Vec<ActivityMetricRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3363,7 +3363,7 @@ fn activity_metric_rows_for_raw_byte_policy(
 fn activity_interval_rows_for_raw_byte_policy(
     rows: &[ActivityIntervalRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ActivityIntervalRow>> {
+) -> BullResult<Vec<ActivityIntervalRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3380,7 +3380,7 @@ fn activity_interval_rows_for_raw_byte_policy(
 fn activity_label_rows_for_raw_byte_policy(
     rows: &[ActivityLabelRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<ActivityLabelRow>> {
+) -> BullResult<Vec<ActivityLabelRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3396,7 +3396,7 @@ fn activity_label_rows_for_raw_byte_policy(
 fn daily_activity_metric_rows_for_raw_byte_policy(
     rows: &[DailyActivityMetricRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<DailyActivityMetricRow>> {
+) -> BullResult<Vec<DailyActivityMetricRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3414,7 +3414,7 @@ fn daily_activity_metric_rows_for_raw_byte_policy(
 fn hourly_activity_metric_rows_for_raw_byte_policy(
     rows: &[HourlyActivityMetricRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<HourlyActivityMetricRow>> {
+) -> BullResult<Vec<HourlyActivityMetricRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3432,7 +3432,7 @@ fn hourly_activity_metric_rows_for_raw_byte_policy(
 fn daily_recovery_metric_rows_for_raw_byte_policy(
     rows: &[DailyRecoveryMetricRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<DailyRecoveryMetricRow>> {
+) -> BullResult<Vec<DailyRecoveryMetricRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3450,7 +3450,7 @@ fn daily_recovery_metric_rows_for_raw_byte_policy(
 fn metric_provenance_rows_for_raw_byte_policy(
     rows: &[MetricProvenanceRow],
     filters: &RawExportFilters,
-) -> GooseResult<Vec<MetricProvenanceRow>> {
+) -> BullResult<Vec<MetricProvenanceRow>> {
     if filters.include_raw_bytes {
         return Ok(rows.to_vec());
     }
@@ -3465,13 +3465,13 @@ fn metric_provenance_rows_for_raw_byte_policy(
         .collect()
 }
 
-fn write_activity_sessions_csv(path: &Path, rows: &[ActivitySessionRow]) -> GooseResult<Vec<u8>> {
+fn write_activity_sessions_csv(path: &Path, rows: &[ActivitySessionRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "session_id,source,start_time_unix_ms,end_time_unix_ms,duration_ms,activity_type,external_activity_type_code,external_activity_type_name,custom_label,confidence,detection_method,sync_status,provenance_json,created_at,updated_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3498,17 +3498,17 @@ fn write_activity_sessions_csv(path: &Path, rows: &[ActivitySessionRow]) -> Goos
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_activity_metrics_csv(path: &Path, rows: &[ActivityMetricRow]) -> GooseResult<Vec<u8>> {
+fn write_activity_metrics_csv(path: &Path, rows: &[ActivityMetricRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "metric_id,activity_session_id,metric_name,value,unit,start_time_unix_ms,end_time_unix_ms,quality_flags_json,provenance_json,created_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3526,17 +3526,17 @@ fn write_activity_metrics_csv(path: &Path, rows: &[ActivityMetricRow]) -> GooseR
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_activity_intervals_csv(path: &Path, rows: &[ActivityIntervalRow]) -> GooseResult<Vec<u8>> {
+fn write_activity_intervals_csv(path: &Path, rows: &[ActivityIntervalRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "interval_id,activity_session_id,interval_type,start_time_unix_ms,end_time_unix_ms,duration_ms,sequence,metadata_json,provenance_json,created_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3554,17 +3554,17 @@ fn write_activity_intervals_csv(path: &Path, rows: &[ActivityIntervalRow]) -> Go
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_activity_labels_csv(path: &Path, rows: &[ActivityLabelRow]) -> GooseResult<Vec<u8>> {
+fn write_activity_labels_csv(path: &Path, rows: &[ActivityLabelRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "label_id,activity_session_id,label_type,value,source,confidence,provenance_json,created_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3582,20 +3582,20 @@ fn write_activity_labels_csv(path: &Path, rows: &[ActivityLabelRow]) -> GooseRes
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_daily_activity_metrics_csv(
     path: &Path,
     rows: &[DailyActivityMetricRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "daily_metric_id,date_key,timezone,start_time_unix_ms,end_time_unix_ms,steps,active_kcal,resting_kcal,total_kcal,average_cadence_spm,source_kind,confidence,inputs_json,quality_flags_json,provenance_json,created_at,updated_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let steps = csv_optional_i64(row.steps);
         let active_kcal = csv_optional_f64(row.active_kcal);
@@ -3625,20 +3625,20 @@ fn write_daily_activity_metrics_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_hourly_activity_metrics_csv(
     path: &Path,
     rows: &[HourlyActivityMetricRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "hourly_metric_id,date_key,timezone,start_time_unix_ms,end_time_unix_ms,steps,active_kcal,resting_kcal,total_kcal,average_cadence_spm,source_kind,confidence,inputs_json,quality_flags_json,provenance_json,created_at,updated_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let steps = csv_optional_i64(row.steps);
         let active_kcal = csv_optional_f64(row.active_kcal);
@@ -3668,20 +3668,20 @@ fn write_hourly_activity_metrics_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_daily_recovery_metrics_csv(
     path: &Path,
     rows: &[DailyRecoveryMetricRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "daily_metric_id,date_key,timezone,start_time_unix_ms,end_time_unix_ms,resting_hr_bpm,hrv_rmssd_ms,respiratory_rate_rpm,oxygen_saturation_percent,skin_temperature_delta_c,source_kind,confidence,inputs_json,quality_flags_json,provenance_json,created_at,updated_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let resting_hr_bpm = csv_optional_f64(row.resting_hr_bpm);
         let hrv_rmssd_ms = csv_optional_f64(row.hrv_rmssd_ms);
@@ -3711,17 +3711,17 @@ fn write_daily_recovery_metrics_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_metric_provenance_csv(path: &Path, rows: &[MetricProvenanceRow]) -> GooseResult<Vec<u8>> {
+fn write_metric_provenance_csv(path: &Path, rows: &[MetricProvenanceRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "provenance_id,metric_scope,metric_id,source_kind,source_detail,confidence,inputs_json,quality_flags_json,provenance_json,created_at"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let confidence = csv_optional_f64(row.confidence);
         write_csv_row(
@@ -3740,17 +3740,17 @@ fn write_metric_provenance_csv(path: &Path, rows: &[MetricProvenanceRow]) -> Goo
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_calibration_runs_csv(path: &Path, rows: &[CalibrationRunRecord]) -> GooseResult<Vec<u8>> {
+fn write_calibration_runs_csv(path: &Path, rows: &[CalibrationRunRecord]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "calibration_run_id,algorithm_id,version,train_start,train_end,holdout_start,holdout_end,metrics_json,params_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3767,17 +3767,17 @@ fn write_calibration_runs_csv(path: &Path, rows: &[CalibrationRunRecord]) -> Goo
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_debug_sessions_csv(path: &Path, rows: &[ExportDebugSessionRow]) -> GooseResult<Vec<u8>> {
+fn write_debug_sessions_csv(path: &Path, rows: &[ExportDebugSessionRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "session_id,started_at_unix_ms,bridge_url,bind_host,token_required,token_present,remote_bind_enabled,visible_remote_bind_toggle"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3793,17 +3793,17 @@ fn write_debug_sessions_csv(path: &Path, rows: &[ExportDebugSessionRow]) -> Goos
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_debug_commands_csv(path: &Path, rows: &[ExportDebugCommandRow]) -> GooseResult<Vec<u8>> {
+fn write_debug_commands_csv(path: &Path, rows: &[ExportDebugCommandRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "command_id,session_id,schema,command,args_json,dry_run,received_at_unix_ms"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3818,17 +3818,17 @@ fn write_debug_commands_csv(path: &Path, rows: &[ExportDebugCommandRow]) -> Goos
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
-fn write_debug_events_csv(path: &Path, rows: &[ExportDebugEventRow]) -> GooseResult<Vec<u8>> {
+fn write_debug_events_csv(path: &Path, rows: &[ExportDebugEventRow]) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "session_id,sequence,schema,time_unix_ms,source,level,topic,message,command_id,data_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         write_csv_row(
             &mut bytes,
@@ -3846,20 +3846,20 @@ fn write_debug_events_csv(path: &Path, rows: &[ExportDebugEventRow]) -> GooseRes
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
 fn write_command_validation_csv(
     path: &Path,
     rows: &[ExportCommandValidationRow],
-) -> GooseResult<Vec<u8>> {
+) -> BullResult<Vec<u8>> {
     let mut bytes = Vec::new();
     writeln!(
         bytes,
         "command,command_number,family,risk_gate,direct_send_ready,missing_requirements_json,warnings_json,next_capture_actions_json,validated_service_uuid,validated_characteristic_uuid,validated_write_type,validated_evidence_source,validated_capture_kind,validated_owner,validated_provenance_json,validated_triggering_ui_action,report_json"
     )
-    .map_err(|error| GooseError::message(format!("cannot write CSV header: {error}")))?;
+    .map_err(|error| BullError::message(format!("cannot write CSV header: {error}")))?;
     for row in rows {
         let command_number = row
             .command_number
@@ -3897,7 +3897,7 @@ fn write_command_validation_csv(
             ],
         )?;
     }
-    fs::write(path, &bytes).map_err(|source| GooseError::io(path, source))?;
+    fs::write(path, &bytes).map_err(|source| BullError::io(path, source))?;
     Ok(bytes)
 }
 
@@ -3909,13 +3909,13 @@ fn csv_optional_f64(value: Option<f64>) -> String {
     value.map(|value| value.to_string()).unwrap_or_default()
 }
 
-fn write_csv_row(output: &mut Vec<u8>, fields: &[&str]) -> GooseResult<()> {
+fn write_csv_row(output: &mut Vec<u8>, fields: &[&str]) -> BullResult<()> {
     for (index, field) in fields.iter().enumerate() {
         if index > 0 {
             output.push(b',');
         }
         write!(output, "{}", csv_escape(field))
-            .map_err(|error| GooseError::message(format!("cannot write CSV field: {error}")))?;
+            .map_err(|error| BullError::message(format!("cannot write CSV field: {error}")))?;
     }
     output.push(b'\n');
     Ok(())
@@ -3977,17 +3977,17 @@ fn export_debug_events(rows: Vec<DebugEventRow>) -> Vec<ExportDebugEventRow> {
 
 fn export_command_validation_records(
     rows: Vec<CommandValidationRecord>,
-) -> GooseResult<Vec<ExportCommandValidationRow>> {
+) -> BullResult<Vec<ExportCommandValidationRow>> {
     rows.into_iter()
         .map(|row| {
             let report_json: Value = serde_json::from_str(&row.report_json).map_err(|error| {
-                GooseError::message(format!(
+                BullError::message(format!(
                     "command validation {} report_json invalid: {error}",
                     row.command
                 ))
             })?;
             if !report_json.is_object() {
-                return Err(GooseError::message(format!(
+                return Err(BullError::message(format!(
                     "command validation {} report_json must be an object",
                     row.command
                 )));
@@ -4259,13 +4259,13 @@ fn manifest_file(
     }
 }
 
-fn validate_zipped_export_bundle(path: &Path) -> GooseResult<ExportValidationReport> {
-    let zip_file = File::open(path).map_err(|source| GooseError::io(path, source))?;
+fn validate_zipped_export_bundle(path: &Path) -> BullResult<ExportValidationReport> {
+    let zip_file = File::open(path).map_err(|source| BullError::io(path, source))?;
     let mut archive = ZipArchive::new(zip_file)
-        .map_err(|error| GooseError::message(format!("cannot open zip bundle: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot open zip bundle: {error}")))?;
     let manifest_raw = read_zip_entry_to_string(&mut archive, "manifest.json")?;
     let manifest: ExportManifest =
-        serde_json::from_str(&manifest_raw).map_err(|source| GooseError::json(path, source))?;
+        serde_json::from_str(&manifest_raw).map_err(|source| BullError::json(path, source))?;
 
     let mut manifest_issues = Vec::new();
     validate_manifest_shape(&manifest, &mut manifest_issues);
@@ -4293,7 +4293,7 @@ fn validate_zipped_export_bundle(path: &Path) -> GooseResult<ExportValidationRep
 
 fn validate_export_contents(
     manifest: &ExportManifest,
-    mut read_file: impl FnMut(&str) -> GooseResult<String>,
+    mut read_file: impl FnMut(&str) -> BullResult<String>,
 ) -> ExportContentValidation {
     let mut issues = Vec::new();
     let mut csv_valid = true;
@@ -4686,7 +4686,7 @@ fn validate_export_contents(
 }
 
 fn read_typed_export_rows<T: DeserializeOwned>(
-    read_file: &mut impl FnMut(&str) -> GooseResult<String>,
+    read_file: &mut impl FnMut(&str) -> BullResult<String>,
     manifest: &ExportManifest,
     family: &str,
     path: &str,
@@ -4724,7 +4724,7 @@ fn parse_typed_jsonl<T: DeserializeOwned>(
         match serde_json::from_str(line) {
             Ok(row) => rows.push(row),
             Err(error) => issues.push(format!(
-                "{path} line {} cannot be re-imported as Goose data: {error}",
+                "{path} line {} cannot be re-imported as Bull data: {error}",
                 index + 1
             )),
         }
@@ -6781,9 +6781,9 @@ fn validate_debug_command_reimport(
                 row.command_id
             ));
         }
-        if row.schema != "goose.debug.command.v1" {
+        if row.schema != "bull.debug.command.v1" {
             issues.push(format!(
-                "debug command {} schema must be goose.debug.command.v1",
+                "debug command {} schema must be bull.debug.command.v1",
                 row.command_id
             ));
         }
@@ -6851,9 +6851,9 @@ fn validate_debug_event_reimport(
                 row.session_id, row.sequence
             ));
         }
-        if row.schema != "goose.debug.event.v1" {
+        if row.schema != "bull.debug.event.v1" {
             issues.push(format!(
-                "debug event {}:{} schema must be goose.debug.event.v1",
+                "debug event {}:{} schema must be bull.debug.event.v1",
                 row.session_id, row.sequence
             ));
         }
@@ -7538,7 +7538,7 @@ fn export_manifest_file_family(path: &str) -> Option<&'static str> {
         "data/command_validation.jsonl" | "data/command_validation.csv" => {
             Some(RAW_EXPORT_COMMAND_VALIDATION_FAMILY)
         }
-        "data/goose.sqlite" => Some(RAW_EXPORT_SQLITE_FAMILY),
+        "data/bull.sqlite" => Some(RAW_EXPORT_SQLITE_FAMILY),
         _ => None,
     }
 }
@@ -7608,7 +7608,7 @@ fn required_export_artifact_paths_for_family(family: &str) -> &'static [&'static
             "data/command_validation.jsonl",
             "data/command_validation.csv",
         ],
-        RAW_EXPORT_SQLITE_FAMILY => &["data/goose.sqlite"],
+        RAW_EXPORT_SQLITE_FAMILY => &["data/bull.sqlite"],
         _ => &[],
     }
 }
@@ -7739,7 +7739,7 @@ fn count_csv_records(text: &str) -> Result<usize, String> {
 }
 
 fn read_jsonl_string_field_set(
-    read_file: &mut impl FnMut(&str) -> GooseResult<String>,
+    read_file: &mut impl FnMut(&str) -> BullResult<String>,
     path: &str,
     field: &str,
     issues: &mut Vec<String>,
@@ -7783,15 +7783,15 @@ fn write_export_zip(
     bundle_dir: &Path,
     zip_output_path: &Path,
     manifest: &ExportManifest,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if let Some(parent) = zip_output_path.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|source| GooseError::io(parent, source))?;
+            fs::create_dir_all(parent).map_err(|source| BullError::io(parent, source))?;
         }
     }
 
     let zip_file =
-        File::create(zip_output_path).map_err(|source| GooseError::io(zip_output_path, source))?;
+        File::create(zip_output_path).map_err(|source| BullError::io(zip_output_path, source))?;
     let mut writer = ZipWriter::new(zip_file);
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Deflated)
@@ -7814,7 +7814,7 @@ fn write_export_zip(
     }
     writer
         .finish()
-        .map_err(|error| GooseError::message(format!("cannot finish zip bundle: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot finish zip bundle: {error}")))?;
     Ok(())
 }
 
@@ -7823,14 +7823,14 @@ fn write_zip_file(
     archive_path: &str,
     source_path: &Path,
     options: FileOptions,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     validate_safe_relative_path(archive_path)?;
-    let bytes = fs::read(source_path).map_err(|source| GooseError::io(source_path, source))?;
+    let bytes = fs::read(source_path).map_err(|source| BullError::io(source_path, source))?;
     writer.start_file(archive_path, options).map_err(|error| {
-        GooseError::message(format!("cannot add {archive_path} to zip: {error}"))
+        BullError::message(format!("cannot add {archive_path} to zip: {error}"))
     })?;
     writer.write_all(&bytes).map_err(|error| {
-        GooseError::message(format!("cannot write {archive_path} to zip: {error}"))
+        BullError::message(format!("cannot write {archive_path} to zip: {error}"))
     })?;
     Ok(())
 }
@@ -7921,25 +7921,25 @@ fn validate_zip_manifest_file(
     }
 }
 
-fn read_zip_entry_to_string(archive: &mut ZipArchive<File>, path: &str) -> GooseResult<String> {
+fn read_zip_entry_to_string(archive: &mut ZipArchive<File>, path: &str) -> BullResult<String> {
     let bytes = read_zip_entry(archive, path)?;
     String::from_utf8(bytes)
-        .map_err(|error| GooseError::message(format!("{path} is not valid UTF-8: {error}")))
+        .map_err(|error| BullError::message(format!("{path} is not valid UTF-8: {error}")))
 }
 
-fn read_zip_entry(archive: &mut ZipArchive<File>, path: &str) -> GooseResult<Vec<u8>> {
+fn read_zip_entry(archive: &mut ZipArchive<File>, path: &str) -> BullResult<Vec<u8>> {
     validate_safe_relative_path(path)?;
     let mut entry = archive
         .by_name(path)
-        .map_err(|error| GooseError::message(format!("{path}: {error}")))?;
+        .map_err(|error| BullError::message(format!("{path}: {error}")))?;
     let mut bytes = Vec::new();
     entry
         .read_to_end(&mut bytes)
-        .map_err(|error| GooseError::message(format!("cannot read {path}: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot read {path}: {error}")))?;
     Ok(bytes)
 }
 
-fn validate_safe_relative_path(path: &str) -> GooseResult<()> {
+fn validate_safe_relative_path(path: &str) -> BullResult<()> {
     let relative = PathBuf::from(path);
     if path.trim().is_empty()
         || relative.is_absolute()
@@ -7950,7 +7950,7 @@ fn validate_safe_relative_path(path: &str) -> GooseResult<()> {
             )
         })
     {
-        Err(GooseError::message(
+        Err(BullError::message(
             "file path must be a safe relative path",
         ))
     } else {
@@ -8011,10 +8011,10 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
             "jsonl_shape",
             "Fix or regenerate the JSONL file so each non-empty line is one JSON object.",
         )
-    } else if issue_lower.contains("cannot be re-imported as goose data") {
+    } else if issue_lower.contains("cannot be re-imported as bull data") {
         (
             "typed_reimport_failed",
-            "Regenerate the typed export row from Goose SQLite or update the typed parser/schema before revalidating.",
+            "Regenerate the typed export row from Bull SQLite or update the typed parser/schema before revalidating.",
         )
     } else if issue_lower.contains("must be empty when include_raw_bytes is false") {
         (
@@ -8031,7 +8031,7 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     } else if issue_lower.contains("sqlite data family requires sqlite_source_path") {
         (
             "sqlite_source_path",
-            "Provide the Goose SQLite source path or deselect the sqlite family before exporting.",
+            "Provide the Bull SQLite source path or deselect the sqlite family before exporting.",
         )
     } else if issue_lower.contains("unknown family")
         || issue_lower.contains("empty family")
@@ -8039,24 +8039,24 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     {
         (
             "manifest_data_family",
-            "Regenerate the export manifest with only supported Goose data families selected once.",
+            "Regenerate the export manifest with only supported Bull data families selected once.",
         )
     } else if issue_lower.contains("unselected data family") {
         (
             "unselected_data_family_artifact",
-            "Regenerate the export so files and row counts exist only for selected Goose data families.",
+            "Regenerate the export so files and row counts exist only for selected Bull data families.",
         )
-    } else if issue_lower.contains("not a recognized goose export artifact path") {
+    } else if issue_lower.contains("not a recognized bull export artifact path") {
         (
             "unknown_manifest_file",
-            "Regenerate the export so the manifest lists only canonical Goose artifact paths.",
+            "Regenerate the export so the manifest lists only canonical Bull artifact paths.",
         )
     } else if issue_lower.contains("official_labels_are_labels")
         || issue_lower.contains("official labels")
     {
         (
             "official_label_policy",
-            "Mark official WHOOP comparison values as labels, not Goose outputs, and re-export calibration labels.",
+            "Mark official WHOOP comparison values as labels, not Bull outputs, and re-export calibration labels.",
         )
     } else if issue_lower.contains("missing from raw evidence")
         || issue_lower.contains("missing from decoded frame")
@@ -8100,12 +8100,12 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     } else if issue_lower.contains("not valid hex") || issue_lower.contains("64-character sha256") {
         (
             "invalid_hex",
-            "Regenerate the row with valid hex and checksum fields from Goose storage.",
+            "Regenerate the row with valid hex and checksum fields from Bull storage.",
         )
     } else if issue_lower.contains("is required for re-import") {
         (
             "required_field",
-            "Regenerate the export from normalized Goose rows so required fields are populated.",
+            "Regenerate the export from normalized Bull rows so required fields are populated.",
         )
     } else if issue_lower.contains("is not valid json")
         || issue_lower.contains("json invalid")
@@ -8113,7 +8113,7 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     {
         (
             "json_field",
-            "Regenerate the row with valid JSON field content from Goose storage.",
+            "Regenerate the row with valid JSON field content from Bull storage.",
         )
     } else if issue_lower.contains("sensor sample") {
         (
@@ -8150,7 +8150,7 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     {
         (
             "activity_export_shape",
-            "Regenerate activity session, metric, interval, and label rows from Goose storage so timestamps, enums, linkage, and provenance fields stay consistent.",
+            "Regenerate activity session, metric, interval, and label rows from Bull storage so timestamps, enums, linkage, and provenance fields stay consistent.",
         )
     } else if issue_lower.contains("debug session")
         || issue_lower.contains("debug command")
@@ -8163,7 +8163,7 @@ fn export_validation_issue_action(default_scope: &str, issue: &str) -> ExportVal
     } else if issue_lower.contains("command validation") {
         (
             "command_validation_shape",
-            "Regenerate command-validation rows from Goose storage after importing trusted official-app command evidence.",
+            "Regenerate command-validation rows from Bull storage after importing trusted official-app command evidence.",
         )
     } else if issue_lower.contains("manifest.") {
         (
@@ -8207,8 +8207,8 @@ fn report(
     let pass = manifest_valid && files_valid && content_valid && issues.is_empty();
     let next_actions = export_validation_report_actions(&issues, &files, &content);
     ExportValidationReport {
-        schema: "goose.export-validation-report.v1".to_string(),
-        generated_by: "goose-export-validator".to_string(),
+        schema: "bull.export-validation-report.v1".to_string(),
+        generated_by: "bull-export-validator".to_string(),
         bundle_path: path.display().to_string(),
         manifest_valid,
         files_valid,

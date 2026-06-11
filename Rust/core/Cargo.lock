@@ -47,6 +47,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "bull-core"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "hex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tungstenite",
+ "zip",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -261,22 +277,6 @@ dependencies = [
  "r-efi 6.0.0",
  "wasip2",
  "wasip3",
-]
-
-[[package]]
-name = "goose-core"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "hex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tungstenite",
- "zip",
 ]
 
 [[package]]

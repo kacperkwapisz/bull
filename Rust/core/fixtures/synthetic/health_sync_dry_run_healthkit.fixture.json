@@ -1,5 +1,5 @@
 {
-  "id": "synthetic.goose.health_sync.healthkit",
+  "id": "synthetic.bull.health_sync.healthkit",
   "path": "synthetic/health_sync_dry_run_healthkit.json",
   "kind": "synthetic",
   "source": "Hand-derived HealthKit dry-run fixture for mapping and HRV guard tests.",
@@ -7,7 +7,7 @@
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.health-sync-dry-run.v1",
+  "schema": "bull.health-sync-dry-run.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "Plans heart rate and SDNN writes while blocking RMSSD to HealthKit SDNN and benchmark-only reference algorithm output sync.",

@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     metrics::{
-        GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, GOOSE_SLEEP_V0_ID, GOOSE_SLEEP_V0_VERSION,
-        GOOSE_SLEEP_V1_ID, GOOSE_SLEEP_V1_VERSION, GOOSE_STRAIN_V0_ID, GOOSE_STRAIN_V0_VERSION,
-        GOOSE_STRESS_V0_ID, GOOSE_STRESS_V0_VERSION, HrvInput, SleepInput, SleepV1Input,
-        StrainInput, StressInput, goose_hrv_v0, goose_sleep_v0, goose_sleep_v1, goose_strain_v0,
-        goose_stress_v0,
+        BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION,
+        BULL_SLEEP_V1_ID, BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION,
+        BULL_STRESS_V0_ID, BULL_STRESS_V0_VERSION, HrvInput, SleepInput, SleepV1Input,
+        StrainInput, StressInput, bull_hrv_v0, bull_sleep_v0, bull_sleep_v1, bull_strain_v0,
+        bull_stress_v0,
     },
     reference::{
         REFERENCE_HRV_TIME_DOMAIN_ID, REFERENCE_HRV_TIME_DOMAIN_VERSION,
@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-pub const ALGORITHM_COMPARISON_SCHEMA: &str = "goose.algorithm-comparison-report.v1";
+pub const ALGORITHM_COMPARISON_SCHEMA: &str = "bull.algorithm-comparison-report.v1";
 pub const SLEEP_V1_BENCHMARK_COMPARISON_POLICY: &str = "sleep_v1_shared_sleep_wake_summary_fields";
 pub const SLEEP_V1_BENCHMARK_REPORT_INTEGRITY_POLICY: &str =
     "sleep_v1_benchmark_requires_current_comparison_output_and_delta_integrity";
@@ -30,10 +30,10 @@ pub const SLEEP_V1_BENCHMARK_REPORT_INTEGRITY_POLICY: &str =
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AlgorithmComparisonDelta {
     pub field: String,
-    pub goose_path: String,
+    pub bull_path: String,
     pub reference_path: String,
     pub unit: String,
-    pub goose_value: f64,
+    pub bull_value: f64,
     pub reference_value: f64,
     pub absolute_delta: f64,
     pub relative_delta_fraction: Option<f64>,
@@ -49,12 +49,12 @@ pub struct AlgorithmComparisonReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_coverage: Option<serde_json::Value>,
     pub reference_contract_valid: bool,
-    pub goose_output_ready: bool,
+    pub bull_output_ready: bool,
     pub reference_output_ready: bool,
     pub shared_fields_ready: bool,
     pub pass: bool,
-    pub goose_algorithm_id: String,
-    pub goose_algorithm_version: String,
+    pub bull_algorithm_id: String,
+    pub bull_algorithm_version: String,
     pub reference_algorithm_id: String,
     pub reference_algorithm_version: String,
     pub start_time: String,
@@ -62,9 +62,9 @@ pub struct AlgorithmComparisonReport {
     pub comparable_fields: Vec<String>,
     pub deltas: Vec<AlgorithmComparisonDelta>,
     pub non_comparable_fields: Vec<String>,
-    pub goose_output: Option<serde_json::Value>,
+    pub bull_output: Option<serde_json::Value>,
     pub reference_output: Option<serde_json::Value>,
-    pub goose_quality_flags: Vec<String>,
+    pub bull_quality_flags: Vec<String>,
     pub reference_quality_flags: Vec<String>,
     pub quality_flags: Vec<String>,
     pub errors: Vec<String>,
@@ -84,49 +84,49 @@ pub struct AlgorithmComparisonNextAction {
     pub action: String,
 }
 
-pub fn compare_hrv_goose_to_reference(input: &HrvInput) -> GooseResult<AlgorithmComparisonReport> {
-    let goose = goose_hrv_v0(input);
+pub fn compare_hrv_bull_to_reference(input: &HrvInput) -> BullResult<AlgorithmComparisonReport> {
+    let bull = bull_hrv_v0(input);
     let reference = reference_hrv_time_domain(input);
     let mut deltas = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
 
-    if let (Some(goose_output), Some(reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(reference_output)) = (&bull.output, &reference.output) {
         push_delta(
             &mut deltas,
             "mean_nn_ms",
-            "goose_output.mean_nn_ms",
+            "bull_output.mean_nn_ms",
             "reference_output.mean_nn_ms",
             "ms",
-            goose_output.mean_nn_ms,
+            bull_output.mean_nn_ms,
             reference_output.mean_nn_ms,
         );
         push_delta(
             &mut deltas,
             "rmssd_ms",
-            "goose_output.rmssd_ms",
+            "bull_output.rmssd_ms",
             "reference_output.rmssd_ms",
             "ms",
-            goose_output.rmssd_ms,
+            bull_output.rmssd_ms,
             reference_output.rmssd_ms,
         );
         push_delta(
             &mut deltas,
             "sdnn_ms",
-            "goose_output.sdnn_ms",
+            "bull_output.sdnn_ms",
             "reference_output.sdnn_sample_ms",
             "ms",
-            goose_output.sdnn_ms,
+            bull_output.sdnn_ms,
             reference_output.sdnn_sample_ms,
         );
         push_delta(
             &mut deltas,
             "pnn50_fraction",
-            "goose_output.pnn50_fraction",
+            "bull_output.pnn50_fraction",
             "reference_output.pnn50_fraction",
             "fraction",
-            goose_output.pnn50_fraction,
+            bull_output.pnn50_fraction,
             reference_output.pnn50_fraction,
         );
     } else {
@@ -135,17 +135,17 @@ pub fn compare_hrv_goose_to_reference(input: &HrvInput) -> GooseResult<Algorithm
 
     comparison_report(ComparisonParts {
         family: "hrv",
-        goose_algorithm_id: GOOSE_HRV_V0_ID,
-        goose_algorithm_version: GOOSE_HRV_V0_VERSION,
+        bull_algorithm_id: BULL_HRV_V0_ID,
+        bull_algorithm_version: BULL_HRV_V0_VERSION,
         reference_algorithm_id: REFERENCE_HRV_TIME_DOMAIN_ID,
         reference_algorithm_version: REFERENCE_HRV_TIME_DOMAIN_VERSION,
         start_time: &input.start_time,
         end_time: &input.end_time,
         deltas,
         non_comparable_fields: Vec::new(),
-        goose_output: serialize_optional("goose HRV output", &goose.output)?,
+        bull_output: serialize_optional("bull HRV output", &bull.output)?,
         reference_output: serialize_optional("reference HRV output", &reference.output)?,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -158,21 +158,21 @@ pub fn compare_hrv_goose_to_reference(input: &HrvInput) -> GooseResult<Algorithm
     })
 }
 
-pub fn compare_sleep_goose_to_reference(
+pub fn compare_sleep_bull_to_reference(
     input: &SleepInput,
-) -> GooseResult<AlgorithmComparisonReport> {
-    let goose = goose_sleep_v0(input);
+) -> BullResult<AlgorithmComparisonReport> {
+    let bull = bull_sleep_v0(input);
     let reference = reference_sleep_actigraphy_summary(input);
     let mut deltas = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
 
-    if let (Some(goose_output), Some(reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(reference_output)) = (&bull.output, &reference.output) {
         push_delta(
             &mut deltas,
             "time_in_bed_minutes",
-            "goose_input.time_in_bed_minutes",
+            "bull_input.time_in_bed_minutes",
             "reference_output.time_in_bed_minutes",
             "minutes",
             input.time_in_bed_minutes,
@@ -181,7 +181,7 @@ pub fn compare_sleep_goose_to_reference(
         push_delta(
             &mut deltas,
             "sleep_minutes",
-            "goose_input.sleep_duration_minutes",
+            "bull_input.sleep_duration_minutes",
             "reference_output.sleep_minutes",
             "minutes",
             input.sleep_duration_minutes,
@@ -190,7 +190,7 @@ pub fn compare_sleep_goose_to_reference(
         push_delta(
             &mut deltas,
             "wake_minutes",
-            "goose_input.time_in_bed_minutes - goose_input.sleep_duration_minutes",
+            "bull_input.time_in_bed_minutes - bull_input.sleep_duration_minutes",
             "reference_output.wake_minutes",
             "minutes",
             (input.time_in_bed_minutes - input.sleep_duration_minutes).max(0.0),
@@ -199,16 +199,16 @@ pub fn compare_sleep_goose_to_reference(
         push_delta(
             &mut deltas,
             "sleep_efficiency_fraction",
-            "goose_output.efficiency_fraction",
+            "bull_output.efficiency_fraction",
             "reference_output.sleep_efficiency_fraction",
             "fraction",
-            goose_output.efficiency_fraction,
+            bull_output.efficiency_fraction,
             reference_output.sleep_efficiency_fraction,
         );
         push_delta(
             &mut deltas,
             "wake_after_sleep_onset_minutes",
-            "goose_input.time_in_bed_minutes - goose_input.sleep_duration_minutes",
+            "bull_input.time_in_bed_minutes - bull_input.sleep_duration_minutes",
             "reference_output.wake_after_sleep_onset_minutes",
             "minutes",
             (input.time_in_bed_minutes - input.sleep_duration_minutes).max(0.0),
@@ -217,7 +217,7 @@ pub fn compare_sleep_goose_to_reference(
         push_delta(
             &mut deltas,
             "disturbance_count",
-            "goose_input.disturbance_count",
+            "bull_input.disturbance_count",
             "reference_output.disturbance_count",
             "count",
             input.disturbance_count as f64,
@@ -226,7 +226,7 @@ pub fn compare_sleep_goose_to_reference(
         push_delta(
             &mut deltas,
             "fragmentation_index_per_hour",
-            "goose_input.disturbance_count / goose_input.sleep_duration_hours",
+            "bull_input.disturbance_count / bull_input.sleep_duration_hours",
             "reference_output.fragmentation_index_per_hour",
             "events_per_hour",
             fragmentation_index_per_hour(input.disturbance_count, input.sleep_duration_minutes),
@@ -238,24 +238,24 @@ pub fn compare_sleep_goose_to_reference(
 
     comparison_report(ComparisonParts {
         family: "sleep",
-        goose_algorithm_id: GOOSE_SLEEP_V0_ID,
-        goose_algorithm_version: GOOSE_SLEEP_V0_VERSION,
+        bull_algorithm_id: BULL_SLEEP_V0_ID,
+        bull_algorithm_version: BULL_SLEEP_V0_VERSION,
         reference_algorithm_id: REFERENCE_SLEEP_ACTIGRAPHY_ID,
         reference_algorithm_version: REFERENCE_SLEEP_ACTIGRAPHY_VERSION,
         start_time: &input.start_time,
         end_time: &input.end_time,
         deltas,
         non_comparable_fields: vec![
-            "goose_output.score_0_to_100 has no benchmark-only actigraphy score equivalent"
+            "bull_output.score_0_to_100 has no benchmark-only actigraphy score equivalent"
                 .to_string(),
-            "goose_output.sleep_debt_minutes depends on sleep need, not just the actigraphy window"
+            "bull_output.sleep_debt_minutes depends on sleep need, not just the actigraphy window"
                 .to_string(),
-            "goose_input.midpoint_deviation_minutes is a Goose consistency input with no internal actigraphy-summary equivalent"
+            "bull_input.midpoint_deviation_minutes is a Bull consistency input with no internal actigraphy-summary equivalent"
                 .to_string(),
         ],
-        goose_output: serialize_optional("goose sleep output", &goose.output)?,
+        bull_output: serialize_optional("bull sleep output", &bull.output)?,
         reference_output: serialize_optional("reference sleep output", &reference.output)?,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -268,66 +268,66 @@ pub fn compare_sleep_goose_to_reference(
     })
 }
 
-pub fn compare_sleep_v1_goose_to_reference(
+pub fn compare_sleep_v1_bull_to_reference(
     input: &SleepV1Input,
-) -> GooseResult<AlgorithmComparisonReport> {
-    let goose = goose_sleep_v1(input);
+) -> BullResult<AlgorithmComparisonReport> {
+    let bull = bull_sleep_v1(input);
     let reference = reference_sleep_actigraphy_summary(&input.sleep);
     let mut deltas = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
 
-    if let (Some(goose_output), Some(reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(reference_output)) = (&bull.output, &reference.output) {
         push_delta(
             &mut deltas,
             "time_in_bed_minutes",
-            "goose_output.time_in_bed_minutes",
+            "bull_output.time_in_bed_minutes",
             "reference_output.time_in_bed_minutes",
             "minutes",
-            goose_output.time_in_bed_minutes,
+            bull_output.time_in_bed_minutes,
             reference_output.time_in_bed_minutes,
         );
         push_delta(
             &mut deltas,
             "sleep_minutes",
-            "goose_output.sleep_duration_minutes",
+            "bull_output.sleep_duration_minutes",
             "reference_output.sleep_minutes",
             "minutes",
-            goose_output.sleep_duration_minutes,
+            bull_output.sleep_duration_minutes,
             reference_output.sleep_minutes,
         );
         push_delta(
             &mut deltas,
             "wake_minutes",
-            "goose_output.awake_minutes",
+            "bull_output.awake_minutes",
             "reference_output.wake_minutes",
             "minutes",
-            goose_output.awake_minutes,
+            bull_output.awake_minutes,
             reference_output.wake_minutes,
         );
         push_delta(
             &mut deltas,
             "sleep_efficiency_fraction",
-            "goose_output.sleep_efficiency_fraction",
+            "bull_output.sleep_efficiency_fraction",
             "reference_output.sleep_efficiency_fraction",
             "fraction",
-            goose_output.sleep_efficiency_fraction,
+            bull_output.sleep_efficiency_fraction,
             reference_output.sleep_efficiency_fraction,
         );
         push_delta(
             &mut deltas,
             "wake_after_sleep_onset_minutes",
-            "goose_output.wake_after_sleep_onset_minutes",
+            "bull_output.wake_after_sleep_onset_minutes",
             "reference_output.wake_after_sleep_onset_minutes",
             "minutes",
-            goose_output.wake_after_sleep_onset_minutes,
+            bull_output.wake_after_sleep_onset_minutes,
             reference_output.wake_after_sleep_onset_minutes,
         );
         push_delta(
             &mut deltas,
             "disturbance_count",
-            "goose_input.disturbance_count",
+            "bull_input.disturbance_count",
             "reference_output.disturbance_count",
             "count",
             input.sleep.disturbance_count as f64,
@@ -336,12 +336,12 @@ pub fn compare_sleep_v1_goose_to_reference(
         push_delta(
             &mut deltas,
             "fragmentation_index_per_hour",
-            "goose_input.disturbance_count / goose_output.sleep_duration_hours",
+            "bull_input.disturbance_count / bull_output.sleep_duration_hours",
             "reference_output.fragmentation_index_per_hour",
             "events_per_hour",
             fragmentation_index_per_hour(
                 input.sleep.disturbance_count,
-                goose_output.sleep_duration_minutes,
+                bull_output.sleep_duration_minutes,
             ),
             reference_output.fragmentation_index_per_hour,
         );
@@ -351,24 +351,24 @@ pub fn compare_sleep_v1_goose_to_reference(
 
     let mut report = comparison_report(ComparisonParts {
         family: "sleep",
-        goose_algorithm_id: GOOSE_SLEEP_V1_ID,
-        goose_algorithm_version: GOOSE_SLEEP_V1_VERSION,
+        bull_algorithm_id: BULL_SLEEP_V1_ID,
+        bull_algorithm_version: BULL_SLEEP_V1_VERSION,
         reference_algorithm_id: REFERENCE_SLEEP_ACTIGRAPHY_ID,
         reference_algorithm_version: REFERENCE_SLEEP_ACTIGRAPHY_VERSION,
         start_time: &input.sleep.start_time,
         end_time: &input.sleep.end_time,
         deltas,
         non_comparable_fields: vec![
-            "goose_output.score_0_to_100 has no benchmark-only actigraphy score equivalent"
+            "bull_output.score_0_to_100 has no benchmark-only actigraphy score equivalent"
                 .to_string(),
-            "goose_output.rolling_sleep_debt_minutes depends on prior nights and sleep need"
+            "bull_output.rolling_sleep_debt_minutes depends on prior nights and sleep need"
                 .to_string(),
-            "goose_output.model_status has no benchmark-only actigraphy equivalent".to_string(),
-            "goose_output.stage_segments are heuristic and require label calibration".to_string(),
+            "bull_output.model_status has no benchmark-only actigraphy equivalent".to_string(),
+            "bull_output.stage_segments are heuristic and require label calibration".to_string(),
         ],
-        goose_output: serialize_optional("goose sleep v1 output", &goose.output)?,
+        bull_output: serialize_optional("bull sleep v1 output", &bull.output)?,
         reference_output: serialize_optional("reference sleep output", &reference.output)?,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -379,9 +379,9 @@ pub fn compare_sleep_v1_goose_to_reference(
             "validation_policy": SLEEP_V1_BENCHMARK_COMPARISON_POLICY,
             "expected_values_policy": "hand-derived-reference-deltas",
             "report_integrity_policy": SLEEP_V1_BENCHMARK_REPORT_INTEGRITY_POLICY,
-            "goose_comparable_inputs": {
+            "bull_comparable_inputs": {
                 "disturbance_count": input.sleep.disturbance_count,
-                "fragmentation_index_per_hour": goose
+                "fragmentation_index_per_hour": bull
                     .output
                     .as_ref()
                     .map(|output| fragmentation_index_per_hour(
@@ -395,23 +395,23 @@ pub fn compare_sleep_v1_goose_to_reference(
     Ok(report)
 }
 
-pub fn compare_sleep_v1_goose_to_external_reference_report(
+pub fn compare_sleep_v1_bull_to_external_reference_report(
     input: &SleepV1Input,
     reference_report: &serde_json::Value,
-) -> GooseResult<AlgorithmComparisonReport> {
+) -> BullResult<AlgorithmComparisonReport> {
     let reference = ExternalReferenceReport::from_json(reference_report)?;
     if reference.family != "sleep" {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "external reference family {} does not match sleep comparison",
             reference.family
         )));
     }
 
-    let goose = goose_sleep_v1(input);
+    let bull = bull_sleep_v1(input);
     let mut deltas = Vec::new();
     let mut non_comparable_fields = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
     errors.extend(
         reference
@@ -428,15 +428,15 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
         ));
     }
 
-    if let (Some(goose_output), Some(_reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(_reference_output)) = (&bull.output, &reference.output) {
         push_sleep_external_delta(
             &mut deltas,
             &mut non_comparable_fields,
             &mut errors,
             &reference,
             "time_in_bed_minutes",
-            "goose_output.time_in_bed_minutes",
-            goose_output.time_in_bed_minutes,
+            "bull_output.time_in_bed_minutes",
+            bull_output.time_in_bed_minutes,
             "minutes",
         );
         push_sleep_external_delta(
@@ -445,8 +445,8 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "sleep_minutes",
-            "goose_output.sleep_duration_minutes",
-            goose_output.sleep_duration_minutes,
+            "bull_output.sleep_duration_minutes",
+            bull_output.sleep_duration_minutes,
             "minutes",
         );
         push_sleep_external_delta(
@@ -455,8 +455,8 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "wake_minutes",
-            "goose_output.awake_minutes",
-            goose_output.awake_minutes,
+            "bull_output.awake_minutes",
+            bull_output.awake_minutes,
             "minutes",
         );
         push_sleep_external_delta(
@@ -465,8 +465,8 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "sleep_efficiency_fraction",
-            "goose_output.sleep_efficiency_fraction",
-            goose_output.sleep_efficiency_fraction,
+            "bull_output.sleep_efficiency_fraction",
+            bull_output.sleep_efficiency_fraction,
             "fraction",
         );
         push_sleep_external_delta(
@@ -475,8 +475,8 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "wake_after_sleep_onset_minutes",
-            "goose_output.wake_after_sleep_onset_minutes",
-            goose_output.wake_after_sleep_onset_minutes,
+            "bull_output.wake_after_sleep_onset_minutes",
+            bull_output.wake_after_sleep_onset_minutes,
             "minutes",
         );
         push_sleep_external_delta(
@@ -485,7 +485,7 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "disturbance_count",
-            "goose_input.disturbance_count",
+            "bull_input.disturbance_count",
             input.sleep.disturbance_count as f64,
             "count",
         );
@@ -495,10 +495,10 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "fragmentation_index_per_hour",
-            "goose_input.disturbance_count / goose_output.sleep_duration_hours",
+            "bull_input.disturbance_count / bull_output.sleep_duration_hours",
             fragmentation_index_per_hour(
                 input.sleep.disturbance_count,
-                goose_output.sleep_duration_minutes,
+                bull_output.sleep_duration_minutes,
             ),
             "events_per_hour",
         );
@@ -507,27 +507,27 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
     }
 
     non_comparable_fields.extend([
-        "goose_output.score_0_to_100 has no external actigraphy summary score equivalent"
+        "bull_output.score_0_to_100 has no external actigraphy summary score equivalent"
             .to_string(),
-        "goose_output.rolling_sleep_debt_minutes depends on prior nights and sleep need"
+        "bull_output.rolling_sleep_debt_minutes depends on prior nights and sleep need"
             .to_string(),
-        "goose_output.model_status has no external actigraphy equivalent".to_string(),
-        "goose_output.stage_segments are heuristic and require label calibration".to_string(),
+        "bull_output.model_status has no external actigraphy equivalent".to_string(),
+        "bull_output.stage_segments are heuristic and require label calibration".to_string(),
     ]);
 
     let mut report = comparison_report(ComparisonParts {
         family: "sleep",
-        goose_algorithm_id: GOOSE_SLEEP_V1_ID,
-        goose_algorithm_version: GOOSE_SLEEP_V1_VERSION,
+        bull_algorithm_id: BULL_SLEEP_V1_ID,
+        bull_algorithm_version: BULL_SLEEP_V1_VERSION,
         reference_algorithm_id: &reference.algorithm_id,
         reference_algorithm_version: &reference.algorithm_version,
         start_time: &input.sleep.start_time,
         end_time: &input.sleep.end_time,
         deltas,
         non_comparable_fields,
-        goose_output: serialize_optional("goose sleep v1 output", &goose.output)?,
+        bull_output: serialize_optional("bull sleep v1 output", &bull.output)?,
         reference_output: reference.output,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -540,9 +540,9 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
             "reference_report_provenance": reference.provenance,
             "expected_values_policy": "external-reference-report-deltas",
             "report_integrity_policy": SLEEP_V1_BENCHMARK_REPORT_INTEGRITY_POLICY,
-            "goose_comparable_inputs": {
+            "bull_comparable_inputs": {
                 "disturbance_count": input.sleep.disturbance_count,
-                "fragmentation_index_per_hour": goose
+                "fragmentation_index_per_hour": bull
                     .output
                     .as_ref()
                     .map(|output| fragmentation_index_per_hour(
@@ -556,23 +556,23 @@ pub fn compare_sleep_v1_goose_to_external_reference_report(
     Ok(report)
 }
 
-pub fn compare_sleep_goose_to_external_reference_report(
+pub fn compare_sleep_bull_to_external_reference_report(
     input: &SleepInput,
     reference_report: &serde_json::Value,
-) -> GooseResult<AlgorithmComparisonReport> {
+) -> BullResult<AlgorithmComparisonReport> {
     let reference = ExternalReferenceReport::from_json(reference_report)?;
     if reference.family != "sleep" {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "external reference family {} does not match sleep comparison",
             reference.family
         )));
     }
 
-    let goose = goose_sleep_v0(input);
+    let bull = bull_sleep_v0(input);
     let mut deltas = Vec::new();
     let mut non_comparable_fields = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
     errors.extend(
         reference
@@ -588,14 +588,14 @@ pub fn compare_sleep_goose_to_external_reference_report(
         ));
     }
 
-    if let (Some(goose_output), Some(_reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(_reference_output)) = (&bull.output, &reference.output) {
         push_sleep_external_delta(
             &mut deltas,
             &mut non_comparable_fields,
             &mut errors,
             &reference,
             "time_in_bed_minutes",
-            "goose_input.time_in_bed_minutes",
+            "bull_input.time_in_bed_minutes",
             input.time_in_bed_minutes,
             "minutes",
         );
@@ -605,7 +605,7 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "sleep_minutes",
-            "goose_input.sleep_duration_minutes",
+            "bull_input.sleep_duration_minutes",
             input.sleep_duration_minutes,
             "minutes",
         );
@@ -615,7 +615,7 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "wake_minutes",
-            "goose_input.time_in_bed_minutes - goose_input.sleep_duration_minutes",
+            "bull_input.time_in_bed_minutes - bull_input.sleep_duration_minutes",
             (input.time_in_bed_minutes - input.sleep_duration_minutes).max(0.0),
             "minutes",
         );
@@ -625,8 +625,8 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "sleep_efficiency_fraction",
-            "goose_output.efficiency_fraction",
-            goose_output.efficiency_fraction,
+            "bull_output.efficiency_fraction",
+            bull_output.efficiency_fraction,
             "fraction",
         );
         push_sleep_external_delta(
@@ -635,7 +635,7 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "wake_after_sleep_onset_minutes",
-            "goose_input.time_in_bed_minutes - goose_input.sleep_duration_minutes",
+            "bull_input.time_in_bed_minutes - bull_input.sleep_duration_minutes",
             (input.time_in_bed_minutes - input.sleep_duration_minutes).max(0.0),
             "minutes",
         );
@@ -645,7 +645,7 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "disturbance_count",
-            "goose_input.disturbance_count",
+            "bull_input.disturbance_count",
             input.disturbance_count as f64,
             "count",
         );
@@ -655,7 +655,7 @@ pub fn compare_sleep_goose_to_external_reference_report(
             &mut errors,
             &reference,
             "fragmentation_index_per_hour",
-            "goose_input.disturbance_count / goose_input.sleep_duration_hours",
+            "bull_input.disturbance_count / bull_input.sleep_duration_hours",
             fragmentation_index_per_hour(input.disturbance_count, input.sleep_duration_minutes),
             "events_per_hour",
         );
@@ -664,27 +664,27 @@ pub fn compare_sleep_goose_to_external_reference_report(
     }
 
     non_comparable_fields.extend([
-        "goose_output.score_0_to_100 has no external actigraphy summary score equivalent"
+        "bull_output.score_0_to_100 has no external actigraphy summary score equivalent"
             .to_string(),
-        "goose_output.sleep_debt_minutes depends on sleep need, not just the external actigraphy window"
+        "bull_output.sleep_debt_minutes depends on sleep need, not just the external actigraphy window"
             .to_string(),
-        "goose_input.midpoint_deviation_minutes is a Goose consistency input with no external actigraphy-summary equivalent"
+        "bull_input.midpoint_deviation_minutes is a Bull consistency input with no external actigraphy-summary equivalent"
             .to_string(),
     ]);
 
     comparison_report(ComparisonParts {
         family: "sleep",
-        goose_algorithm_id: GOOSE_SLEEP_V0_ID,
-        goose_algorithm_version: GOOSE_SLEEP_V0_VERSION,
+        bull_algorithm_id: BULL_SLEEP_V0_ID,
+        bull_algorithm_version: BULL_SLEEP_V0_VERSION,
         reference_algorithm_id: &reference.algorithm_id,
         reference_algorithm_version: &reference.algorithm_version,
         start_time: &input.start_time,
         end_time: &input.end_time,
         deltas,
         non_comparable_fields,
-        goose_output: serialize_optional("goose sleep output", &goose.output)?,
+        bull_output: serialize_optional("bull sleep output", &bull.output)?,
         reference_output: reference.output,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -699,24 +699,24 @@ pub fn compare_sleep_goose_to_external_reference_report(
     })
 }
 
-pub fn compare_strain_goose_to_reference(
+pub fn compare_strain_bull_to_reference(
     input: &StrainInput,
-) -> GooseResult<AlgorithmComparisonReport> {
-    let goose = goose_strain_v0(input);
+) -> BullResult<AlgorithmComparisonReport> {
+    let bull = bull_strain_v0(input);
     let reference = reference_strain_edwards_load(input);
     let mut deltas = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
 
-    if let (Some(goose_output), Some(reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(reference_output)) = (&bull.output, &reference.output) {
         push_delta(
             &mut deltas,
             "zone_load",
-            "goose_output.zone_load",
+            "bull_output.zone_load",
             "reference_output.edwards_load",
             "weighted_zone_minutes",
-            goose_output.zone_load,
+            bull_output.zone_load,
             reference_output.edwards_load,
         );
     } else {
@@ -725,21 +725,21 @@ pub fn compare_strain_goose_to_reference(
 
     comparison_report(ComparisonParts {
         family: "strain",
-        goose_algorithm_id: GOOSE_STRAIN_V0_ID,
-        goose_algorithm_version: GOOSE_STRAIN_V0_VERSION,
+        bull_algorithm_id: BULL_STRAIN_V0_ID,
+        bull_algorithm_version: BULL_STRAIN_V0_VERSION,
         reference_algorithm_id: REFERENCE_STRAIN_EDWARDS_ID,
         reference_algorithm_version: REFERENCE_STRAIN_EDWARDS_VERSION,
         start_time: &input.start_time,
         end_time: &input.end_time,
         deltas,
         non_comparable_fields: vec![
-            "goose_output.score_0_to_21 has no Edwards-zone-load score equivalent".to_string(),
-            "goose_output.average_hr_reserve_fraction is not part of Edwards zone load".to_string(),
-            "reference_output.edwards_load_per_hour is not emitted by Goose strain v0".to_string(),
+            "bull_output.score_0_to_21 has no Edwards-zone-load score equivalent".to_string(),
+            "bull_output.average_hr_reserve_fraction is not part of Edwards zone load".to_string(),
+            "reference_output.edwards_load_per_hour is not emitted by Bull strain v0".to_string(),
         ],
-        goose_output: serialize_optional("goose strain output", &goose.output)?,
+        bull_output: serialize_optional("bull strain output", &bull.output)?,
         reference_output: serialize_optional("reference strain output", &reference.output)?,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -752,33 +752,33 @@ pub fn compare_strain_goose_to_reference(
     })
 }
 
-pub fn compare_stress_goose_to_reference(
+pub fn compare_stress_bull_to_reference(
     input: &StressInput,
-) -> GooseResult<AlgorithmComparisonReport> {
-    let goose = goose_stress_v0(input);
+) -> BullResult<AlgorithmComparisonReport> {
+    let bull = bull_stress_v0(input);
     let reference = reference_stress_hrv_hr_proxy(input);
     let mut deltas = Vec::new();
     let mut quality_flags = Vec::new();
-    let mut errors = prefixed_errors("goose", &goose.errors);
+    let mut errors = prefixed_errors("bull", &bull.errors);
     errors.extend(prefixed_errors("reference", &reference.errors));
 
-    if let (Some(goose_output), Some(reference_output)) = (&goose.output, &reference.output) {
+    if let (Some(bull_output), Some(reference_output)) = (&bull.output, &reference.output) {
         push_delta(
             &mut deltas,
             "heart_rate_elevation_score",
-            "goose_output.heart_rate_elevation_score",
+            "bull_output.heart_rate_elevation_score",
             "reference_output.heart_rate_elevation_score",
             "score_0_to_100",
-            goose_output.heart_rate_elevation_score,
+            bull_output.heart_rate_elevation_score,
             reference_output.heart_rate_elevation_score,
         );
         push_delta(
             &mut deltas,
             "hrv_suppression_score",
-            "goose_output.hrv_suppression_score",
+            "bull_output.hrv_suppression_score",
             "reference_output.hrv_suppression_score",
             "score_0_to_100",
-            goose_output.hrv_suppression_score,
+            bull_output.hrv_suppression_score,
             reference_output.hrv_suppression_score,
         );
     } else {
@@ -787,21 +787,21 @@ pub fn compare_stress_goose_to_reference(
 
     comparison_report(ComparisonParts {
         family: "stress",
-        goose_algorithm_id: GOOSE_STRESS_V0_ID,
-        goose_algorithm_version: GOOSE_STRESS_V0_VERSION,
+        bull_algorithm_id: BULL_STRESS_V0_ID,
+        bull_algorithm_version: BULL_STRESS_V0_VERSION,
         reference_algorithm_id: REFERENCE_STRESS_HRV_HR_ID,
         reference_algorithm_version: REFERENCE_STRESS_HRV_HR_VERSION,
         start_time: &input.start_time,
         end_time: &input.end_time,
         deltas,
         non_comparable_fields: vec![
-            "goose_output.score_0_to_100 includes motion adjustment while the reference proxy is unadjusted".to_string(),
-            "goose_output.motion_adjusted_hr_score has no reference proxy equivalent".to_string(),
+            "bull_output.score_0_to_100 includes motion adjustment while the reference proxy is unadjusted".to_string(),
+            "bull_output.motion_adjusted_hr_score has no reference proxy equivalent".to_string(),
             "reference_output.unadjusted_stress_score_0_to_100 ignores motion context".to_string(),
         ],
-        goose_output: serialize_optional("goose stress output", &goose.output)?,
+        bull_output: serialize_optional("bull stress output", &bull.output)?,
         reference_output: serialize_optional("reference stress output", &reference.output)?,
-        goose_quality_flags: goose.quality_flags,
+        bull_quality_flags: bull.quality_flags,
         reference_quality_flags: reference.quality_flags,
         quality_flags,
         errors,
@@ -816,17 +816,17 @@ pub fn compare_stress_goose_to_reference(
 
 struct ComparisonParts<'a> {
     family: &'a str,
-    goose_algorithm_id: &'a str,
-    goose_algorithm_version: &'a str,
+    bull_algorithm_id: &'a str,
+    bull_algorithm_version: &'a str,
     reference_algorithm_id: &'a str,
     reference_algorithm_version: &'a str,
     start_time: &'a str,
     end_time: &'a str,
     deltas: Vec<AlgorithmComparisonDelta>,
     non_comparable_fields: Vec<String>,
-    goose_output: Option<serde_json::Value>,
+    bull_output: Option<serde_json::Value>,
     reference_output: Option<serde_json::Value>,
-    goose_quality_flags: Vec<String>,
+    bull_quality_flags: Vec<String>,
     reference_quality_flags: Vec<String>,
     quality_flags: Vec<String>,
     errors: Vec<String>,
@@ -865,16 +865,16 @@ struct ExternalReferenceReport {
 }
 
 impl ExternalReferenceReport {
-    fn from_json(value: &serde_json::Value) -> GooseResult<Self> {
+    fn from_json(value: &serde_json::Value) -> BullResult<Self> {
         let mut report: ExternalReferenceReport =
             serde_json::from_value(value.clone()).map_err(|error| {
-                GooseError::message(format!("invalid external reference report: {error}"))
+                BullError::message(format!("invalid external reference report: {error}"))
             })?;
         if !matches!(
             report.schema.as_str(),
-            "goose.reference-algo-report.v1" | "goose.external-reference-output.v1"
+            "bull.reference-algo-report.v1" | "bull.external-reference-output.v1"
         ) {
-            return Err(GooseError::message(format!(
+            return Err(BullError::message(format!(
                 "unsupported external reference report schema {}",
                 report.schema
             )));
@@ -889,7 +889,7 @@ impl ExternalReferenceReport {
             errors.push("missing_provenance".to_string());
         }
         match self.schema.as_str() {
-            "goose.external-reference-output.v1" => {
+            "bull.external-reference-output.v1" => {
                 require_optional_non_empty("provider", &self.provider, &mut errors);
                 require_optional_non_empty("provider_version", &self.provider_version, &mut errors);
                 require_optional_non_empty("source", &self.source, &mut errors);
@@ -898,7 +898,7 @@ impl ExternalReferenceReport {
                     errors.push("output_units_must_be_object".to_string());
                 }
             }
-            "goose.reference-algo-report.v1" => {
+            "bull.reference-algo-report.v1" => {
                 if self
                     .provenance
                     .get("provider_kind")
@@ -947,7 +947,7 @@ impl ExternalReferenceReport {
     }
 }
 
-fn comparison_report(parts: ComparisonParts<'_>) -> GooseResult<AlgorithmComparisonReport> {
+fn comparison_report(parts: ComparisonParts<'_>) -> BullResult<AlgorithmComparisonReport> {
     let mut quality_flags = parts.quality_flags;
     let mut errors = parts.errors;
     for delta in &parts.deltas {
@@ -966,29 +966,29 @@ fn comparison_report(parts: ComparisonParts<'_>) -> GooseResult<AlgorithmCompari
         quality_flags.push("no_comparable_fields_ready".to_string());
     }
     let next_actions = algorithm_comparison_next_actions(&quality_flags, &errors);
-    let goose_output_ready = parts.goose_output.is_some();
+    let bull_output_ready = parts.bull_output.is_some();
     let reference_output_ready = parts.reference_output.is_some();
     let shared_fields_ready = !parts.deltas.is_empty();
     let reference_contract_valid = parts.reference_contract_valid;
     let data_coverage = comparison_data_coverage(
         parts.family,
-        parts.goose_algorithm_id,
-        parts.goose_output.as_ref(),
+        parts.bull_algorithm_id,
+        parts.bull_output.as_ref(),
     );
 
     Ok(AlgorithmComparisonReport {
         schema: ALGORITHM_COMPARISON_SCHEMA.to_string(),
-        generated_by: "goose.algorithm_compare".to_string(),
+        generated_by: "bull.algorithm_compare".to_string(),
         family: parts.family.to_string(),
         runtime_ms: None,
         data_coverage,
         reference_contract_valid,
-        goose_output_ready,
+        bull_output_ready,
         reference_output_ready,
         shared_fields_ready,
         pass: errors.is_empty() && shared_fields_ready && reference_contract_valid,
-        goose_algorithm_id: parts.goose_algorithm_id.to_string(),
-        goose_algorithm_version: parts.goose_algorithm_version.to_string(),
+        bull_algorithm_id: parts.bull_algorithm_id.to_string(),
+        bull_algorithm_version: parts.bull_algorithm_version.to_string(),
         reference_algorithm_id: parts.reference_algorithm_id.to_string(),
         reference_algorithm_version: parts.reference_algorithm_version.to_string(),
         start_time: parts.start_time.to_string(),
@@ -1000,9 +1000,9 @@ fn comparison_report(parts: ComparisonParts<'_>) -> GooseResult<AlgorithmCompari
             .collect(),
         deltas: parts.deltas,
         non_comparable_fields: parts.non_comparable_fields,
-        goose_output: parts.goose_output,
+        bull_output: parts.bull_output,
         reference_output: parts.reference_output,
-        goose_quality_flags: parts.goose_quality_flags,
+        bull_quality_flags: parts.bull_quality_flags,
         reference_quality_flags: parts.reference_quality_flags,
         quality_flags,
         errors,
@@ -1017,28 +1017,28 @@ pub(crate) fn sleep_v1_benchmark_acceptance_summary(report: &AlgorithmComparison
     let coverage = report
         .data_coverage
         .as_ref()
-        .and_then(|coverage| coverage.get("goose_output_data_coverage_fraction"))
+        .and_then(|coverage| coverage.get("bull_output_data_coverage_fraction"))
         .and_then(Value::as_f64);
     json!({
         "policy": "sleep_v1_benchmark_must_match_reference_contract_deltas_and_embedded_output",
         "pass": report.pass,
         "benchmark_ready": report.pass
             && report.reference_contract_valid
-            && report.goose_output_ready
+            && report.bull_output_ready
             && report.reference_output_ready
             && report.shared_fields_ready
             && report.quality_flags.is_empty()
-            && report.goose_quality_flags.is_empty()
+            && report.bull_quality_flags.is_empty()
             && report.reference_quality_flags.is_empty()
             && report.errors.is_empty()
             && report.issues.is_empty()
             && report.next_actions.is_empty(),
         "reference_contract_valid": report.reference_contract_valid,
-        "goose_output_ready": report.goose_output_ready,
+        "bull_output_ready": report.bull_output_ready,
         "reference_output_ready": report.reference_output_ready,
         "shared_fields_ready": report.shared_fields_ready,
-        "goose_algorithm_id": report.goose_algorithm_id,
-        "goose_algorithm_version": report.goose_algorithm_version,
+        "bull_algorithm_id": report.bull_algorithm_id,
+        "bull_algorithm_version": report.bull_algorithm_version,
         "reference_algorithm_id": report.reference_algorithm_id,
         "reference_algorithm_version": report.reference_algorithm_version,
         "start_time": report.start_time,
@@ -1047,7 +1047,7 @@ pub(crate) fn sleep_v1_benchmark_acceptance_summary(report: &AlgorithmComparison
         "delta_count": report.deltas.len(),
         "non_comparable_field_count": report.non_comparable_fields.len(),
         "data_coverage_fraction": coverage,
-        "goose_quality_flag_count": report.goose_quality_flags.len(),
+        "bull_quality_flag_count": report.bull_quality_flags.len(),
         "reference_quality_flag_count": report.reference_quality_flags.len(),
         "quality_flag_count": report.quality_flags.len(),
         "issue_count": report.issues.len(),
@@ -1058,33 +1058,33 @@ pub(crate) fn sleep_v1_benchmark_acceptance_summary(report: &AlgorithmComparison
 
 fn comparison_data_coverage(
     family: &str,
-    goose_algorithm_id: &str,
-    goose_output: Option<&serde_json::Value>,
+    bull_algorithm_id: &str,
+    bull_output: Option<&serde_json::Value>,
 ) -> Option<serde_json::Value> {
-    if family != "sleep" || goose_algorithm_id != GOOSE_SLEEP_V1_ID {
+    if family != "sleep" || bull_algorithm_id != BULL_SLEEP_V1_ID {
         return None;
     }
-    let coverage = goose_output?
+    let coverage = bull_output?
         .get("data_coverage_fraction")
         .and_then(serde_json::Value::as_f64)?;
     if !coverage.is_finite() || !(0.0..=1.0).contains(&coverage) {
         return None;
     }
     Some(json!({
-        "goose_output_data_coverage_fraction": coverage,
+        "bull_output_data_coverage_fraction": coverage,
     }))
 }
 
 fn push_delta(
     deltas: &mut Vec<AlgorithmComparisonDelta>,
     field: &str,
-    goose_path: &str,
+    bull_path: &str,
     reference_path: &str,
     unit: &str,
-    goose_value: f64,
+    bull_value: f64,
     reference_value: f64,
 ) {
-    let absolute_delta = goose_value - reference_value;
+    let absolute_delta = bull_value - reference_value;
     let relative_delta_fraction = if reference_value.abs() < f64::EPSILON {
         None
     } else {
@@ -1092,10 +1092,10 @@ fn push_delta(
     };
     deltas.push(AlgorithmComparisonDelta {
         field: field.to_string(),
-        goose_path: goose_path.to_string(),
+        bull_path: bull_path.to_string(),
         reference_path: reference_path.to_string(),
         unit: unit.to_string(),
-        goose_value,
+        bull_value,
         reference_value,
         absolute_delta,
         relative_delta_fraction,
@@ -1108,8 +1108,8 @@ fn push_sleep_external_delta(
     errors: &mut Vec<String>,
     reference: &ExternalReferenceReport,
     field: &str,
-    goose_path: &str,
-    goose_value: f64,
+    bull_path: &str,
+    bull_value: f64,
     unit: &str,
 ) {
     let Some(reference_output) = reference.output.as_ref() else {
@@ -1141,10 +1141,10 @@ fn push_sleep_external_delta(
         push_delta(
             deltas,
             field,
-            goose_path,
+            bull_path,
             &format!("reference_output.{field}"),
             unit,
-            goose_value,
+            bull_value,
             reference_value,
         );
     } else {
@@ -1172,12 +1172,12 @@ fn prefixed_errors(prefix: &str, errors: &[String]) -> Vec<String> {
 fn serialize_optional<T: Serialize>(
     label: &str,
     output: &Option<T>,
-) -> GooseResult<Option<serde_json::Value>> {
+) -> BullResult<Option<serde_json::Value>> {
     output
         .as_ref()
         .map(serde_json::to_value)
         .transpose()
-        .map_err(|error| GooseError::message(format!("cannot serialize {label}: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize {label}: {error}")))
 }
 
 fn empty_object() -> serde_json::Value {
@@ -1227,7 +1227,7 @@ fn algorithm_comparison_quality_action(flag: &str) -> AlgorithmComparisonNextAct
         "comparison_outputs_missing" => AlgorithmComparisonNextAction {
             scope: "outputs".to_string(),
             reason: "comparison_outputs_missing".to_string(),
-            action: "Fix Goose/reference input requirements so both algorithms emit outputs before comparing shared fields.".to_string(),
+            action: "Fix Bull/reference input requirements so both algorithms emit outputs before comparing shared fields.".to_string(),
         },
         "no_comparable_fields_ready" => AlgorithmComparisonNextAction {
             scope: "comparable_fields".to_string(),
@@ -1247,7 +1247,7 @@ fn algorithm_comparison_error_action(error: &str) -> AlgorithmComparisonNextActi
         AlgorithmComparisonNextAction {
             scope: field.to_string(),
             reason: "non_finite_delta".to_string(),
-            action: "Check the Goose and reference outputs for non-finite values before trusting this delta.".to_string(),
+            action: "Check the Bull and reference outputs for non-finite values before trusting this delta.".to_string(),
         }
     } else if let Some(error) = error.strip_prefix("reference_contract:") {
         let reason = if error.starts_with("missing_output_unit:") {
@@ -1265,15 +1265,15 @@ fn algorithm_comparison_error_action(error: &str) -> AlgorithmComparisonNextActi
             scope: "reference_contract".to_string(),
             reason: reason.to_string(),
             action: format!(
-                "Regenerate the reference report through goose-reference-algo-runner or a validated adapter so provider metadata, output units, and provenance satisfy the benchmark contract; issue `{error}`."
+                "Regenerate the reference report through bull-reference-algo-runner or a validated adapter so provider metadata, output units, and provenance satisfy the benchmark contract; issue `{error}`."
             ),
         }
-    } else if let Some(error) = error.strip_prefix("goose:") {
+    } else if let Some(error) = error.strip_prefix("bull:") {
         AlgorithmComparisonNextAction {
-            scope: "goose".to_string(),
-            reason: "goose_algorithm_error".to_string(),
+            scope: "bull".to_string(),
+            reason: "bull_algorithm_error".to_string(),
             action: format!(
-                "Fix the Goose algorithm input or implementation error `{error}` before using this comparison."
+                "Fix the Bull algorithm input or implementation error `{error}` before using this comparison."
             ),
         }
     } else if let Some(error) = error.strip_prefix("reference:") {

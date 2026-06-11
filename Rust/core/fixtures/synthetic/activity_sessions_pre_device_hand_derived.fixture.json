@@ -7,7 +7,7 @@
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.activity-session-fixtures.v1",
+  "schema": "bull.activity-session-fixtures.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "Seven synthetic activity sessions cover the generic pre-device corpus without WHOOP bytes. The file keeps provenance, sync status, metrics, intervals, and labels aligned with the activity storage tables.",

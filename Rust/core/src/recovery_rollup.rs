@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     metric_features::{
         MetricFeatureNextAction, RecoverySensorDiscoveryOptions, RecoverySensorDiscoveryReport,
         RecoverySensorWidgetDiscovery, RestingHeartRateFeatureOptions,
         RestingHeartRateFeatureReport, run_recovery_sensor_discovery_report_for_store,
         run_resting_heart_rate_feature_report_for_store,
     },
-    store::{DailyRecoveryMetricInput, GooseStore, MetricProvenanceInput},
+    store::{DailyRecoveryMetricInput, BullStore, MetricProvenanceInput},
     validation_labels::{
         OFFICIAL_WHOOP_LABEL_POLICY, official_label_policy_issue_action,
         official_label_policy_issues,
@@ -19,21 +19,21 @@ use crate::{
 };
 
 pub const RESTING_HEART_RATE_DAILY_ROLLUP_REPORT_SCHEMA: &str =
-    "goose.resting-heart-rate-daily-rollup-report.v1";
+    "bull.resting-heart-rate-daily-rollup-report.v1";
 pub const RESTING_HEART_RATE_CAPTURE_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.resting-heart-rate-capture-validation-report.v1";
+    "bull.resting-heart-rate-capture-validation-report.v1";
 pub const RECOVERY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA: &str =
-    "goose.recovery-unavailable-daily-status-report.v1";
+    "bull.recovery-unavailable-daily-status-report.v1";
 pub const RECOVERY_SENSOR_DAILY_ROLLUP_REPORT_SCHEMA: &str =
-    "goose.recovery-sensor-daily-rollup-report.v1";
-pub const GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID: &str =
-    "goose.resting_heart_rate.device_sensor.v0";
-pub const GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_ID: &str = "goose.recovery.unavailable_status.v0";
-pub const GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_RECOVERY_SENSOR_DEVICE_SENSOR_V0_ID: &str =
-    "goose.recovery_sensor.device_sensor.v0";
-pub const GOOSE_RECOVERY_SENSOR_DEVICE_SENSOR_V0_VERSION: &str = "0.1.0";
+    "bull.recovery-sensor-daily-rollup-report.v1";
+pub const BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID: &str =
+    "bull.resting_heart_rate.device_sensor.v0";
+pub const BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION: &str = "0.1.0";
+pub const BULL_RECOVERY_UNAVAILABLE_STATUS_V0_ID: &str = "bull.recovery.unavailable_status.v0";
+pub const BULL_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
+pub const BULL_RECOVERY_SENSOR_DEVICE_SENSOR_V0_ID: &str =
+    "bull.recovery_sensor.device_sensor.v0";
+pub const BULL_RECOVERY_SENSOR_DEVICE_SENSOR_V0_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Clone, Copy)]
 pub struct RestingHeartRateDailyRollupOptions<'a> {
@@ -249,17 +249,17 @@ struct CurrentRestingHeartRateMetric {
 }
 
 pub fn rollup_resting_heart_rate_day_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: RestingHeartRateDailyRollupOptions<'_>,
-) -> GooseResult<RestingHeartRateDailyRollupReport> {
+) -> BullResult<RestingHeartRateDailyRollupReport> {
     validate_options(&options)?;
     let start_time_unix_ms = parse_rfc3339_utc_unix_ms(options.start)
-        .ok_or_else(|| GooseError::message("start must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("start must be an RFC3339 UTC timestamp"))?;
     let end_time_unix_ms = parse_rfc3339_utc_unix_ms(options.end)
-        .ok_or_else(|| GooseError::message("end must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("end must be an RFC3339 UTC timestamp"))?;
     if end_time_unix_ms <= start_time_unix_ms {
-        return Err(GooseError::message("end must be after start"));
+        return Err(BullError::message("end must be after start"));
     }
 
     let feature_report = run_resting_heart_rate_feature_report_for_store(
@@ -349,11 +349,11 @@ pub fn rollup_resting_heart_rate_day_for_store(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!("cannot serialize RHR quality flags: {error}"))
+            BullError::message(format!("cannot serialize RHR quality flags: {error}"))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID,
-            "algorithm_version": GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION,
+            "algorithm": BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID,
+            "algorithm_version": BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION,
             "source_kind": "device_sensor",
             "date_key": options.date_key,
             "timezone": options.timezone,
@@ -419,7 +419,7 @@ pub fn rollup_resting_heart_rate_day_for_store(
 
     Ok(RestingHeartRateDailyRollupReport {
         schema: RESTING_HEART_RATE_DAILY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-resting-heart-rate-daily-rollup".to_string(),
+        generated_by: "bull-resting-heart-rate-daily-rollup".to_string(),
         pass,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -451,10 +451,10 @@ pub fn rollup_resting_heart_rate_day_for_store(
 }
 
 pub fn validate_resting_heart_rate_capture_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: RestingHeartRateCaptureValidationOptions<'_>,
-) -> GooseResult<RestingHeartRateCaptureValidationReport> {
+) -> BullResult<RestingHeartRateCaptureValidationReport> {
     validate_rhr_validation_options(&options)?;
     let mut rollup_options = options.rollup_options;
     rollup_options.write_metric = false;
@@ -495,7 +495,7 @@ pub fn validate_resting_heart_rate_capture_for_store(
 
     Ok(RestingHeartRateCaptureValidationReport {
         schema: RESTING_HEART_RATE_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-resting-heart-rate-capture-validator".to_string(),
+        generated_by: "bull-resting-heart-rate-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         date_key: resting_hr_rollup.date_key.clone(),
@@ -515,8 +515,8 @@ pub fn validate_resting_heart_rate_capture_for_store(
         confidence: resting_hr_rollup.confidence,
         sample_count: resting_hr_rollup.sample_count,
         trusted_metric_input: resting_hr_rollup.trusted_metric_input,
-        algorithm_id: GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID.to_string(),
-        algorithm_version: GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION.to_string(),
+        algorithm_id: BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID.to_string(),
+        algorithm_version: BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION.to_string(),
         resting_hr_rollup,
         next_actions: rhr_validation_next_actions(&issues),
         issues,
@@ -524,17 +524,17 @@ pub fn validate_resting_heart_rate_capture_for_store(
 }
 
 pub fn rollup_recovery_unavailable_daily_status_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: RecoveryUnavailableDailyStatusOptions<'_>,
-) -> GooseResult<RecoveryUnavailableDailyStatusReport> {
+) -> BullResult<RecoveryUnavailableDailyStatusReport> {
     validate_recovery_unavailable_options(&options)?;
     let start_time_unix_ms = parse_rfc3339_utc_unix_ms(options.start)
-        .ok_or_else(|| GooseError::message("start must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("start must be an RFC3339 UTC timestamp"))?;
     let end_time_unix_ms = parse_rfc3339_utc_unix_ms(options.end)
-        .ok_or_else(|| GooseError::message("end must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("end must be an RFC3339 UTC timestamp"))?;
     if end_time_unix_ms <= start_time_unix_ms {
-        return Err(GooseError::message("end must be after start"));
+        return Err(BullError::message("end must be after start"));
     }
 
     let recovery_sensor_discovery = run_recovery_sensor_discovery_report_for_store(
@@ -579,7 +579,7 @@ pub fn rollup_recovery_unavailable_daily_status_for_store(
 
     Ok(RecoveryUnavailableDailyStatusReport {
         schema: RECOVERY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-recovery-unavailable-daily-status".to_string(),
+        generated_by: "bull-recovery-unavailable-daily-status".to_string(),
         pass: issues.is_empty(),
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -599,17 +599,17 @@ pub fn rollup_recovery_unavailable_daily_status_for_store(
 }
 
 pub fn rollup_recovery_sensor_daily_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: RecoverySensorDailyRollupOptions<'_>,
-) -> GooseResult<RecoverySensorDailyRollupReport> {
+) -> BullResult<RecoverySensorDailyRollupReport> {
     validate_recovery_sensor_daily_options(&options)?;
     let start_time_unix_ms = parse_rfc3339_utc_unix_ms(options.start)
-        .ok_or_else(|| GooseError::message("start must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("start must be an RFC3339 UTC timestamp"))?;
     let end_time_unix_ms = parse_rfc3339_utc_unix_ms(options.end)
-        .ok_or_else(|| GooseError::message("end must be after start"))?;
+        .ok_or_else(|| BullError::message("end must be after start"))?;
     if end_time_unix_ms <= start_time_unix_ms {
-        return Err(GooseError::message("end must be after start"));
+        return Err(BullError::message("end must be after start"));
     }
 
     let recovery_sensor_discovery = run_recovery_sensor_discovery_report_for_store(
@@ -682,7 +682,7 @@ pub fn rollup_recovery_sensor_daily_for_store(
 
     Ok(RecoverySensorDailyRollupReport {
         schema: RECOVERY_SENSOR_DAILY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-recovery-sensor-daily-rollup".to_string(),
+        generated_by: "bull-recovery-sensor-daily-rollup".to_string(),
         pass: issues.is_empty(),
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -704,13 +704,13 @@ pub fn rollup_recovery_sensor_daily_for_store(
 }
 
 fn recovery_unavailable_metric_status_for_widget(
-    store: &GooseStore,
+    store: &BullStore,
     widget: &RecoverySensorWidgetDiscovery,
     discovery: &RecoverySensorDiscoveryReport,
     options: &RecoveryUnavailableDailyStatusOptions<'_>,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
-) -> GooseResult<RecoveryUnavailableMetricStatus> {
+) -> BullResult<RecoveryUnavailableMetricStatus> {
     let metric_name = recovery_metric_name(&widget.metric_id).to_string();
     let metric_id =
         recovery_unavailable_metric_id(&widget.metric_id, options.date_key, options.timezone);
@@ -736,13 +736,13 @@ fn recovery_unavailable_metric_status_for_widget(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot serialize recovery unavailable quality flags: {error}"
             ))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_ID,
-            "algorithm_version": GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION,
+            "algorithm": BULL_RECOVERY_UNAVAILABLE_STATUS_V0_ID,
+            "algorithm_version": BULL_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION,
             "source_kind": "unavailable",
             "metric_id": widget.metric_id,
             "metric_name": metric_name,
@@ -814,13 +814,13 @@ fn recovery_unavailable_metric_status_for_widget(
 }
 
 fn recovery_sensor_daily_metric_status_for_widget(
-    store: &GooseStore,
+    store: &BullStore,
     widget: &RecoverySensorWidgetDiscovery,
     discovery: &RecoverySensorDiscoveryReport,
     options: &RecoverySensorDailyRollupOptions<'_>,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
-) -> GooseResult<RecoverySensorDailyMetricStatus> {
+) -> BullResult<RecoverySensorDailyMetricStatus> {
     let metric_name = recovery_metric_name(&widget.metric_id).to_string();
     let value = recovery_sensor_metric_value(widget, discovery, options.date_key);
     let mut blocker_reasons = widget.blocker_reasons.clone();
@@ -867,13 +867,13 @@ fn recovery_sensor_daily_metric_status_for_widget(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot serialize recovery sensor daily quality flags: {error}"
             ))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_RECOVERY_SENSOR_DEVICE_SENSOR_V0_ID,
-            "algorithm_version": GOOSE_RECOVERY_SENSOR_DEVICE_SENSOR_V0_VERSION,
+            "algorithm": BULL_RECOVERY_SENSOR_DEVICE_SENSOR_V0_ID,
+            "algorithm_version": BULL_RECOVERY_SENSOR_DEVICE_SENSOR_V0_VERSION,
             "source_kind": "device_sensor",
             "metric_id": widget.metric_id,
             "metric_name": metric_name,
@@ -1172,11 +1172,11 @@ struct RollingAverage {
 }
 
 fn rolling_average(
-    store: &GooseStore,
+    store: &BullStore,
     end_time_unix_ms: i64,
     days: i64,
     current: Option<&CurrentRestingHeartRateMetric>,
-) -> GooseResult<RollingAverage> {
+) -> BullResult<RollingAverage> {
     let window_start = end_time_unix_ms.saturating_sub(days * 86_400_000);
     let rows = store.daily_recovery_metrics_between(window_start, end_time_unix_ms)?;
     let mut values = rows
@@ -1291,42 +1291,42 @@ fn sanitize_id_part(value: &str) -> String {
     sanitized.trim_matches('-').to_string()
 }
 
-fn validate_options(options: &RestingHeartRateDailyRollupOptions<'_>) -> GooseResult<()> {
+fn validate_options(options: &RestingHeartRateDailyRollupOptions<'_>) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if options.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if options.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if options.min_sample_count == 0 {
-        return Err(GooseError::message("min_sample_count must be at least 1"));
+        return Err(BullError::message("min_sample_count must be at least 1"));
     }
     Ok(())
 }
 
 fn validate_recovery_unavailable_options(
     options: &RecoveryUnavailableDailyStatusOptions<'_>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if options.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if options.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if options.min_rr_intervals_to_compute == 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "min_rr_intervals_to_compute must be at least 1",
         ));
     }
@@ -1335,21 +1335,21 @@ fn validate_recovery_unavailable_options(
 
 fn validate_recovery_sensor_daily_options(
     options: &RecoverySensorDailyRollupOptions<'_>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if options.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if options.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if options.min_rr_intervals_to_compute == 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "min_rr_intervals_to_compute must be at least 1",
         ));
     }
@@ -1358,13 +1358,13 @@ fn validate_recovery_sensor_daily_options(
 
 fn validate_rhr_validation_options(
     options: &RestingHeartRateCaptureValidationOptions<'_>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !options.tolerance_bpm.is_finite() || options.tolerance_bpm < 0.0 {
-        return Err(GooseError::message("tolerance_bpm must be nonnegative"));
+        return Err(BullError::message("tolerance_bpm must be nonnegative"));
     }
     if let Some(value) = options.official_whoop_resting_hr_bpm {
         if !value.is_finite() || value <= 0.0 {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "official_whoop_resting_hr_bpm must be positive",
             ));
         }

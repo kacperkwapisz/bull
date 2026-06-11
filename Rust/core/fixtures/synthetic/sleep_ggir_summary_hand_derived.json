@@ -1,5 +1,5 @@
 {
-  "schema": "goose.sleep-ggir-summary-input.v1",
+  "schema": "bull.sleep-ggir-summary-input.v1",
   "ggir_version": "3.3-4",
   "start_time": "2026-05-27T22:30:00Z",
   "end_time": "2026-05-29T06:00:00Z",
@@ -7,7 +7,7 @@
   "input_ids": ["synthetic.hand_derived.sleep.ggir_summary"],
   "rows": [
     {
-      "ID": "synthetic-goose",
+      "ID": "synthetic-bull",
       "night": 1,
       "calendardate": "2026-05-27",
       "sleeponset_ts": "22:30:00",
@@ -20,7 +20,7 @@
       "acc_available": true
     },
     {
-      "ID": "synthetic-goose",
+      "ID": "synthetic-bull",
       "night": 2,
       "calendar_date": "2026-05-28",
       "sleeponset_ts": "22:30:00",

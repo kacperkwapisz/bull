@@ -1,8 +1,8 @@
 #[test]
 fn capture_arrival_plan_cli_emits_machine_readable_blockers() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-capture-arrival-plan"))
+    let db = tempdir.path().join("bull.sqlite");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-capture-arrival-plan"))
         .arg("--database")
         .arg(&db)
         .arg("--start")
@@ -20,8 +20,8 @@ fn capture_arrival_plan_cli_emits_machine_readable_blockers() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.capture-arrival-plan-report.v1");
-    assert_eq!(report["generated_by"], "goose-capture-arrival-plan");
+    assert_eq!(report["schema"], "bull.capture-arrival-plan-report.v1");
+    assert_eq!(report["generated_by"], "bull-capture-arrival-plan");
     assert_eq!(report["pass"], false);
     assert_eq!(report["min_owned_captures"], 1);
     assert_eq!(report["require_owned_captures"], true);
@@ -30,19 +30,19 @@ fn capture_arrival_plan_cli_emits_machine_readable_blockers() {
     assert_eq!(report["physical_arrival_row_count"], 11);
     assert_eq!(
         report["capture_correlation"]["schema"],
-        "goose.capture-correlation-report.v1"
+        "bull.capture-correlation-report.v1"
     );
     assert_eq!(
         report["metric_input_readiness"]["schema"],
-        "goose.metric-input-readiness-report.v1"
+        "bull.metric-input-readiness-report.v1"
     );
     assert_eq!(
         report["recovery_sensor_discovery"]["schema"],
-        "goose.recovery-sensor-discovery-report.v1"
+        "bull.recovery-sensor-discovery-report.v1"
     );
     assert_eq!(
         report["local_health_validation_review"]["schema"],
-        "goose.local-health-validation-manifest-review.v1"
+        "bull.local-health-validation-manifest-review.v1"
     );
     assert!(
         report["local_health_validation_review"]["acceptance_evidence_case_count"]

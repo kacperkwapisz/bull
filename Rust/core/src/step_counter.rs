@@ -4,28 +4,28 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     step_discovery::{
         StepPacketDiscoveryCandidate, StepPacketDiscoveryOptions, StepPacketDiscoveryReport,
         run_step_packet_discovery_for_store,
     },
     store::{
-        DailyActivityMetricInput, GooseStore, HourlyActivityMetricInput, MetricProvenanceInput,
+        DailyActivityMetricInput, BullStore, HourlyActivityMetricInput, MetricProvenanceInput,
         StepCounterSampleInput, StepCounterSampleRow,
     },
 };
 
-pub const STEP_COUNTER_INGEST_REPORT_SCHEMA: &str = "goose.step-counter-ingest-report.v1";
+pub const STEP_COUNTER_INGEST_REPORT_SCHEMA: &str = "bull.step-counter-ingest-report.v1";
 pub const STEP_COUNTER_DAILY_ROLLUP_REPORT_SCHEMA: &str =
-    "goose.step-counter-daily-rollup-report.v1";
+    "bull.step-counter-daily-rollup-report.v1";
 pub const STEP_COUNTER_HOURLY_ROLLUP_REPORT_SCHEMA: &str =
-    "goose.step-counter-hourly-rollup-report.v1";
+    "bull.step-counter-hourly-rollup-report.v1";
 pub const ACTIVITY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA: &str =
-    "goose.activity-unavailable-daily-status-report.v1";
-pub const GOOSE_STEPS_DEVICE_COUNTER_V0_ID: &str = "goose.steps.device_counter.v0";
-pub const GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID: &str = "goose.activity.unavailable_status.v0";
-pub const GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
+    "bull.activity-unavailable-daily-status-report.v1";
+pub const BULL_STEPS_DEVICE_COUNTER_V0_ID: &str = "bull.steps.device_counter.v0";
+pub const BULL_STEPS_DEVICE_COUNTER_V0_VERSION: &str = "0.1.0";
+pub const BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID: &str = "bull.activity.unavailable_status.v0";
+pub const BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Clone, Copy)]
 pub struct StepCounterIngestOptions {
@@ -223,12 +223,12 @@ struct StepSegmentSummary {
 }
 
 pub fn run_step_counter_ingest_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: StepCounterIngestOptions,
-) -> GooseResult<StepCounterIngestReport> {
+) -> BullResult<StepCounterIngestReport> {
     let discovery = run_step_packet_discovery_for_store(
         store,
         database_path,
@@ -242,12 +242,12 @@ pub fn run_step_counter_ingest_for_store(
 }
 
 pub fn persist_step_counter_discovery(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     discovery: StepPacketDiscoveryReport,
-) -> GooseResult<StepCounterIngestReport> {
+) -> BullResult<StepCounterIngestReport> {
     let mut issues = Vec::new();
     let mut counter_candidate_count = 0;
     let mut cadence_sample_count = 0;
@@ -307,12 +307,12 @@ pub fn persist_step_counter_discovery(
             sample_quality_flags.push("activity_state_unparseable".to_string());
         }
         let quality_flags_json = serde_json::to_string(&sample_quality_flags).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot serialize step sample quality flags: {error}"
             ))
         })?;
         let provenance_json = json!({
-            "algorithm": "goose.step_counter_ingest.v1",
+            "algorithm": "bull.step_counter_ingest.v1",
             "report_schema": STEP_COUNTER_INGEST_REPORT_SCHEMA,
             "discovery_schema": discovery.schema,
             "database_path": database_path,
@@ -370,7 +370,7 @@ pub fn persist_step_counter_discovery(
     let next_actions = ingest_next_actions(&issues);
     Ok(StepCounterIngestReport {
         schema: STEP_COUNTER_INGEST_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-step-counter-ingest".to_string(),
+        generated_by: "bull-step-counter-ingest".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start: start.to_string(),
@@ -391,9 +391,9 @@ pub fn persist_step_counter_discovery(
 }
 
 pub fn rollup_device_step_counter_day(
-    store: &GooseStore,
+    store: &BullStore,
     options: StepCounterDailyRollupOptions<'_>,
-) -> GooseResult<StepCounterDailyRollupReport> {
+) -> BullResult<StepCounterDailyRollupReport> {
     validate_rollup_options(&options)?;
     let samples =
         store.step_counter_samples_between(options.start_time_unix_ms, options.end_time_unix_ms)?;
@@ -450,11 +450,11 @@ pub fn rollup_device_step_counter_day(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!("cannot serialize quality flags: {error}"))
+            BullError::message(format!("cannot serialize quality flags: {error}"))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_STEPS_DEVICE_COUNTER_V0_ID,
-            "algorithm_version": GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION,
+            "algorithm": BULL_STEPS_DEVICE_COUNTER_V0_ID,
+            "algorithm_version": BULL_STEPS_DEVICE_COUNTER_V0_VERSION,
             "source_kind": "device_counter",
             "date_key": options.date_key,
             "timezone": options.timezone,
@@ -497,7 +497,7 @@ pub fn rollup_device_step_counter_day(
     let next_actions = rollup_next_actions(&issues);
     Ok(StepCounterDailyRollupReport {
         schema: STEP_COUNTER_DAILY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-step-counter-daily-rollup".to_string(),
+        generated_by: "bull-step-counter-daily-rollup".to_string(),
         pass,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -529,9 +529,9 @@ pub fn rollup_device_step_counter_day(
 }
 
 pub fn rollup_device_step_counter_hour(
-    store: &GooseStore,
+    store: &BullStore,
     options: StepCounterHourlyRollupOptions<'_>,
-) -> GooseResult<StepCounterHourlyRollupReport> {
+) -> BullResult<StepCounterHourlyRollupReport> {
     validate_hourly_rollup_options(&options)?;
     let samples =
         store.step_counter_samples_between(options.start_time_unix_ms, options.end_time_unix_ms)?;
@@ -593,11 +593,11 @@ pub fn rollup_device_step_counter_hour(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!("cannot serialize quality flags: {error}"))
+            BullError::message(format!("cannot serialize quality flags: {error}"))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_STEPS_DEVICE_COUNTER_V0_ID,
-            "algorithm_version": GOOSE_STEPS_DEVICE_COUNTER_V0_VERSION,
+            "algorithm": BULL_STEPS_DEVICE_COUNTER_V0_ID,
+            "algorithm_version": BULL_STEPS_DEVICE_COUNTER_V0_VERSION,
             "source_kind": "device_counter",
             "date_key": options.date_key,
             "timezone": options.timezone,
@@ -640,7 +640,7 @@ pub fn rollup_device_step_counter_hour(
     let next_actions = rollup_next_actions(&issues);
     Ok(StepCounterHourlyRollupReport {
         schema: STEP_COUNTER_HOURLY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-step-counter-hourly-rollup".to_string(),
+        generated_by: "bull-step-counter-hourly-rollup".to_string(),
         pass,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -672,9 +672,9 @@ pub fn rollup_device_step_counter_hour(
 }
 
 pub fn rollup_activity_unavailable_daily_status_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     options: ActivityUnavailableDailyStatusOptions<'_>,
-) -> GooseResult<ActivityUnavailableDailyStatusReport> {
+) -> BullResult<ActivityUnavailableDailyStatusReport> {
     let rollup_options = StepCounterDailyRollupOptions {
         date_key: options.date_key,
         timezone: options.timezone,
@@ -720,7 +720,7 @@ pub fn rollup_activity_unavailable_daily_status_for_store(
 
     Ok(ActivityUnavailableDailyStatusReport {
         schema: ACTIVITY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-activity-unavailable-daily-status".to_string(),
+        generated_by: "bull-activity-unavailable-daily-status".to_string(),
         pass: true,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -740,11 +740,11 @@ pub fn rollup_activity_unavailable_daily_status_for_store(
 }
 
 fn activity_steps_unavailable_status_for_rollup(
-    store: &GooseStore,
+    store: &BullStore,
     rollup: &StepCounterDailyRollupReport,
     available_step_metric_count: usize,
     options: ActivityUnavailableDailyStatusOptions<'_>,
-) -> GooseResult<ActivityUnavailableMetricStatus> {
+) -> BullResult<ActivityUnavailableMetricStatus> {
     let metric_id = activity_unavailable_metric_id("steps", options.date_key, options.timezone);
     let provenance_id = format!("prov-{metric_id}");
     let blocker_reasons = unavailable_step_blocker_reasons(rollup);
@@ -776,13 +776,13 @@ fn activity_steps_unavailable_status_for_rollup(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot serialize activity unavailable quality flags: {error}"
             ))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID,
-            "algorithm_version": GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION,
+            "algorithm": BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID,
+            "algorithm_version": BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION,
             "source_kind": "unavailable",
             "metric_id": "steps",
             "metric_name": "steps",
@@ -850,12 +850,12 @@ fn activity_steps_unavailable_status_for_rollup(
 }
 
 fn available_step_metric_count(
-    store: &GooseStore,
+    store: &BullStore,
     date_key: &str,
     timezone: &str,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
-) -> GooseResult<usize> {
+) -> BullResult<usize> {
     Ok(store
         .daily_activity_metrics_between(start_time_unix_ms, end_time_unix_ms)?
         .into_iter()
@@ -1089,48 +1089,48 @@ fn step_counter_confidence(summary: &StepSegmentSummary) -> f64 {
     (0.95 - penalty).clamp(0.50, 0.95)
 }
 
-fn validate_rollup_options(options: &StepCounterDailyRollupOptions<'_>) -> GooseResult<()> {
+fn validate_rollup_options(options: &StepCounterDailyRollupOptions<'_>) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if options.start_time_unix_ms < 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "start_time_unix_ms must be non-negative",
         ));
     }
     if options.end_time_unix_ms <= options.start_time_unix_ms {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "end_time_unix_ms must be greater than start_time_unix_ms",
         ));
     }
     if options.min_sample_count < 2 {
-        return Err(GooseError::message("min_sample_count must be at least 2"));
+        return Err(BullError::message("min_sample_count must be at least 2"));
     }
     Ok(())
 }
 
-fn validate_hourly_rollup_options(options: &StepCounterHourlyRollupOptions<'_>) -> GooseResult<()> {
+fn validate_hourly_rollup_options(options: &StepCounterHourlyRollupOptions<'_>) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if options.start_time_unix_ms < 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "start_time_unix_ms must be non-negative",
         ));
     }
     if options.end_time_unix_ms <= options.start_time_unix_ms {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "end_time_unix_ms must be greater than start_time_unix_ms",
         ));
     }
     if options.min_sample_count < 2 {
-        return Err(GooseError::message("min_sample_count must be at least 2"));
+        return Err(BullError::message("min_sample_count must be at least 2"));
     }
     Ok(())
 }

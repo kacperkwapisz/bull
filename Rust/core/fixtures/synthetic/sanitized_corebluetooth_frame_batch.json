@@ -1,25 +1,25 @@
 {
-  "schema": "goose.captured-frame-batch.v1",
+  "schema": "bull.captured-frame-batch.v1",
   "frames": [
     {
       "evidence_id": "synthetic.sanitized.corebluetooth.get_hello",
       "frame_id": "synthetic.sanitized.corebluetooth.get_hello.frame.0",
       "source": "sanitized_capture.synthetic.corebluetooth.notification",
       "captured_at": "2026-05-27T00:00:00Z",
-      "device_model": "WHOOP 5.0 Goose",
+      "device_model": "WHOOP 5.0 Bull",
       "frame_hex": "aa0108000001e67123019101363e5c8d",
       "sensitivity": "synthetic-sanitized",
-      "device_type": "GOOSE"
+      "device_type": "BULL"
     },
     {
       "evidence_id": "synthetic.sanitized.corebluetooth.k10_motion",
       "frame_id": "synthetic.sanitized.corebluetooth.k10_motion.frame.0",
       "source": "sanitized_capture.synthetic.corebluetooth.notification",
       "captured_at": "2026-05-27T00:00:10Z",
-      "device_model": "WHOOP 5.0 Goose",
+      "device_model": "WHOOP 5.0 Bull",
       "frame_hex": "aa0164000001fb212b0a010000000000000000000000000000480000000000000000000000000000 00000000000000000000000000000000000000000000000000000000000000000000000000000000 000000000000000000000000000100feff0300000000000068cc8271",
       "sensitivity": "synthetic-sanitized",
-      "device_type": "GOOSE"
+      "device_type": "BULL"
     }
   ]
 }

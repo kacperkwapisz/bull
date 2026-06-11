@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pyActigraphy Sadeh adapter for goose-reference-algo-runner."""
+"""pyActigraphy Sadeh adapter for bull-reference-algo-runner."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "goose.external-reference-output.v1"
+SCHEMA = "bull.external-reference-output.v1"
 PROVIDER = "external.pyactigraphy.sadeh"
 ALGORITHM_ID = "reference.sleep.pyactigraphy_sadeh.v1"
 ALGORITHM_VERSION = "1.0.0"
@@ -22,7 +22,7 @@ SADEH_THRESHOLD = 0.0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run pyActigraphy Sadeh sleep scoring for Goose.")
+    parser = argparse.ArgumentParser(description="Run pyActigraphy Sadeh sleep scoring for Bull.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--family", required=True)
     parser.add_argument("--provider", required=True)
@@ -137,8 +137,8 @@ def base_report(payload: dict[str, Any], provider_version: str) -> dict[str, Any
         "algorithm_id": ALGORITHM_ID,
         "algorithm_version": ALGORITHM_VERSION,
         "display_name": "pyActigraphy Sadeh Sleep/Wake",
-        "input_schema": "goose.sleep-actigraphy-counts-input.v1",
-        "output_schema": "goose.sleep-pyactigraphy-sadeh-output.v1",
+        "input_schema": "bull.sleep-actigraphy-counts-input.v1",
+        "output_schema": "bull.sleep-pyactigraphy-sadeh-output.v1",
         "start_time": payload.get("start_time", ""),
         "end_time": payload.get("end_time", ""),
         "output": None,
@@ -173,7 +173,7 @@ def base_report(payload: dict[str, Any], provider_version: str) -> dict[str, Any
         },
         "quality_gates": [
             "external_provider_exit_zero",
-            "goose_contract_schema_match",
+            "bull_contract_schema_match",
             "units_recorded",
             "non_empty_provenance",
             "at_least_11_epochs_for_sadeh_window",

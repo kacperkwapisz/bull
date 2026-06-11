@@ -1,4 +1,4 @@
-use goose_core::property_tests::{
+use bull_core::property_tests::{
     PROPERTY_TEST_REPORT_SCHEMA, PropertyFailure, PropertyGroupReport, PropertySuiteOptions,
     property_group_next_actions, property_suite_next_actions, property_suite_report_from_groups,
     run_property_suite,
@@ -14,7 +14,7 @@ fn property_suite_passes_with_deterministic_seed() {
     .unwrap();
 
     assert_eq!(report.schema, PROPERTY_TEST_REPORT_SCHEMA);
-    assert_eq!(report.generated_by, "goose-property-test-suite");
+    assert_eq!(report.generated_by, "bull-property-test-suite");
     assert_eq!(report.seed, 42);
     assert!(report.pass, "{:#?}", report.issues);
     assert!(report.input_valid);

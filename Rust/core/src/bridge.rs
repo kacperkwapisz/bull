@@ -12,16 +12,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     activity_sessions::{
         ActivitySessionCorrectionKind, activity_session_correction_plans,
         append_activity_session_correction_history,
     },
     algorithm_compare::{
-        compare_hrv_goose_to_reference, compare_sleep_goose_to_external_reference_report,
-        compare_sleep_goose_to_reference, compare_sleep_v1_goose_to_external_reference_report,
-        compare_sleep_v1_goose_to_reference, compare_strain_goose_to_reference,
-        compare_stress_goose_to_reference,
+        compare_hrv_bull_to_reference, compare_sleep_bull_to_external_reference_report,
+        compare_sleep_bull_to_reference, compare_sleep_v1_bull_to_external_reference_report,
+        compare_sleep_v1_bull_to_reference, compare_strain_bull_to_reference,
+        compare_stress_bull_to_reference,
     },
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, CalibrationRecord,
@@ -92,15 +92,15 @@ use crate::{
         run_metric_input_readiness,
     },
     metrics::{
-        AlgorithmRunResult, GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, GOOSE_RECOVERY_V0_ID,
-        GOOSE_RECOVERY_V0_VERSION, GOOSE_SLEEP_V0_ID, GOOSE_SLEEP_V0_VERSION, GOOSE_SLEEP_V1_ID,
-        GOOSE_SLEEP_V1_VERSION, GOOSE_STRAIN_V0_ID, GOOSE_STRAIN_V0_VERSION, GOOSE_STRESS_V0_ID,
-        GOOSE_STRESS_V0_VERSION, HrvInput, RecoveryInput, SleepInput, SleepModelStatusInput,
+        AlgorithmRunResult, BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, BULL_RECOVERY_V0_ID,
+        BULL_RECOVERY_V0_VERSION, BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION, BULL_SLEEP_V1_ID,
+        BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION, BULL_STRESS_V0_ID,
+        BULL_STRESS_V0_VERSION, HrvInput, RecoveryInput, SleepInput, SleepModelStatusInput,
         SleepNightHistoryInput, SleepStageSegment, SleepV1Input, StrainInput, StressInput,
         algorithm_run_record, built_in_algorithm_definitions,
         built_in_default_algorithm_preferences, default_algorithm_preferences_for_scope,
-        goose_hrv_v0, goose_recovery_v0, goose_sleep_v0, goose_sleep_v1, goose_strain_v0,
-        goose_stress_v0, sleep_history_night_is_usable,
+        bull_hrv_v0, bull_recovery_v0, bull_sleep_v0, bull_sleep_v1, bull_strain_v0,
+        bull_stress_v0, sleep_history_night_is_usable,
     },
     openwhoop_reference::{
         OPENWHOOP_REFERENCE_ATTRIBUTION, OPENWHOOP_REFERENCE_COMMIT,
@@ -149,7 +149,7 @@ use crate::{
         ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION,
         CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
         CommandValidationRecord, DecodedFrameRow, ExternalSleepSessionInput,
-        ExternalSleepSessionRow, ExternalSleepStageInput, ExternalSleepStageRow, GooseStore,
+        ExternalSleepSessionRow, ExternalSleepStageInput, ExternalSleepStageRow, BullStore,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
         OvernightSyncSessionInput, SleepCorrectionLabelInput,
     },
@@ -160,9 +160,9 @@ use crate::{
     ui_coverage::{UiCoverageAuditInput, run_ui_coverage_audit},
 };
 
-pub const BRIDGE_REQUEST_SCHEMA: &str = "goose.bridge.request.v1";
-pub const BRIDGE_RESPONSE_SCHEMA: &str = "goose.bridge.response.v1";
-pub const CAPTURE_ARRIVAL_PLAN_REPORT_SCHEMA: &str = "goose.capture-arrival-plan-report.v1";
+pub const BRIDGE_REQUEST_SCHEMA: &str = "bull.bridge.request.v1";
+pub const BRIDGE_RESPONSE_SCHEMA: &str = "bull.bridge.response.v1";
+pub const CAPTURE_ARRIVAL_PLAN_REPORT_SCHEMA: &str = "bull.capture-arrival-plan-report.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeRequest {
@@ -679,7 +679,7 @@ struct ReferenceCompareArgs {
     #[serde(default)]
     reference_report: Option<serde_json::Value>,
     #[serde(default)]
-    goose_algorithm_id: Option<String>,
+    bull_algorithm_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1835,7 +1835,7 @@ struct DebugSessionSnapshotArgs {
 pub fn core_version_payload() -> serde_json::Value {
     json!({
         "core_version": option_env!("CARGO_PKG_VERSION").unwrap_or("unknown"),
-        "crate_name": option_env!("CARGO_PKG_NAME").unwrap_or("goose-core"),
+        "crate_name": option_env!("CARGO_PKG_NAME").unwrap_or("bull-core"),
         "bridge_request_schema": BRIDGE_REQUEST_SCHEMA,
         "bridge_response_schema": BRIDGE_RESPONSE_SCHEMA,
         "storage_schema_version": CURRENT_SCHEMA_VERSION,
@@ -1881,7 +1881,7 @@ pub fn openwhoop_reference_report_payload() -> serde_json::Value {
                 "field": reference.field.as_str(),
                 "gen4": reference.gen4,
                 "gen5": reference.gen5,
-                "goose_summary_kinds": reference.goose_summary_kinds,
+                "bull_summary_kinds": reference.bull_summary_kinds,
                 "status": reference.status.as_str(),
                 "note": reference.note,
             })
@@ -1889,8 +1889,8 @@ pub fn openwhoop_reference_report_payload() -> serde_json::Value {
         .collect::<Vec<_>>();
 
     json!({
-        "schema": "goose.openwhoop-reference-report.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.openwhoop-reference-report.v1",
+        "generated_by": "bull-bridge",
         "snapshot": {
             "repository": OPENWHOOP_REFERENCE_REPOSITORY,
             "commit": OPENWHOOP_REFERENCE_COMMIT,
@@ -1955,11 +1955,11 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             bridge_ok(&request.request_id, openwhoop_reference_report_payload())
         }
         "metrics.built_in_definitions" => serde_json::to_value(built_in_algorithm_definitions())
-            .map_err(|error| GooseError::message(error.to_string()))
+            .map_err(|error| BullError::message(error.to_string()))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.reference_definitions" => serde_json::to_value(reference_algorithm_definitions())
-            .map_err(|error| GooseError::message(error.to_string()))
+            .map_err(|error| BullError::message(error.to_string()))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.reference_compare" => request_args::<ReferenceCompareArgs>(&request)
@@ -1968,32 +1968,32 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.default_preferences" => {
             serde_json::to_value(built_in_default_algorithm_preferences())
-                .map_err(|error| GooseError::message(error.to_string()))
+                .map_err(|error| BullError::message(error.to_string()))
                 .map(|value| bridge_ok(&request.request_id, value))
                 .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error))
         }
-        "metrics.goose_hrv_v0" => request_args::<HrvInput>(&request)
-            .and_then(|input| metric_result_to_value(goose_hrv_v0(&input)))
+        "metrics.bull_hrv_v0" => request_args::<HrvInput>(&request)
+            .and_then(|input| metric_result_to_value(bull_hrv_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
-        "metrics.goose_sleep_v0" => request_args::<SleepInput>(&request)
-            .and_then(|input| metric_result_to_value(goose_sleep_v0(&input)))
+        "metrics.bull_sleep_v0" => request_args::<SleepInput>(&request)
+            .and_then(|input| metric_result_to_value(bull_sleep_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
-        "metrics.goose_sleep_v1" => request_args::<SleepV1Input>(&request)
-            .and_then(|input| metric_result_to_value(goose_sleep_v1(&input)))
+        "metrics.bull_sleep_v1" => request_args::<SleepV1Input>(&request)
+            .and_then(|input| metric_result_to_value(bull_sleep_v1(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
-        "metrics.goose_strain_v0" => request_args::<StrainInput>(&request)
-            .and_then(|input| metric_result_to_value(goose_strain_v0(&input)))
+        "metrics.bull_strain_v0" => request_args::<StrainInput>(&request)
+            .and_then(|input| metric_result_to_value(bull_strain_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
-        "metrics.goose_recovery_v0" => request_args::<RecoveryInput>(&request)
-            .and_then(|input| metric_result_to_value(goose_recovery_v0(&input)))
+        "metrics.bull_recovery_v0" => request_args::<RecoveryInput>(&request)
+            .and_then(|input| metric_result_to_value(bull_recovery_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
-        "metrics.goose_stress_v0" => request_args::<StressInput>(&request)
-            .and_then(|input| metric_result_to_value(goose_stress_v0(&input)))
+        "metrics.bull_stress_v0" => request_args::<StressInput>(&request)
+            .and_then(|input| metric_result_to_value(bull_stress_v0(&input)))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.input_readiness" => request_args::<MetricInputReadinessArgs>(&request)
@@ -2385,11 +2385,11 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "commands.evidence_template" => serde_json::to_value(command_evidence_template())
-            .map_err(|error| GooseError::message(error.to_string()))
+            .map_err(|error| BullError::message(error.to_string()))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "commands.definitions" => serde_json::to_value(COMMAND_DEFINITIONS)
-            .map_err(|error| GooseError::message(error.to_string()))
+            .map_err(|error| BullError::message(error.to_string()))
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "commands.validate_evidence" => request_args::<CommandValidateEvidenceArgs>(&request)
@@ -2497,12 +2497,12 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn goose_core_version_json() -> *mut c_char {
+pub extern "C" fn bull_core_version_json() -> *mut c_char {
     json_to_c_string(core_version_payload())
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn goose_bridge_handle_json(request_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn bull_bridge_handle_json(request_json: *const c_char) -> *mut c_char {
     if request_json.is_null() {
         return response_to_c_string(&bridge_error(
             "unknown",
@@ -2526,7 +2526,7 @@ pub unsafe extern "C" fn goose_bridge_handle_json(request_json: *const c_char) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn goose_bridge_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn bull_bridge_free_string(value: *mut c_char) {
     if value.is_null() {
         return;
     }
@@ -2534,14 +2534,14 @@ pub unsafe extern "C" fn goose_bridge_free_string(value: *mut c_char) {
     drop(unsafe { CString::from_raw(value) });
 }
 
-fn parse_frame_hex_bridge(args: ParseFrameArgs) -> GooseResult<serde_json::Value> {
+fn parse_frame_hex_bridge(args: ParseFrameArgs) -> BullResult<serde_json::Value> {
     let device_type = parse_device_type(&args.device_type)?;
     let parsed = parse_frame_hex(device_type, &args.frame_hex)?;
     serde_json::to_value(parsed)
-        .map_err(|error| GooseError::message(format!("cannot serialize parsed frame: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize parsed frame: {error}")))
 }
 
-fn parse_frame_hex_batch_bridge(args: ParseFrameBatchArgs) -> GooseResult<serde_json::Value> {
+fn parse_frame_hex_batch_bridge(args: ParseFrameBatchArgs) -> BullResult<serde_json::Value> {
     let device_type = parse_device_type(&args.device_type)?;
     let mut results = Vec::with_capacity(args.frames.len());
     for (index, frame_hex) in args.frames.iter().enumerate() {
@@ -2748,27 +2748,27 @@ fn axis_range_and_abs(axis: &I16SeriesSummary) -> Option<(f64, f64)> {
     Some((range.max(0.0), peak_abs))
 }
 
-fn timeline_from_decoded_frames_bridge(args: TimelineArgs) -> GooseResult<serde_json::Value> {
+fn timeline_from_decoded_frames_bridge(args: TimelineArgs) -> BullResult<serde_json::Value> {
     let rows = packet_timeline_from_decoded_frames(&args.decoded_frames)?;
     serde_json::to_value(rows)
-        .map_err(|error| GooseError::message(format!("cannot serialize timeline rows: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize timeline rows: {error}")))
 }
 
-fn storage_check_bridge(args: StorageCheckArgs) -> GooseResult<serde_json::Value> {
+fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {
     if args.database_path.trim().is_empty() {
-        return Err(GooseError::message("database_path is required"));
+        return Err(BullError::message("database_path is required"));
     }
     let report = check_storage_database(StorageCheckOptions {
         database_path: Path::new(&args.database_path),
         run_self_test: args.self_test,
     })?;
     serde_json::to_value(report)
-        .map_err(|error| GooseError::message(format!("cannot serialize storage report: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize storage report: {error}")))
 }
 
 fn apply_default_preferences_bridge(
     args: ApplyDefaultPreferencesArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     register_built_in_definitions(&store)?;
     let preferences = default_algorithm_preferences_for_scope(&args.scope);
@@ -2776,10 +2776,10 @@ fn apply_default_preferences_bridge(
         store.set_algorithm_preference(preference)?;
     }
     serde_json::to_value(preferences)
-        .map_err(|error| GooseError::message(format!("cannot serialize preferences: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize preferences: {error}")))
 }
 
-fn set_algorithm_preference_bridge(args: SetPreferenceArgs) -> GooseResult<serde_json::Value> {
+fn set_algorithm_preference_bridge(args: SetPreferenceArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     if args.register_built_ins {
         register_built_in_definitions(&store)?;
@@ -2792,26 +2792,26 @@ fn set_algorithm_preference_bridge(args: SetPreferenceArgs) -> GooseResult<serde
     };
     store.set_algorithm_preference(&preference)?;
     serde_json::to_value(preference)
-        .map_err(|error| GooseError::message(format!("cannot serialize preference: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize preference: {error}")))
 }
 
-fn get_algorithm_preference_bridge(args: GetPreferenceArgs) -> GooseResult<serde_json::Value> {
+fn get_algorithm_preference_bridge(args: GetPreferenceArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let preference = store.algorithm_preference(&args.scope, &args.metric_family)?;
     serde_json::to_value(preference)
-        .map_err(|error| GooseError::message(format!("cannot serialize preference: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize preference: {error}")))
 }
 
-fn list_algorithm_preferences_bridge(args: ListPreferencesArgs) -> GooseResult<serde_json::Value> {
+fn list_algorithm_preferences_bridge(args: ListPreferencesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let preferences = store.algorithm_preferences(args.scope.as_deref())?;
     serde_json::to_value(preferences)
-        .map_err(|error| GooseError::message(format!("cannot serialize preferences: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize preferences: {error}")))
 }
 
 fn evaluate_calibration_dataset_bridge(
     args: EvaluateCalibrationDatasetArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = evaluate_linear_calibration(&args.dataset, &args.options);
     let calibration_run_id = args.calibration_run_id.clone();
     let persisted = maybe_persist_calibration_report(
@@ -2822,7 +2822,7 @@ fn evaluate_calibration_dataset_bridge(
     )?;
 
     let mut value = serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize calibration report: {error}"))
+        BullError::message(format!("cannot serialize calibration report: {error}"))
     })?;
     if let Some(object) = value.as_object_mut() {
         object.insert("persisted".to_string(), json!(persisted));
@@ -2833,15 +2833,15 @@ fn evaluate_calibration_dataset_bridge(
 
 fn evaluate_stored_calibration_labels_bridge(
     args: EvaluateStoredCalibrationLabelsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if args.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if args.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if args.start >= args.end {
-        return Err(GooseError::message("start must be earlier than end"));
+        return Err(BullError::message("start must be earlier than end"));
     }
 
     let store = open_bridge_store(&args.database_path)?;
@@ -2859,7 +2859,7 @@ fn evaluate_stored_calibration_labels_bridge(
     )?;
 
     let mut value = serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize stored calibration report: {error}"
         ))
     })?;
@@ -2868,7 +2868,7 @@ fn evaluate_stored_calibration_labels_bridge(
         object.insert("calibration_run_id".to_string(), json!(calibration_run_id));
         object.insert(
             "dataset_schema".to_string(),
-            json!("goose.calibration-dataset.v1"),
+            json!("bull.calibration-dataset.v1"),
         );
         object.insert(
             "dataset_record_count".to_string(),
@@ -2892,9 +2892,9 @@ fn evaluate_stored_calibration_labels_bridge(
 
 fn import_calibration_labels_bridge(
     args: ImportCalibrationLabelsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if args.labels.is_empty() {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "at least one calibration label is required",
         ));
     }
@@ -2904,7 +2904,7 @@ fn import_calibration_labels_bridge(
     let mut labels = Vec::new();
     for label in args.labels {
         let provenance_json = serde_json::to_string(&label.provenance).map_err(|error| {
-            GooseError::message(format!("cannot serialize label provenance: {error}"))
+            BullError::message(format!("cannot serialize label provenance: {error}"))
         })?;
         let changed = store.insert_calibration_label(CalibrationLabelInput {
             label_id: &label.label_id,
@@ -2925,8 +2925,8 @@ fn import_calibration_labels_bridge(
         }
     }
     Ok(json!({
-        "schema": "goose.calibration-label-import-report.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.calibration-label-import-report.v1",
+        "generated_by": "bull-bridge",
         "pass": true,
         "label_count": inserted + existing,
         "inserted": inserted,
@@ -2939,21 +2939,21 @@ fn import_calibration_labels_bridge(
 
 fn list_calibration_labels_bridge(
     args: ListCalibrationLabelsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if args.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if args.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if args.start >= args.end {
-        return Err(GooseError::message("start must be earlier than end"));
+        return Err(BullError::message("start must be earlier than end"));
     }
     let store = open_bridge_store(&args.database_path)?;
     let labels = store.calibration_labels_between(&args.start, &args.end)?;
     Ok(json!({
-        "schema": "goose.calibration-label-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.calibration-label-list.v1",
+        "generated_by": "bull-bridge",
         "start": args.start,
         "end": args.end,
         "label_count": labels.len(),
@@ -2962,17 +2962,17 @@ fn list_calibration_labels_bridge(
     }))
 }
 
-fn apply_calibration_bridge(args: ApplyCalibrationArgs) -> GooseResult<serde_json::Value> {
+fn apply_calibration_bridge(args: ApplyCalibrationArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let calibration_run = match args.calibration_run_id.as_deref() {
         Some(calibration_run_id) if !calibration_run_id.trim().is_empty() => {
             store.calibration_run(calibration_run_id)?.ok_or_else(|| {
-                GooseError::message(format!("calibration run {calibration_run_id} not found"))
+                BullError::message(format!("calibration run {calibration_run_id} not found"))
             })?
         }
         _ => latest_matching_calibration_run(&store, &args.algorithm_id, &args.algorithm_version)?
             .ok_or_else(|| {
-                GooseError::message(format!(
+                BullError::message(format!(
                     "no calibration run found for {}@{}",
                     args.algorithm_id, args.algorithm_version
                 ))
@@ -2989,7 +2989,7 @@ fn apply_calibration_bridge(args: ApplyCalibrationArgs) -> GooseResult<serde_jso
         calibration_run,
     });
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize calibration application: {error}"))
+        BullError::message(format!("cannot serialize calibration application: {error}"))
     })
 }
 
@@ -2998,21 +2998,21 @@ fn maybe_persist_calibration_report(
     database_path: Option<&str>,
     persist_requested: bool,
     calibration_run_id: Option<&str>,
-) -> GooseResult<bool> {
+) -> BullResult<bool> {
     if !persist_requested {
         return Ok(false);
     }
     if !report.pass {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "calibration report did not pass; refusing to persist",
         ));
     }
     let database_path = database_path
-        .ok_or_else(|| GooseError::message("database_path is required when persist is true"))?;
+        .ok_or_else(|| BullError::message("database_path is required when persist is true"))?;
     let calibration_run_id = calibration_run_id
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            GooseError::message("calibration_run_id is required when persist is true")
+            BullError::message("calibration_run_id is required when persist is true")
         })?;
     let store = open_bridge_store(database_path)?;
     register_built_in_definitions(&store)?;
@@ -3092,7 +3092,7 @@ fn stored_calibration_dataset(
 
     (
         CalibrationDataset {
-            schema: "goose.calibration-dataset.v1".to_string(),
+            schema: "bull.calibration-dataset.v1".to_string(),
             records,
         },
         matched_records,
@@ -3181,9 +3181,9 @@ fn calibration_label_provenance(
     provenance
 }
 
-fn raw_export_bridge(args: RawExportArgs) -> GooseResult<serde_json::Value> {
+fn raw_export_bridge(args: RawExportArgs) -> BullResult<serde_json::Value> {
     if args.output_dir.trim().is_empty() {
-        return Err(GooseError::message("output_dir is required"));
+        return Err(BullError::message("output_dir is required"));
     }
     let store = open_bridge_store(&args.database_path)?;
     let database_path = Path::new(&args.database_path);
@@ -3215,16 +3215,16 @@ fn raw_export_bridge(args: RawExportArgs) -> GooseResult<serde_json::Value> {
         },
     )?;
     serde_json::to_value(report)
-        .map_err(|error| GooseError::message(format!("cannot serialize export report: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize export report: {error}")))
 }
 
-fn export_validate_bundle_bridge(args: ExportValidateBundleArgs) -> GooseResult<serde_json::Value> {
+fn export_validate_bundle_bridge(args: ExportValidateBundleArgs) -> BullResult<serde_json::Value> {
     if args.path.trim().is_empty() {
-        return Err(GooseError::message("path is required"));
+        return Err(BullError::message("path is required"));
     }
     let report = validate_export_bundle(Path::new(&args.path))?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize export validation report: {error}"
         ))
     })
@@ -3232,9 +3232,9 @@ fn export_validate_bundle_bridge(args: ExportValidateBundleArgs) -> GooseResult<
 
 fn local_health_validation_manifest_scaffold_bridge(
     args: LocalHealthValidationManifestScaffoldArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if args.database_path.trim().is_empty() {
-        return Err(GooseError::message("database_path is required"));
+        return Err(BullError::message("database_path is required"));
     }
     scaffold_local_health_validation_manifest(&LocalHealthValidationManifestScaffoldOptions {
         database_path: PathBuf::from(&args.database_path),
@@ -3263,9 +3263,9 @@ fn local_health_validation_manifest_scaffold_bridge(
 
 fn local_health_validation_manifest_runbook_bridge(
     args: LocalHealthValidationManifestRunbookArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if !args.manifest.is_object() {
-        return Err(GooseError::message("manifest object is required"));
+        return Err(BullError::message("manifest object is required"));
     }
     let markdown = local_health_validation_manifest_runbook_markdown(&args.manifest);
     let manifest_schema = args
@@ -3274,7 +3274,7 @@ fn local_health_validation_manifest_runbook_bridge(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
     Ok(serde_json::json!({
-        "schema": "goose.local-health-validation-runbook.v1",
+        "schema": "bull.local-health-validation-runbook.v1",
         "manifest_schema": manifest_schema,
         "markdown_report_path": args
             .manifest
@@ -3294,29 +3294,29 @@ fn local_health_validation_manifest_runbook_bridge(
 
 fn local_health_validation_manifest_review_bridge(
     args: LocalHealthValidationManifestReviewArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if !args.manifest.is_object() {
-        return Err(GooseError::message("manifest object is required"));
+        return Err(BullError::message("manifest object is required"));
     }
     Ok(review_local_health_validation_manifest(&args.manifest))
 }
 
-fn privacy_lint_bridge(args: PrivacyLintArgs) -> GooseResult<serde_json::Value> {
+fn privacy_lint_bridge(args: PrivacyLintArgs) -> BullResult<serde_json::Value> {
     if args.path.trim().is_empty() {
-        return Err(GooseError::message("path is required"));
+        return Err(BullError::message("path is required"));
     }
     let report = lint_privacy_path(Path::new(&args.path))?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize privacy lint report: {error}"))
+        BullError::message(format!("cannot serialize privacy lint report: {error}"))
     })
 }
 
 fn activity_health_sync_dry_run_bridge(
     args: ActivityHealthSyncDryRunInput,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = run_activity_health_sync_dry_run(&args);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize activity health sync dry-run report: {error}"
         ))
     })
@@ -3324,10 +3324,10 @@ fn activity_health_sync_dry_run_bridge(
 
 fn historical_sync_dry_run_bridge(
     args: HistoricalSyncDryRunInput,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = run_historical_sync_dry_run(&args);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize historical sync dry-run report: {error}"
         ))
     })
@@ -3335,11 +3335,11 @@ fn historical_sync_dry_run_bridge(
 
 fn historical_sync_physical_evidence_template_bridge(
     args: HistoricalSyncPhysicalEvidenceTemplateArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report =
         historical_sync_physical_evidence_template(args.generation, args.capture_session_id);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize historical sync physical evidence template: {error}"
         ))
     })
@@ -3347,21 +3347,21 @@ fn historical_sync_physical_evidence_template_bridge(
 
 fn historical_sync_physical_validation_bridge(
     args: HistoricalSyncPhysicalValidationInput,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = validate_historical_sync_physical_evidence(&args);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize historical sync physical validation report: {error}"
         ))
     })
 }
 
-fn capture_sanitize_bridge(args: CaptureSanitizeArgs) -> GooseResult<serde_json::Value> {
+fn capture_sanitize_bridge(args: CaptureSanitizeArgs) -> BullResult<serde_json::Value> {
     if args.input_path.trim().is_empty() {
-        return Err(GooseError::message("input_path is required"));
+        return Err(BullError::message("input_path is required"));
     }
     if args.output_path.trim().is_empty() {
-        return Err(GooseError::message("output_path is required"));
+        return Err(BullError::message("output_path is required"));
     }
     let report = sanitize_capture_path(CaptureSanitizeOptions {
         input_path: Path::new(&args.input_path),
@@ -3369,61 +3369,61 @@ fn capture_sanitize_bridge(args: CaptureSanitizeArgs) -> GooseResult<serde_json:
         salt: &args.salt,
     })?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize capture sanitize report: {error}"))
+        BullError::message(format!("cannot serialize capture sanitize report: {error}"))
     })
 }
 
-fn ui_coverage_audit_bridge(args: UiCoverageAuditArgs) -> GooseResult<serde_json::Value> {
+fn ui_coverage_audit_bridge(args: UiCoverageAuditArgs) -> BullResult<serde_json::Value> {
     let input_path = args
         .coverage_map_path
         .filter(|path| !path.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default_ui_coverage_map_path);
     let input_raw =
-        fs::read_to_string(&input_path).map_err(|source| GooseError::io(&input_path, source))?;
+        fs::read_to_string(&input_path).map_err(|source| BullError::io(&input_path, source))?;
     let input: UiCoverageAuditInput =
-        serde_json::from_str(&input_raw).map_err(|source| GooseError::json(&input_path, source))?;
+        serde_json::from_str(&input_raw).map_err(|source| BullError::json(&input_path, source))?;
     let base_dir = input_path.parent().unwrap_or_else(|| Path::new("."));
     let report = run_ui_coverage_audit(&input, base_dir)?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize UI coverage audit report: {error}"
         ))
     })
 }
 
-fn perf_budget_bridge(args: PerfBudgetArgs) -> GooseResult<serde_json::Value> {
+fn perf_budget_bridge(args: PerfBudgetArgs) -> BullResult<serde_json::Value> {
     let report = run_perf_budget(PerfBudgetOptions {
         scale: args.scale,
         budgets: PerfBudgets::default(),
     })?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize perf budget report: {error}"))
+        BullError::message(format!("cannot serialize perf budget report: {error}"))
     })
 }
 
-fn property_suite_bridge(args: PropertySuiteArgs) -> GooseResult<serde_json::Value> {
+fn property_suite_bridge(args: PropertySuiteArgs) -> BullResult<serde_json::Value> {
     let report = run_property_suite(PropertySuiteOptions {
         seed: args.seed,
         cases_per_group: args.cases_per_group,
     })?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize property suite report: {error}"))
+        BullError::message(format!("cannot serialize property suite report: {error}"))
     })
 }
 
-fn reference_compare_bridge(args: ReferenceCompareArgs) -> GooseResult<serde_json::Value> {
+fn reference_compare_bridge(args: ReferenceCompareArgs) -> BullResult<serde_json::Value> {
     let report = match args.family.as_str() {
         "hrv" => {
             let input: HrvInput = serde_json::from_value(args.input)
-                .map_err(|error| GooseError::message(format!("invalid HRV input: {error}")))?;
-            compare_hrv_goose_to_reference(&input)?
+                .map_err(|error| BullError::message(format!("invalid HRV input: {error}")))?;
+            compare_hrv_bull_to_reference(&input)?
         }
         "sleep" => {
             let use_sleep_v1 = args
-                .goose_algorithm_id
+                .bull_algorithm_id
                 .as_deref()
-                .is_some_and(|id| id == crate::metrics::GOOSE_SLEEP_V1_ID)
+                .is_some_and(|id| id == crate::metrics::BULL_SLEEP_V1_ID)
                 || args
                     .input
                     .get("sleep")
@@ -3432,41 +3432,41 @@ fn reference_compare_bridge(args: ReferenceCompareArgs) -> GooseResult<serde_jso
                 let input: SleepV1Input = serde_json::from_value(normalize_sleep_v1_input_value(
                     args.input,
                 ))
-                .map_err(|error| GooseError::message(format!("invalid sleep v1 input: {error}")))?;
+                .map_err(|error| BullError::message(format!("invalid sleep v1 input: {error}")))?;
                 if let Some(reference_report) = args.reference_report {
-                    compare_sleep_v1_goose_to_external_reference_report(&input, &reference_report)?
+                    compare_sleep_v1_bull_to_external_reference_report(&input, &reference_report)?
                 } else {
-                    compare_sleep_v1_goose_to_reference(&input)?
+                    compare_sleep_v1_bull_to_reference(&input)?
                 }
             } else {
                 let input: SleepInput = serde_json::from_value(args.input).map_err(|error| {
-                    GooseError::message(format!("invalid sleep input: {error}"))
+                    BullError::message(format!("invalid sleep input: {error}"))
                 })?;
                 if let Some(reference_report) = args.reference_report {
-                    compare_sleep_goose_to_external_reference_report(&input, &reference_report)?
+                    compare_sleep_bull_to_external_reference_report(&input, &reference_report)?
                 } else {
-                    compare_sleep_goose_to_reference(&input)?
+                    compare_sleep_bull_to_reference(&input)?
                 }
             }
         }
         "strain" => {
             let input: StrainInput = serde_json::from_value(args.input)
-                .map_err(|error| GooseError::message(format!("invalid strain input: {error}")))?;
-            compare_strain_goose_to_reference(&input)?
+                .map_err(|error| BullError::message(format!("invalid strain input: {error}")))?;
+            compare_strain_bull_to_reference(&input)?
         }
         "stress" => {
             let input: StressInput = serde_json::from_value(args.input)
-                .map_err(|error| GooseError::message(format!("invalid stress input: {error}")))?;
-            compare_stress_goose_to_reference(&input)?
+                .map_err(|error| BullError::message(format!("invalid stress input: {error}")))?;
+            compare_stress_bull_to_reference(&input)?
         }
         other => {
-            return Err(GooseError::message(format!(
+            return Err(BullError::message(format!(
                 "unsupported reference comparison family {other}; use hrv|sleep|strain|stress"
             )));
         }
     };
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize reference comparison report: {error}"
         ))
     })
@@ -3486,7 +3486,7 @@ fn normalize_sleep_v1_input_value(input: serde_json::Value) -> serde_json::Value
     serde_json::Value::Object(merged)
 }
 
-fn metric_input_readiness_bridge(args: MetricInputReadinessArgs) -> GooseResult<serde_json::Value> {
+fn metric_input_readiness_bridge(args: MetricInputReadinessArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let correlation = run_capture_correlation_for_store(
         &store,
@@ -3507,13 +3507,13 @@ fn metric_input_readiness_bridge(args: MetricInputReadinessArgs) -> GooseResult<
         },
     );
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize metric input readiness report: {error}"
         ))
     })
 }
 
-fn motion_features_bridge(args: MotionFeaturesArgs) -> GooseResult<serde_json::Value> {
+fn motion_features_bridge(args: MotionFeaturesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_motion_feature_report_for_store(
         &store,
@@ -3528,11 +3528,11 @@ fn motion_features_bridge(args: MotionFeaturesArgs) -> GooseResult<serde_json::V
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize motion feature report: {error}"))
+        BullError::message(format!("cannot serialize motion feature report: {error}"))
     })
 }
 
-fn heart_rate_features_bridge(args: HeartRateFeaturesArgs) -> GooseResult<serde_json::Value> {
+fn heart_rate_features_bridge(args: HeartRateFeaturesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_heart_rate_feature_report_for_store(
         &store,
@@ -3547,13 +3547,13 @@ fn heart_rate_features_bridge(args: HeartRateFeaturesArgs) -> GooseResult<serde_
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize heart-rate feature report: {error}"
         ))
     })
 }
 
-fn vital_event_features_bridge(args: VitalEventFeaturesArgs) -> GooseResult<serde_json::Value> {
+fn vital_event_features_bridge(args: VitalEventFeaturesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_vital_event_feature_report_for_store(
         &store,
@@ -3568,13 +3568,13 @@ fn vital_event_features_bridge(args: VitalEventFeaturesArgs) -> GooseResult<serd
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize vital event feature report: {error}"
         ))
     })
 }
 
-fn step_packet_discovery_bridge(args: StepPacketDiscoveryArgs) -> GooseResult<serde_json::Value> {
+fn step_packet_discovery_bridge(args: StepPacketDiscoveryArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_step_packet_discovery_for_store(
         &store,
@@ -3586,7 +3586,7 @@ fn step_packet_discovery_bridge(args: StepPacketDiscoveryArgs) -> GooseResult<se
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize step packet discovery report: {error}"
         ))
     })
@@ -3594,7 +3594,7 @@ fn step_packet_discovery_bridge(args: StepPacketDiscoveryArgs) -> GooseResult<se
 
 fn step_capture_validation_bridge(
     args: StepCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_step_capture_validation_for_store(
         &store,
@@ -3611,7 +3611,7 @@ fn step_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize step capture validation report: {error}"
         ))
     })
@@ -3619,7 +3619,7 @@ fn step_capture_validation_bridge(
 
 fn raw_motion_step_estimate_bridge(
     args: RawMotionStepEstimateArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_raw_motion_step_estimate_for_store(
         &store,
@@ -3644,13 +3644,13 @@ fn raw_motion_step_estimate_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize raw-motion step estimate report: {error}"
         ))
     })
 }
 
-fn step_counter_ingest_bridge(args: StepCounterIngestArgs) -> GooseResult<serde_json::Value> {
+fn step_counter_ingest_bridge(args: StepCounterIngestArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_step_counter_ingest_for_store(
         &store,
@@ -3662,7 +3662,7 @@ fn step_counter_ingest_bridge(args: StepCounterIngestArgs) -> GooseResult<serde_
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize step counter ingest report: {error}"
         ))
     })
@@ -3670,7 +3670,7 @@ fn step_counter_ingest_bridge(args: StepCounterIngestArgs) -> GooseResult<serde_
 
 fn step_counter_daily_rollup_bridge(
     args: StepCounterDailyRollupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_device_step_counter_day(
         &store,
@@ -3684,7 +3684,7 @@ fn step_counter_daily_rollup_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize step counter daily rollup report: {error}"
         ))
     })
@@ -3692,7 +3692,7 @@ fn step_counter_daily_rollup_bridge(
 
 fn step_counter_hourly_rollup_bridge(
     args: StepCounterHourlyRollupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_device_step_counter_hour(
         &store,
@@ -3706,7 +3706,7 @@ fn step_counter_hourly_rollup_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize step counter hourly rollup report: {error}"
         ))
     })
@@ -3714,7 +3714,7 @@ fn step_counter_hourly_rollup_bridge(
 
 fn activity_unavailable_daily_status_bridge(
     args: ActivityUnavailableDailyStatusArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_activity_unavailable_daily_status_for_store(
         &store,
@@ -3728,7 +3728,7 @@ fn activity_unavailable_daily_status_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize activity unavailable daily status report: {error}"
         ))
     })
@@ -3736,13 +3736,13 @@ fn activity_unavailable_daily_status_bridge(
 
 fn daily_activity_metrics_bridge(
     args: DailyActivityMetricListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metrics =
         store.daily_activity_metrics_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
     Ok(json!({
-        "schema": "goose.daily-activity-metric-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.daily-activity-metric-list.v1",
+        "generated_by": "bull-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
         "metric_count": metrics.len(),
@@ -3752,13 +3752,13 @@ fn daily_activity_metrics_bridge(
 
 fn hourly_activity_metrics_bridge(
     args: HourlyActivityMetricListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metrics =
         store.hourly_activity_metrics_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
     Ok(json!({
-        "schema": "goose.hourly-activity-metric-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.hourly-activity-metric-list.v1",
+        "generated_by": "bull-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
         "metric_count": metrics.len(),
@@ -3768,13 +3768,13 @@ fn hourly_activity_metrics_bridge(
 
 fn daily_recovery_metrics_bridge(
     args: DailyRecoveryMetricListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metrics =
         store.daily_recovery_metrics_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
     Ok(json!({
-        "schema": "goose.daily-recovery-metric-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.daily-recovery-metric-list.v1",
+        "generated_by": "bull-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
         "metric_count": metrics.len(),
@@ -3782,7 +3782,7 @@ fn daily_recovery_metrics_bridge(
     }))
 }
 
-fn energy_daily_rollup_bridge(args: EnergyDailyRollupArgs) -> GooseResult<serde_json::Value> {
+fn energy_daily_rollup_bridge(args: EnergyDailyRollupArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_energy_day_for_store(
         &store,
@@ -3806,7 +3806,7 @@ fn energy_daily_rollup_bridge(args: EnergyDailyRollupArgs) -> GooseResult<serde_
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize energy daily rollup report: {error}"
         ))
     })
@@ -3814,7 +3814,7 @@ fn energy_daily_rollup_bridge(args: EnergyDailyRollupArgs) -> GooseResult<serde_
 
 fn energy_unavailable_daily_status_bridge(
     args: EnergyDailyRollupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_energy_unavailable_daily_status_for_store(
         &store,
@@ -3838,13 +3838,13 @@ fn energy_unavailable_daily_status_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize energy unavailable daily status report: {error}"
         ))
     })
 }
 
-fn energy_hourly_rollup_bridge(args: EnergyHourlyRollupArgs) -> GooseResult<serde_json::Value> {
+fn energy_hourly_rollup_bridge(args: EnergyHourlyRollupArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_energy_hour_for_store(
         &store,
@@ -3868,7 +3868,7 @@ fn energy_hourly_rollup_bridge(args: EnergyHourlyRollupArgs) -> GooseResult<serd
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize energy hourly rollup report: {error}"
         ))
     })
@@ -3876,7 +3876,7 @@ fn energy_hourly_rollup_bridge(args: EnergyHourlyRollupArgs) -> GooseResult<serd
 
 fn energy_capture_validation_bridge(
     args: EnergyCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = validate_energy_capture_for_store(
         &store,
@@ -3909,7 +3909,7 @@ fn energy_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize energy capture validation report: {error}"
         ))
     })
@@ -3921,13 +3921,13 @@ fn validate_requested_primary_algorithm(
     requested_algorithm_version: Option<&str>,
     supported_algorithm_id: &str,
     supported_algorithm_version: &str,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     let Some(requested_id) = requested_algorithm_id else {
         return Ok(());
     };
     let requested_id = requested_id.trim();
     if requested_id.is_empty() {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "algorithm_id must be non-empty when provided",
         ));
     }
@@ -3935,25 +3935,25 @@ fn validate_requested_primary_algorithm(
         .map(str::trim)
         .unwrap_or(supported_algorithm_version);
     if requested_version.is_empty() {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "algorithm_version must be non-empty when provided",
         ));
     }
     if requested_id != supported_algorithm_id || requested_version != supported_algorithm_version {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "unsupported primary algorithm {requested_id}@{requested_version} for {metric_family}; this packet-derived scorer currently supports {supported_algorithm_id}@{supported_algorithm_version}"
         )));
     }
     Ok(())
 }
 
-fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> {
+fn hrv_features_bridge(args: HrvFeaturesArgs) -> BullResult<serde_json::Value> {
     validate_requested_primary_algorithm(
         "hrv",
         args.algorithm_id.as_deref(),
         args.algorithm_version.as_deref(),
-        GOOSE_HRV_V0_ID,
-        GOOSE_HRV_V0_VERSION,
+        BULL_HRV_V0_ID,
+        BULL_HRV_V0_VERSION,
     )?;
     let store = open_bridge_store(&args.database_path)?;
     let report = run_hrv_feature_report_for_store(
@@ -3972,7 +3972,7 @@ fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> 
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
-        GooseError::message(format!("cannot serialize HRV feature report: {error}"))
+        BullError::message(format!("cannot serialize HRV feature report: {error}"))
     })?;
     maybe_persist_algorithm_run(
         &store,
@@ -3985,7 +3985,7 @@ fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> 
     Ok(value)
 }
 
-fn hrv_capture_validation_bridge(args: HrvCaptureValidationArgs) -> GooseResult<serde_json::Value> {
+fn hrv_capture_validation_bridge(args: HrvCaptureValidationArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_hrv_capture_validation_for_store(
         &store,
@@ -4009,7 +4009,7 @@ fn hrv_capture_validation_bridge(args: HrvCaptureValidationArgs) -> GooseResult<
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize HRV capture validation report: {error}"
         ))
     })
@@ -4017,7 +4017,7 @@ fn hrv_capture_validation_bridge(args: HrvCaptureValidationArgs) -> GooseResult<
 
 fn respiratory_rate_capture_validation_bridge(
     args: RespiratoryRateCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_respiratory_rate_capture_validation_for_store(
         &store,
@@ -4038,7 +4038,7 @@ fn respiratory_rate_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize respiratory-rate capture validation report: {error}"
         ))
     })
@@ -4046,7 +4046,7 @@ fn respiratory_rate_capture_validation_bridge(
 
 fn oxygen_saturation_capture_validation_bridge(
     args: OxygenSaturationCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_oxygen_saturation_capture_validation_for_store(
         &store,
@@ -4067,7 +4067,7 @@ fn oxygen_saturation_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize oxygen-saturation capture validation report: {error}"
         ))
     })
@@ -4075,7 +4075,7 @@ fn oxygen_saturation_capture_validation_bridge(
 
 fn temperature_capture_validation_bridge(
     args: TemperatureCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_temperature_capture_validation_for_store(
         &store,
@@ -4096,7 +4096,7 @@ fn temperature_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize temperature capture validation report: {error}"
         ))
     })
@@ -4104,7 +4104,7 @@ fn temperature_capture_validation_bridge(
 
 fn recovery_sensor_discovery_bridge(
     args: RecoverySensorDiscoveryArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_recovery_sensor_discovery_report_for_store(
         &store,
@@ -4120,7 +4120,7 @@ fn recovery_sensor_discovery_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize recovery sensor discovery report: {error}"
         ))
     })
@@ -4128,7 +4128,7 @@ fn recovery_sensor_discovery_bridge(
 
 fn recovery_unavailable_daily_status_bridge(
     args: RecoveryUnavailableDailyStatusArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_recovery_unavailable_daily_status_for_store(
         &store,
@@ -4147,7 +4147,7 @@ fn recovery_unavailable_daily_status_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize recovery unavailable daily status report: {error}"
         ))
     })
@@ -4155,7 +4155,7 @@ fn recovery_unavailable_daily_status_bridge(
 
 fn recovery_sensor_daily_rollup_bridge(
     args: RecoverySensorDailyRollupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_recovery_sensor_daily_for_store(
         &store,
@@ -4174,13 +4174,13 @@ fn recovery_sensor_daily_rollup_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize recovery sensor daily rollup report: {error}"
         ))
     })
 }
 
-fn metric_window_features_bridge(args: MetricWindowFeaturesArgs) -> GooseResult<serde_json::Value> {
+fn metric_window_features_bridge(args: MetricWindowFeaturesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_metric_window_feature_report_for_store(
         &store,
@@ -4197,7 +4197,7 @@ fn metric_window_features_bridge(args: MetricWindowFeaturesArgs) -> GooseResult<
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize metric window feature report: {error}"
         ))
     })
@@ -4205,7 +4205,7 @@ fn metric_window_features_bridge(args: MetricWindowFeaturesArgs) -> GooseResult<
 
 fn resting_heart_rate_features_bridge(
     args: RestingHeartRateFeaturesArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_resting_heart_rate_feature_report_for_store(
         &store,
@@ -4222,7 +4222,7 @@ fn resting_heart_rate_features_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize resting heart-rate feature report: {error}"
         ))
     })
@@ -4230,7 +4230,7 @@ fn resting_heart_rate_features_bridge(
 
 fn resting_heart_rate_daily_rollup_bridge(
     args: RestingHeartRateDailyRollupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = rollup_resting_heart_rate_day_for_store(
         &store,
@@ -4251,7 +4251,7 @@ fn resting_heart_rate_daily_rollup_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize resting heart-rate daily rollup report: {error}"
         ))
     })
@@ -4259,7 +4259,7 @@ fn resting_heart_rate_daily_rollup_bridge(
 
 fn resting_heart_rate_capture_validation_bridge(
     args: RestingHeartRateCaptureValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = validate_resting_heart_rate_capture_for_store(
         &store,
@@ -4286,20 +4286,20 @@ fn resting_heart_rate_capture_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize resting heart-rate capture validation report: {error}"
         ))
     })
 }
 
 fn sleep_v1_input_from_feature_score(
-    store: &GooseStore,
+    store: &BullStore,
     sleep_input: &SleepInput,
     report: &SleepFeatureScoreReport,
     history_import_in_progress: bool,
-) -> GooseResult<SleepV1Input> {
+) -> BullResult<SleepV1Input> {
     let prior_history_end_unix_ms = sleep_time_unix_ms(&sleep_input.start_time)
-        .ok_or_else(|| GooseError::message("sleep_v1_input_start_time_invalid"))?;
+        .ok_or_else(|| BullError::message("sleep_v1_input_start_time_invalid"))?;
     let prior_nights = external_sleep_history_nights_for_sleep_v1(
         store,
         sleep_input.sleep_need_minutes,
@@ -4322,7 +4322,7 @@ fn sleep_v1_input_from_feature_score(
         .count()
         >= 3;
     let days_since_last_valid_night = days_since_last_valid_sleep_night(sleep_input, &prior_nights);
-    let trusted_goose_sleep_nights = u32::from(
+    let trusted_bull_sleep_nights = u32::from(
         report
             .sleep_window
             .as_ref()
@@ -4364,7 +4364,7 @@ fn sleep_v1_input_from_feature_score(
             history_import_in_progress,
             imported_platform_sleep_nights,
             excluded_sleep_nights,
-            trusted_goose_sleep_nights,
+            trusted_bull_sleep_nights,
             days_since_last_valid_night,
             repeated_low_confidence_nights,
             motion_coverage_fraction: report
@@ -4428,10 +4428,10 @@ fn days_since_last_valid_sleep_night(
 }
 
 fn external_sleep_history_nights_for_sleep_v1(
-    store: &GooseStore,
+    store: &BullStore,
     sleep_need_minutes: f64,
     before_unix_ms: i64,
-) -> GooseResult<Vec<SleepNightHistoryInput>> {
+) -> BullResult<Vec<SleepNightHistoryInput>> {
     let sessions = store.external_sleep_sessions_between(0, before_unix_ms)?;
     let mut nights = Vec::new();
     for session in sessions
@@ -4676,9 +4676,9 @@ fn external_sleep_platform_import_token(value: &str) -> bool {
 }
 
 fn external_sleep_naps_before_sleep(
-    store: &GooseStore,
+    store: &BullStore,
     sleep_input: &SleepInput,
-) -> GooseResult<f64> {
+) -> BullResult<f64> {
     let Some(sleep_start_unix_ms) = sleep_time_unix_ms(&sleep_input.start_time) else {
         return Ok(0.0);
     };
@@ -5009,29 +5009,29 @@ fn sleep_stage_kind_label(stage: &SleepStageKind) -> &'static str {
     }
 }
 
-fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_json::Value> {
+fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_json::Value> {
     let requested_algorithm_id = args
         .algorithm_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(GOOSE_SLEEP_V0_ID);
+        .unwrap_or(BULL_SLEEP_V0_ID);
     let requested_algorithm_version = args
         .algorithm_version
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(if requested_algorithm_id == GOOSE_SLEEP_V1_ID {
-            GOOSE_SLEEP_V1_VERSION
+        .unwrap_or(if requested_algorithm_id == BULL_SLEEP_V1_ID {
+            BULL_SLEEP_V1_VERSION
         } else {
-            GOOSE_SLEEP_V0_VERSION
+            BULL_SLEEP_V0_VERSION
         });
     let sleep_v1_requested = match (requested_algorithm_id, requested_algorithm_version) {
-        (GOOSE_SLEEP_V0_ID, GOOSE_SLEEP_V0_VERSION) => false,
-        (GOOSE_SLEEP_V1_ID, GOOSE_SLEEP_V1_VERSION) => true,
+        (BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION) => false,
+        (BULL_SLEEP_V1_ID, BULL_SLEEP_V1_VERSION) => true,
         _ => {
-            return Err(GooseError::message(format!(
-                "unsupported primary algorithm {requested_algorithm_id}@{requested_algorithm_version} for sleep; this packet-derived scorer currently supports {GOOSE_SLEEP_V0_ID}@{GOOSE_SLEEP_V0_VERSION} and {GOOSE_SLEEP_V1_ID}@{GOOSE_SLEEP_V1_VERSION}"
+            return Err(BullError::message(format!(
+                "unsupported primary algorithm {requested_algorithm_id}@{requested_algorithm_version} for sleep; this packet-derived scorer currently supports {BULL_SLEEP_V0_ID}@{BULL_SLEEP_V0_VERSION} and {BULL_SLEEP_V1_ID}@{BULL_SLEEP_V1_VERSION}"
             )));
         }
     };
@@ -5057,7 +5057,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep feature score report: {error}"
         ))
     })?;
@@ -5069,9 +5069,9 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_
                 &report,
                 args.history_import_in_progress,
             )?;
-            let sleep_v1_result = goose_sleep_v1(&sleep_v1_input);
+            let sleep_v1_result = bull_sleep_v1(&sleep_v1_input);
             value["sleep_v1_input"] = serde_json::to_value(&sleep_v1_input).map_err(|error| {
-                GooseError::message(format!("cannot serialize sleep v1 input: {error}"))
+                BullError::message(format!("cannot serialize sleep v1 input: {error}"))
             })?;
             value["score_result"] = metric_result_to_value(&sleep_v1_result)?;
             maybe_persist_algorithm_run(
@@ -5106,13 +5106,13 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_
     Ok(value)
 }
 
-fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> GooseResult<serde_json::Value> {
+fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> BullResult<serde_json::Value> {
     validate_requested_primary_algorithm(
         "recovery",
         args.algorithm_id.as_deref(),
         args.algorithm_version.as_deref(),
-        GOOSE_RECOVERY_V0_ID,
-        GOOSE_RECOVERY_V0_VERSION,
+        BULL_RECOVERY_V0_ID,
+        BULL_RECOVERY_V0_VERSION,
     )?;
     let store = open_bridge_store(&args.database_path)?;
     let hrv_start = args.hrv_start.as_deref().unwrap_or(&args.start);
@@ -5164,7 +5164,7 @@ fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> GooseResult<
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize recovery feature score report: {error}"
         ))
     })?;
@@ -5188,13 +5188,13 @@ fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> GooseResult<
     Ok(value)
 }
 
-fn strain_feature_score_bridge(args: StrainFeatureScoreArgs) -> GooseResult<serde_json::Value> {
+fn strain_feature_score_bridge(args: StrainFeatureScoreArgs) -> BullResult<serde_json::Value> {
     validate_requested_primary_algorithm(
         "strain",
         args.algorithm_id.as_deref(),
         args.algorithm_version.as_deref(),
-        GOOSE_STRAIN_V0_ID,
-        GOOSE_STRAIN_V0_VERSION,
+        BULL_STRAIN_V0_ID,
+        BULL_STRAIN_V0_VERSION,
     )?;
     let store = open_bridge_store(&args.database_path)?;
     let resting_start = args.resting_start.as_deref().unwrap_or(&args.start);
@@ -5216,7 +5216,7 @@ fn strain_feature_score_bridge(args: StrainFeatureScoreArgs) -> GooseResult<serd
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize strain feature score report: {error}"
         ))
     })?;
@@ -5231,13 +5231,13 @@ fn strain_feature_score_bridge(args: StrainFeatureScoreArgs) -> GooseResult<serd
     Ok(value)
 }
 
-fn stress_feature_score_bridge(args: StressFeatureScoreArgs) -> GooseResult<serde_json::Value> {
+fn stress_feature_score_bridge(args: StressFeatureScoreArgs) -> BullResult<serde_json::Value> {
     validate_requested_primary_algorithm(
         "stress",
         args.algorithm_id.as_deref(),
         args.algorithm_version.as_deref(),
-        GOOSE_STRESS_V0_ID,
-        GOOSE_STRESS_V0_VERSION,
+        BULL_STRESS_V0_ID,
+        BULL_STRESS_V0_VERSION,
     )?;
     let store = open_bridge_store(&args.database_path)?;
     let hrv_start = args.hrv_start.as_deref().unwrap_or(&args.start);
@@ -5264,7 +5264,7 @@ fn stress_feature_score_bridge(args: StressFeatureScoreArgs) -> GooseResult<serd
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize stress feature score report: {error}"
         ))
     })?;
@@ -5279,10 +5279,10 @@ fn stress_feature_score_bridge(args: StressFeatureScoreArgs) -> GooseResult<serd
     Ok(value)
 }
 
-fn health_sync_dry_run_bridge(input: HealthSyncDryRunInput) -> GooseResult<serde_json::Value> {
+fn health_sync_dry_run_bridge(input: HealthSyncDryRunInput) -> BullResult<serde_json::Value> {
     let report = run_health_sync_dry_run(&input);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize health sync dry-run report: {error}"
         ))
     })
@@ -5290,7 +5290,7 @@ fn health_sync_dry_run_bridge(input: HealthSyncDryRunInput) -> GooseResult<serde
 
 fn capture_import_frame_batch_bridge(
     args: CaptureImportFrameBatchArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = import_captured_frame_batch_with_output_options(
         &store,
@@ -5305,11 +5305,11 @@ fn capture_import_frame_batch_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize capture import report: {error}"))
+        BullError::message(format!("cannot serialize capture import report: {error}"))
     })
 }
 
-fn overnight_mirror_batch_bridge(args: OvernightMirrorBatchArgs) -> GooseResult<serde_json::Value> {
+fn overnight_mirror_batch_bridge(args: OvernightMirrorBatchArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let sessions: Vec<OvernightSyncSessionInput<'_>> = args
         .sessions
@@ -5390,55 +5390,55 @@ fn overnight_mirror_batch_bridge(args: OvernightMirrorBatchArgs) -> GooseResult<
     let report =
         store.mirror_overnight_batch(&sessions, &raw_notifications, &historical_range_polls)?;
     serde_json::to_value(report)
-        .map_err(|error| GooseError::message(format!("cannot serialize overnight mirror: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize overnight mirror: {error}")))
 }
 
 fn overnight_mirror_counts_bridge(
     args: OvernightMirrorCountsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let counts = store.overnight_mirror_counts(&args.session_id)?;
     serde_json::to_value(counts).map_err(|error| {
-        GooseError::message(format!("cannot serialize overnight mirror counts: {error}"))
+        BullError::message(format!("cannot serialize overnight mirror counts: {error}"))
     })
 }
 
-fn capture_timeline_bridge(args: CaptureTimelineArgs) -> GooseResult<serde_json::Value> {
+fn capture_timeline_bridge(args: CaptureTimelineArgs) -> BullResult<serde_json::Value> {
     if args.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if args.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if args.start >= args.end {
-        return Err(GooseError::message("start must be earlier than end"));
+        return Err(BullError::message("start must be earlier than end"));
     }
     let store = open_bridge_store(&args.database_path)?;
     let rows = packet_timeline_between(&store, &args.start, &args.end)?;
     serde_json::to_value(rows)
-        .map_err(|error| GooseError::message(format!("cannot serialize capture timeline: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize capture timeline: {error}")))
 }
 
 fn capture_observability_timeline_bridge(
     args: CaptureObservabilityTimelineArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if args.start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if args.end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if args.start >= args.end {
-        return Err(GooseError::message("start must be earlier than end"));
+        return Err(BullError::message("start must be earlier than end"));
     }
     if args.start_unix_ms < 0 {
-        return Err(GooseError::message("start_unix_ms must be non-negative"));
+        return Err(BullError::message("start_unix_ms must be non-negative"));
     }
     if args.end_unix_ms <= 0 {
-        return Err(GooseError::message("end_unix_ms must be positive"));
+        return Err(BullError::message("end_unix_ms must be positive"));
     }
     if args.start_unix_ms >= args.end_unix_ms {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "start_unix_ms must be earlier than end_unix_ms",
         ));
     }
@@ -5449,20 +5449,20 @@ fn capture_observability_timeline_bridge(
     let debug_rows = store.debug_events_between(args.start_unix_ms, args.end_unix_ms)?;
     let rows = observability_timeline_from_rows(&raw_rows, &packet_rows, &debug_rows)?;
     serde_json::to_value(rows).map_err(|error| {
-        GooseError::message(format!("cannot serialize observability timeline: {error}"))
+        BullError::message(format!("cannot serialize observability timeline: {error}"))
     })
 }
 
-fn capture_start_session_bridge(args: CaptureStartSessionArgs) -> GooseResult<serde_json::Value> {
+fn capture_start_session_bridge(args: CaptureStartSessionArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let provenance_json = if args.provenance.is_null() {
         "{}".to_string()
     } else {
         if !args.provenance.is_object() {
-            return Err(GooseError::message("provenance must be a JSON object"));
+            return Err(BullError::message("provenance must be a JSON object"));
         }
         serde_json::to_string(&args.provenance)
-            .map_err(|error| GooseError::message(format!("cannot serialize provenance: {error}")))?
+            .map_err(|error| BullError::message(format!("cannot serialize provenance: {error}")))?
     };
     let inserted = store.start_capture_session(CaptureSessionInput {
         session_id: &args.session_id,
@@ -5473,42 +5473,42 @@ fn capture_start_session_bridge(args: CaptureStartSessionArgs) -> GooseResult<se
         provenance_json: &provenance_json,
     })?;
     let session = store.capture_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("capture session {} not found", args.session_id))
+        BullError::message(format!("capture session {} not found", args.session_id))
     })?;
     serde_json::to_value(json!({
-        "schema": "goose.capture-session-result.v1",
+        "schema": "bull.capture-session-result.v1",
         "inserted": inserted,
         "session": session,
     }))
-    .map_err(|error| GooseError::message(format!("cannot serialize capture session: {error}")))
+    .map_err(|error| BullError::message(format!("cannot serialize capture session: {error}")))
 }
 
-fn capture_finish_session_bridge(args: CaptureFinishSessionArgs) -> GooseResult<serde_json::Value> {
+fn capture_finish_session_bridge(args: CaptureFinishSessionArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let session =
         store.finish_capture_session(&args.session_id, args.ended_at_unix_ms, args.frame_count)?;
     serde_json::to_value(json!({
-        "schema": "goose.capture-session-result.v1",
+        "schema": "bull.capture-session-result.v1",
         "inserted": false,
         "session": session,
     }))
-    .map_err(|error| GooseError::message(format!("cannot serialize capture session: {error}")))
+    .map_err(|error| BullError::message(format!("cannot serialize capture session: {error}")))
 }
 
-fn capture_list_sessions_bridge(args: CaptureListSessionsArgs) -> GooseResult<serde_json::Value> {
+fn capture_list_sessions_bridge(args: CaptureListSessionsArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let sessions = store.capture_sessions_between(args.start_unix_ms, args.end_unix_ms)?;
     serde_json::to_value(json!({
-        "schema": "goose.capture-session-list.v1",
+        "schema": "bull.capture-session-list.v1",
         "session_count": sessions.len(),
         "sessions": sessions,
     }))
-    .map_err(|error| GooseError::message(format!("cannot serialize capture session list: {error}")))
+    .map_err(|error| BullError::message(format!("cannot serialize capture session list: {error}")))
 }
 
 fn activity_create_session_bridge(
     args: ActivitySessionUpsertArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let provenance_json = json_object_string("provenance", &args.provenance)?;
     let inserted = store.insert_activity_session(ActivitySessionInput {
@@ -5526,35 +5526,35 @@ fn activity_create_session_bridge(
         provenance_json: &provenance_json,
     })?;
     let session = store.activity_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity session {} not found", args.session_id))
+        BullError::message(format!("activity session {} not found", args.session_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-session-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-result.v1",
+        "generated_by": "bull-bridge",
         "inserted": inserted,
         "session": session,
     }))
 }
 
-fn activity_get_session_bridge(args: ActivitySessionLookupArgs) -> GooseResult<serde_json::Value> {
+fn activity_get_session_bridge(args: ActivitySessionLookupArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let session = store.activity_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity session {} not found", args.session_id))
+        BullError::message(format!("activity session {} not found", args.session_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-session-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-result.v1",
+        "generated_by": "bull-bridge",
         "session": session,
     }))
 }
 
-fn activity_list_sessions_bridge(args: ActivitySessionListArgs) -> GooseResult<serde_json::Value> {
+fn activity_list_sessions_bridge(args: ActivitySessionListArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let sessions =
         store.activity_sessions_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
     Ok(json!({
-        "schema": "goose.activity-session-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-list.v1",
+        "generated_by": "bull-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
         "session_count": sessions.len(),
@@ -5564,7 +5564,7 @@ fn activity_list_sessions_bridge(args: ActivitySessionListArgs) -> GooseResult<s
 
 fn activity_list_sessions_with_metrics_bridge(
     args: ActivitySessionListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let sessions =
         store.activity_sessions_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
@@ -5582,8 +5582,8 @@ fn activity_list_sessions_with_metrics_bridge(
     }
 
     Ok(json!({
-        "schema": "goose.activity-session-list-with-metrics.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-list-with-metrics.v1",
+        "generated_by": "bull-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
         "session_count": sessions.len(),
@@ -5594,7 +5594,7 @@ fn activity_list_sessions_with_metrics_bridge(
 
 fn activity_update_session_bridge(
     args: ActivitySessionUpsertArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let provenance_json = json_object_string("provenance", &args.provenance)?;
     let updated = store.update_activity_session(ActivitySessionInput {
@@ -5612,21 +5612,21 @@ fn activity_update_session_bridge(
         provenance_json: &provenance_json,
     })?;
     let session = store.activity_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity session {} not found", args.session_id))
+        BullError::message(format!("activity session {} not found", args.session_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-session-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-result.v1",
+        "generated_by": "bull-bridge",
         "updated": updated,
         "session": session,
     }))
 }
 
-fn activity_correction_plans_bridge() -> GooseResult<serde_json::Value> {
+fn activity_correction_plans_bridge() -> BullResult<serde_json::Value> {
     let plans = activity_session_correction_plans();
     Ok(json!({
-        "schema": "goose.activity-correction-plans.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-correction-plans.v1",
+        "generated_by": "bull-bridge",
         "plan_count": plans.len(),
         "plans": plans,
     }))
@@ -5634,22 +5634,22 @@ fn activity_correction_plans_bridge() -> GooseResult<serde_json::Value> {
 
 fn activity_apply_correction_bridge(
     args: ActivitySessionCorrectionArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     if !args.details.is_object() {
-        return Err(GooseError::message("details must be a JSON object"));
+        return Err(BullError::message("details must be a JSON object"));
     }
     if !args.provenance.is_object() {
-        return Err(GooseError::message("provenance must be a JSON object"));
+        return Err(BullError::message("provenance must be a JSON object"));
     }
 
     let store = open_bridge_store(&args.database_path)?;
     let existing = store.activity_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity session {} not found", args.session_id))
+        BullError::message(format!("activity session {} not found", args.session_id))
     })?;
 
     let previous_provenance =
         serde_json::from_str::<Value>(&existing.provenance_json).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "activity session {} provenance_json is invalid: {error}",
                 existing.session_id
             ))
@@ -5665,7 +5665,7 @@ fn activity_apply_correction_bridge(
     match args.kind {
         ActivitySessionCorrectionKind::ChangeActivityType => {
             activity_type = args.activity_type.clone().ok_or_else(|| {
-                GooseError::message(
+                BullError::message(
                     "activity_type is required for change_activity_type corrections",
                 )
             })?;
@@ -5681,12 +5681,12 @@ fn activity_apply_correction_bridge(
         }
         ActivitySessionCorrectionKind::TrimStart => {
             start_time_unix_ms = args.start_time_unix_ms.ok_or_else(|| {
-                GooseError::message("start_time_unix_ms is required for trim_start corrections")
+                BullError::message("start_time_unix_ms is required for trim_start corrections")
             })?;
         }
         ActivitySessionCorrectionKind::TrimEnd => {
             end_time_unix_ms = args.end_time_unix_ms.ok_or_else(|| {
-                GooseError::message("end_time_unix_ms is required for trim_end corrections")
+                BullError::message("end_time_unix_ms is required for trim_end corrections")
             })?;
         }
         ActivitySessionCorrectionKind::Split
@@ -5743,11 +5743,11 @@ fn activity_apply_correction_bridge(
         provenance_json: &provenance_json,
     })?;
     let session = store.activity_session(&args.session_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity session {} not found", args.session_id))
+        BullError::message(format!("activity session {} not found", args.session_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-correction-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-correction-result.v1",
+        "generated_by": "bull-bridge",
         "session_id": args.session_id,
         "kind": args.kind,
         "updated": updated,
@@ -5757,22 +5757,22 @@ fn activity_apply_correction_bridge(
 
 fn activity_delete_session_bridge(
     args: ActivitySessionLookupArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let deleted = store.delete_activity_session(&args.session_id)?;
     Ok(json!({
-        "schema": "goose.activity-session-delete-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-session-delete-result.v1",
+        "generated_by": "bull-bridge",
         "session_id": args.session_id,
         "deleted": deleted,
     }))
 }
 
-fn activity_attach_metric_bridge(args: ActivityMetricAttachArgs) -> GooseResult<serde_json::Value> {
+fn activity_attach_metric_bridge(args: ActivityMetricAttachArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let provenance_json = json_object_string("provenance", &args.provenance)?;
     let quality_flags_json = serde_json::to_string(&args.quality_flags)
-        .map_err(|error| GooseError::message(format!("cannot serialize quality_flags: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot serialize quality_flags: {error}")))?;
     let inserted = store.insert_activity_metric(ActivityMetricInput {
         metric_id: &args.metric_id,
         activity_session_id: &args.activity_session_id,
@@ -5785,11 +5785,11 @@ fn activity_attach_metric_bridge(args: ActivityMetricAttachArgs) -> GooseResult<
         provenance_json: &provenance_json,
     })?;
     let metric = store.activity_metric(&args.metric_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity metric {} not found", args.metric_id))
+        BullError::message(format!("activity metric {} not found", args.metric_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-metric-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-metric-result.v1",
+        "generated_by": "bull-bridge",
         "inserted": inserted,
         "metric": metric,
     }))
@@ -5797,7 +5797,7 @@ fn activity_attach_metric_bridge(args: ActivityMetricAttachArgs) -> GooseResult<
 
 fn activity_attach_metrics_bridge(
     args: ActivityMetricAttachBatchArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let serialized = args
         .metrics
@@ -5806,12 +5806,12 @@ fn activity_attach_metrics_bridge(
             Ok(SerializedActivityMetricAttachArg {
                 metric,
                 quality_flags_json: serde_json::to_string(&metric.quality_flags).map_err(
-                    |error| GooseError::message(format!("cannot serialize quality_flags: {error}")),
+                    |error| BullError::message(format!("cannot serialize quality_flags: {error}")),
                 )?,
                 provenance_json: json_object_string("provenance", &metric.provenance)?,
             })
         })
-        .collect::<GooseResult<Vec<_>>>()?;
+        .collect::<BullResult<Vec<_>>>()?;
     let inputs = serialized
         .iter()
         .map(|serialized| ActivityMetricInput {
@@ -5833,17 +5833,17 @@ fn activity_attach_metrics_bridge(
             .iter()
             .map(|metric| {
                 store.activity_metric(&metric.metric_id)?.ok_or_else(|| {
-                    GooseError::message(format!("activity metric {} not found", metric.metric_id))
+                    BullError::message(format!("activity metric {} not found", metric.metric_id))
                 })
             })
-            .collect::<GooseResult<Vec<_>>>()?
+            .collect::<BullResult<Vec<_>>>()?
     } else {
         Vec::new()
     };
 
     Ok(json!({
-        "schema": "goose.activity-metric-batch-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-metric-batch-result.v1",
+        "generated_by": "bull-bridge",
         "metric_count": args.metrics.len(),
         "inserted": inserted,
         "existing": existing,
@@ -5851,12 +5851,12 @@ fn activity_attach_metrics_bridge(
     }))
 }
 
-fn activity_list_metrics_bridge(args: ActivityMetricListArgs) -> GooseResult<serde_json::Value> {
+fn activity_list_metrics_bridge(args: ActivityMetricListArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metrics = store.activity_metrics_for_session(&args.activity_session_id)?;
     Ok(json!({
-        "schema": "goose.activity-metric-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-metric-list.v1",
+        "generated_by": "bull-bridge",
         "activity_session_id": args.activity_session_id,
         "metric_count": metrics.len(),
         "metrics": metrics,
@@ -5865,7 +5865,7 @@ fn activity_list_metrics_bridge(args: ActivityMetricListArgs) -> GooseResult<ser
 
 fn activity_metrics_for_session_in_window_bridge(
     args: ActivityMetricWindowArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metrics = store.activity_metrics_for_session_in_window(
         &args.activity_session_id,
@@ -5873,8 +5873,8 @@ fn activity_metrics_for_session_in_window_bridge(
         args.end_time_unix_ms,
     )?;
     Ok(json!({
-        "schema": "goose.activity-metric-window.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-metric-window.v1",
+        "generated_by": "bull-bridge",
         "activity_session_id": args.activity_session_id,
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
@@ -5885,7 +5885,7 @@ fn activity_metrics_for_session_in_window_bridge(
 
 fn activity_attach_interval_bridge(
     args: ActivityIntervalAttachArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let metadata_json = json_object_string("metadata", &args.metadata)?;
     let provenance_json = json_object_string("provenance", &args.provenance)?;
@@ -5900,11 +5900,11 @@ fn activity_attach_interval_bridge(
         provenance_json: &provenance_json,
     })?;
     let interval = store.activity_interval(&args.interval_id)?.ok_or_else(|| {
-        GooseError::message(format!("activity interval {} not found", args.interval_id))
+        BullError::message(format!("activity interval {} not found", args.interval_id))
     })?;
     Ok(json!({
-        "schema": "goose.activity-interval-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-interval-result.v1",
+        "generated_by": "bull-bridge",
         "inserted": inserted,
         "interval": interval,
     }))
@@ -5912,12 +5912,12 @@ fn activity_attach_interval_bridge(
 
 fn activity_list_intervals_bridge(
     args: ActivityIntervalListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let intervals = store.activity_intervals_for_session(&args.activity_session_id)?;
     Ok(json!({
-        "schema": "goose.activity-interval-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.activity-interval-list.v1",
+        "generated_by": "bull-bridge",
         "activity_session_id": args.activity_session_id,
         "interval_count": intervals.len(),
         "intervals": intervals,
@@ -5926,7 +5926,7 @@ fn activity_list_intervals_bridge(
 
 fn external_sleep_history_import_bridge(
     args: ExternalSleepHistoryImportArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let (inserted_sessions, unchanged_sessions, inserted_stages, unchanged_stages) = store
         .immediate_transaction(|store| {
@@ -5959,7 +5959,7 @@ fn external_sleep_history_import_bridge(
             for stage in &args.stages {
                 let provenance_json = json_object_string("provenance", &stage.provenance)?;
                 let Some(stage_kind) = canonical_external_sleep_stage_row(&stage.stage_kind) else {
-                    return Err(GooseError::message(format!(
+                    return Err(BullError::message(format!(
                         "external sleep stage {} kind {} is not recognized",
                         stage.stage_id, stage.stage_kind
                     )));
@@ -5988,8 +5988,8 @@ fn external_sleep_history_import_bridge(
         })?;
 
     Ok(json!({
-        "schema": "goose.external-sleep-history-import-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.external-sleep-history-import-result.v1",
+        "generated_by": "bull-bridge",
         "session_count": args.sessions.len(),
         "stage_count": args.stages.len(),
         "inserted_session_count": inserted_sessions,
@@ -6000,7 +6000,7 @@ fn external_sleep_history_import_bridge(
     }))
 }
 
-fn sleep_correction_label_bridge(args: SleepCorrectionLabelArgs) -> GooseResult<serde_json::Value> {
+fn sleep_correction_label_bridge(args: SleepCorrectionLabelArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let value_json = json_object_string("value", &args.value)?;
     let provenance_json = json_object_string("provenance", &args.provenance)?;
@@ -6017,10 +6017,10 @@ fn sleep_correction_label_bridge(args: SleepCorrectionLabelArgs) -> GooseResult<
     })?;
     let label = store
         .sleep_correction_label(&args.label_id)?
-        .ok_or_else(|| GooseError::message("sleep correction label was not stored"))?;
+        .ok_or_else(|| BullError::message("sleep correction label was not stored"))?;
     Ok(json!({
-        "schema": "goose.sleep-correction-label-result.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.sleep-correction-label-result.v1",
+        "generated_by": "bull-bridge",
         "inserted": inserted,
         "label": label,
         "storage_policy": "manual_corrections_are_labels_not_raw_packet_edits",
@@ -6029,7 +6029,7 @@ fn sleep_correction_label_bridge(args: SleepCorrectionLabelArgs) -> GooseResult<
 
 fn sleep_correction_label_list_bridge(
     args: SleepCorrectionLabelListArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let labels =
         store.sleep_correction_labels_between(args.start_time_unix_ms, args.end_time_unix_ms)?;
@@ -6053,8 +6053,8 @@ fn sleep_correction_label_list_bridge(
         .collect::<BTreeSet<_>>()
         .len();
     Ok(json!({
-        "schema": "goose.sleep-correction-label-list.v1",
-        "generated_by": "goose-bridge",
+        "schema": "bull.sleep-correction-label-list.v1",
+        "generated_by": "bull-bridge",
         "label_count": labels.len(),
         "sleep_window_label_count": sleep_window_label_count,
         "sleep_stage_label_count": sleep_stage_label_count,
@@ -6067,7 +6067,7 @@ fn sleep_correction_label_list_bridge(
 
 fn sleep_window_label_validation_bridge(
     args: SleepWindowLabelValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let defaults = SleepWindowLabelValidationOptions::default();
     let report = run_sleep_window_label_validation_for_store(
@@ -6107,7 +6107,7 @@ fn sleep_window_label_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep window label validation report: {error}"
         ))
     })
@@ -6115,7 +6115,7 @@ fn sleep_window_label_validation_bridge(
 
 fn sleep_stage_label_validation_bridge(
     args: SleepStageLabelValidationArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let defaults = SleepStageLabelValidationOptions::default();
     let report = validate_sleep_v1_stage_labels_for_store(
@@ -6131,7 +6131,7 @@ fn sleep_stage_label_validation_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep stage label validation report: {error}"
         ))
     })
@@ -6139,7 +6139,7 @@ fn sleep_stage_label_validation_bridge(
 
 fn sleep_v1_explanation_stability_bridge(
     args: SleepV1ExplanationStabilityArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let defaults = SleepV1ExplanationStabilityOptions::default();
     let report = validate_sleep_v1_explanation_and_stability(
         &args.input,
@@ -6162,16 +6162,16 @@ fn sleep_v1_explanation_stability_bridge(
         },
     );
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep v1 explanation stability report: {error}"
         ))
     })
 }
 
-fn sleep_v1_release_gate_bridge(args: SleepV1ReleaseGateArgs) -> GooseResult<serde_json::Value> {
+fn sleep_v1_release_gate_bridge(args: SleepV1ReleaseGateArgs) -> BullResult<serde_json::Value> {
     let report = validate_sleep_v1_release_gates(&args.input);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep v1 release gate report: {error}"
         ))
     })
@@ -6179,7 +6179,7 @@ fn sleep_v1_release_gate_bridge(args: SleepV1ReleaseGateArgs) -> GooseResult<ser
 
 fn sleep_v1_evidence_folder_bridge(
     args: SleepV1EvidenceFolderArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = validate_sleep_v1_evidence_folder_with_options(
         Path::new(&args.evidence_dir),
         SleepV1EvidenceFolderOptions {
@@ -6187,13 +6187,13 @@ fn sleep_v1_evidence_folder_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize sleep v1 evidence folder report: {error}"
         ))
     })
 }
 
-fn capture_correlation_bridge(args: CaptureCorrelationArgs) -> GooseResult<serde_json::Value> {
+fn capture_correlation_bridge(args: CaptureCorrelationArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let report = run_capture_correlation_for_store(
         &store,
@@ -6208,13 +6208,13 @@ fn capture_correlation_bridge(args: CaptureCorrelationArgs) -> GooseResult<serde
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize capture correlation report: {error}"
         ))
     })
 }
 
-fn capture_arrival_plan_bridge(args: CaptureArrivalPlanArgs) -> GooseResult<serde_json::Value> {
+fn capture_arrival_plan_bridge(args: CaptureArrivalPlanArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let min_owned_captures = args
         .min_owned_captures
@@ -6314,7 +6314,7 @@ fn capture_arrival_plan_bridge(args: CaptureArrivalPlanArgs) -> GooseResult<serd
     );
     let report = CaptureArrivalPlanReport {
         schema: CAPTURE_ARRIVAL_PLAN_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-capture-arrival-plan".to_string(),
+        generated_by: "bull-capture-arrival-plan".to_string(),
         pass,
         start: args.start,
         end: args.end,
@@ -6333,7 +6333,7 @@ fn capture_arrival_plan_bridge(args: CaptureArrivalPlanArgs) -> GooseResult<serd
         issues,
     };
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize capture arrival plan: {error}"))
+        BullError::message(format!("cannot serialize capture arrival plan: {error}"))
     })
 }
 
@@ -6556,7 +6556,7 @@ fn capture_arrival_physical_rows(
         "activity fields",
         arrival_state(activity_boundary_provenance_ready, typed_activity_session),
         "No packet-derived activity boundary or type provenance is attached yet.",
-        "Record start, end, pauses, sport/activity type, confidence, and whether type came from WHOOP bytes, app metadata, or Goose inference.",
+        "Record start, end, pauses, sport/activity type, confidence, and whether type came from WHOOP bytes, app metadata, or Bull inference.",
         "docs/whoop-arrival-checklist.md activity fields",
     ));
     rows.push(capture_arrival_physical_row(
@@ -6607,10 +6607,10 @@ fn arrival_state(physical_ready: bool, fixture_or_app_ready: bool) -> &'static s
 }
 
 fn capture_arrival_window_rows(
-    store: &GooseStore,
+    store: &BullStore,
     start: &str,
     end: &str,
-) -> GooseResult<(Vec<CaptureSessionRow>, Vec<ActivitySessionRow>)> {
+) -> BullResult<(Vec<CaptureSessionRow>, Vec<ActivitySessionRow>)> {
     let Some((start_unix_ms, end_unix_ms)) = capture_arrival_window_unix_ms(start, end) else {
         return Ok((Vec::new(), Vec::new()));
     };
@@ -6950,18 +6950,18 @@ fn push_arrival_action(
 
 fn command_validate_evidence_bridge(
     args: CommandValidateEvidenceArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = validate_commands(&args.evidence);
     if args.persist {
         let database_path = args
             .database_path
             .as_deref()
-            .ok_or_else(|| GooseError::message("database_path is required when persist is true"))?;
+            .ok_or_else(|| BullError::message("database_path is required when persist is true"))?;
         let store = open_bridge_store(database_path)?;
         persist_command_validation_results(&store, &report.commands)?;
     }
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize command validation report: {error}"
         ))
     })
@@ -6969,7 +6969,7 @@ fn command_validate_evidence_bridge(
 
 fn command_evidence_from_emulator_log_bridge(
     args: CommandEvidenceFromEmulatorLogArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let defaults = CommandEmulatorLogEvidenceOptions::default();
     let source_log = args
         .source_log
@@ -6993,7 +6993,7 @@ fn command_evidence_from_emulator_log_bridge(
         },
     )?;
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize command emulator-log evidence report: {error}"
         ))
     })
@@ -7001,10 +7001,10 @@ fn command_evidence_from_emulator_log_bridge(
 
 fn command_promote_local_frame_matches_bridge(
     args: CommandPromoteLocalFrameMatchesArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let report = command_evidence_with_local_frame_matches(&args.evidence, &args.candidates);
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize command local-frame match report: {error}"
         ))
     })
@@ -7012,7 +7012,7 @@ fn command_promote_local_frame_matches_bridge(
 
 fn command_direct_send_gate_bridge(
     args: CommandDirectSendGateArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let result = match store.command_validation_record(&args.command)? {
         Some(record) => Some(command_result_from_report_json(&record.report_json)?),
@@ -7020,12 +7020,12 @@ fn command_direct_send_gate_bridge(
     };
     let gate = direct_send_gate_from_result(&args.command, result.as_ref());
     serde_json::to_value(gate)
-        .map_err(|error| GooseError::message(format!("cannot serialize command gate: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize command gate: {error}")))
 }
 
 fn command_direct_send_preflight_bridge(
     args: CommandDirectSendPreflightArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let result = match store.command_validation_record(&args.command)? {
         Some(record) => Some(command_result_from_report_json(&record.report_json)?),
@@ -7051,13 +7051,13 @@ fn command_direct_send_preflight_bridge(
     };
     let preflight = direct_send_preflight_from_gate(&input, gate);
     serde_json::to_value(preflight).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize command preflight result: {error}"
         ))
     })
 }
 
-fn command_capture_plan_bridge(args: CommandCapturePlanArgs) -> GooseResult<serde_json::Value> {
+fn command_capture_plan_bridge(args: CommandCapturePlanArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let records = store.command_validation_records()?;
     let mut results = Vec::new();
@@ -7076,17 +7076,17 @@ fn command_capture_plan_bridge(args: CommandCapturePlanArgs) -> GooseResult<serd
     report.issues.extend(parse_issues);
     report.pass = report.pass && report.issues.is_empty();
     serde_json::to_value(report).map_err(|error| {
-        GooseError::message(format!("cannot serialize command capture plan: {error}"))
+        BullError::message(format!("cannot serialize command capture plan: {error}"))
     })
 }
 
 fn command_list_validation_records_bridge(
     args: ListCommandValidationRecordsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let records = store.command_validation_records()?;
     serde_json::to_value(records).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot serialize command validation records: {error}"
         ))
     })
@@ -7094,7 +7094,7 @@ fn command_list_validation_records_bridge(
 
 fn command_import_validation_records_bridge(
     args: ImportCommandValidationRecordsArgs,
-) -> GooseResult<serde_json::Value> {
+) -> BullResult<serde_json::Value> {
     let record_count = args.records.len();
     let mut issues = Vec::new();
     if record_count == 0 {
@@ -7188,8 +7188,8 @@ fn command_import_validation_records_bridge(
     }
 
     Ok(json!({
-        "schema": "goose.command-validation-import-report.v1",
-        "generated_by": "goose-command-validation-import",
+        "schema": "bull.command-validation-import-report.v1",
+        "generated_by": "bull-command-validation-import",
         "pass": issues.is_empty(),
         "record_count": record_count,
         "validated_record_count": records.len(),
@@ -7202,16 +7202,16 @@ fn command_import_validation_records_bridge(
 }
 
 fn persist_command_validation_results(
-    store: &GooseStore,
+    store: &BullStore,
     results: &[CommandValidationResult],
-) -> GooseResult<()> {
+) -> BullResult<()> {
     for result in results {
         store.upsert_command_validation_record(&CommandValidationRecord {
             command: result.command.clone(),
             risk_gate: command_risk_gate_name(&result.risk_gate).to_string(),
             direct_send_ready: result.direct_send_ready,
             report_json: serde_json::to_string(result).map_err(|error| {
-                GooseError::message(format!("cannot serialize command result: {error}"))
+                BullError::message(format!("cannot serialize command result: {error}"))
             })?,
         })?;
     }
@@ -7353,7 +7353,7 @@ fn command_risk_gate_name(risk_gate: &crate::commands::CommandRiskGate) -> &'sta
     }
 }
 
-fn debug_start_session_bridge(args: DebugStartSessionArgs) -> GooseResult<serde_json::Value> {
+fn debug_start_session_bridge(args: DebugStartSessionArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let snapshot = start_debug_session(
         &store,
@@ -7364,11 +7364,11 @@ fn debug_start_session_bridge(args: DebugStartSessionArgs) -> GooseResult<serde_
         },
     )?;
     serde_json::to_value(snapshot).map_err(|error| {
-        GooseError::message(format!("cannot serialize debug session snapshot: {error}"))
+        BullError::message(format!("cannot serialize debug session snapshot: {error}"))
     })
 }
 
-fn debug_start_command_bridge(args: DebugStartCommandArgs) -> GooseResult<serde_json::Value> {
+fn debug_start_command_bridge(args: DebugStartCommandArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let snapshot = start_debug_command(
         &store,
@@ -7379,11 +7379,11 @@ fn debug_start_command_bridge(args: DebugStartCommandArgs) -> GooseResult<serde_
         },
     )?;
     serde_json::to_value(snapshot).map_err(|error| {
-        GooseError::message(format!("cannot serialize debug session snapshot: {error}"))
+        BullError::message(format!("cannot serialize debug session snapshot: {error}"))
     })
 }
 
-fn debug_finish_command_bridge(args: DebugFinishCommandArgs) -> GooseResult<serde_json::Value> {
+fn debug_finish_command_bridge(args: DebugFinishCommandArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let snapshot = finish_debug_command(
         &store,
@@ -7397,11 +7397,11 @@ fn debug_finish_command_bridge(args: DebugFinishCommandArgs) -> GooseResult<serd
         },
     )?;
     serde_json::to_value(snapshot).map_err(|error| {
-        GooseError::message(format!("cannot serialize debug session snapshot: {error}"))
+        BullError::message(format!("cannot serialize debug session snapshot: {error}"))
     })
 }
 
-fn debug_record_event_bridge(args: DebugRecordEventArgs) -> GooseResult<serde_json::Value> {
+fn debug_record_event_bridge(args: DebugRecordEventArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let event = append_debug_event(
         &store,
@@ -7417,30 +7417,30 @@ fn debug_record_event_bridge(args: DebugRecordEventArgs) -> GooseResult<serde_js
         },
     )?;
     serde_json::to_value(event)
-        .map_err(|error| GooseError::message(format!("cannot serialize debug event: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize debug event: {error}")))
 }
 
-fn debug_session_snapshot_bridge(args: DebugSessionSnapshotArgs) -> GooseResult<serde_json::Value> {
+fn debug_session_snapshot_bridge(args: DebugSessionSnapshotArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let snapshot = debug_session_snapshot(&store, &args.session_id)?;
     serde_json::to_value(snapshot).map_err(|error| {
-        GooseError::message(format!("cannot serialize debug session snapshot: {error}"))
+        BullError::message(format!("cannot serialize debug session snapshot: {error}"))
     })
 }
 
-fn metric_result_to_value<T: Serialize>(result: T) -> GooseResult<serde_json::Value> {
+fn metric_result_to_value<T: Serialize>(result: T) -> BullResult<serde_json::Value> {
     serde_json::to_value(result)
-        .map_err(|error| GooseError::message(format!("cannot serialize metric result: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize metric result: {error}")))
 }
 
 fn maybe_persist_algorithm_run<T: Serialize>(
-    store: &GooseStore,
+    store: &BullStore,
     report_value: &mut serde_json::Value,
     persist_requested: bool,
     requested_run_id: Option<&str>,
     default_run_prefix: &str,
     score_result: Option<&AlgorithmRunResult<T>>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !persist_requested {
         return Ok(());
     }
@@ -7506,10 +7506,10 @@ fn packet_derived_algorithm_run_id<T>(prefix: &str, result: &AlgorithmRunResult<
 }
 
 fn latest_matching_calibration_run(
-    store: &GooseStore,
+    store: &BullStore,
     algorithm_id: &str,
     algorithm_version: &str,
-) -> GooseResult<Option<crate::store::CalibrationRunRecord>> {
+) -> BullResult<Option<crate::store::CalibrationRunRecord>> {
     let runs = store.calibration_runs_overlapping("0000", "9999")?;
     Ok(runs
         .into_iter()
@@ -7522,52 +7522,52 @@ fn latest_matching_calibration_run(
         }))
 }
 
-fn open_bridge_store(database_path: &str) -> GooseResult<GooseStore> {
+fn open_bridge_store(database_path: &str) -> BullResult<BullStore> {
     if database_path.trim().is_empty() {
-        return Err(GooseError::message("database_path is required"));
+        return Err(BullError::message("database_path is required"));
     }
-    GooseStore::open(Path::new(database_path))
+    BullStore::open(Path::new(database_path))
 }
 
-fn json_object_string(field_name: &str, value: &serde_json::Value) -> GooseResult<String> {
+fn json_object_string(field_name: &str, value: &serde_json::Value) -> BullResult<String> {
     if !value.is_object() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "{field_name} must be a JSON object"
         )));
     }
     serde_json::to_string(value)
-        .map_err(|error| GooseError::message(format!("cannot serialize {field_name}: {error}")))
+        .map_err(|error| BullError::message(format!("cannot serialize {field_name}: {error}")))
 }
 
-fn register_built_in_definitions(store: &GooseStore) -> GooseResult<()> {
+fn register_built_in_definitions(store: &BullStore) -> BullResult<()> {
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition)?;
     }
     Ok(())
 }
 
-fn request_args<T>(request: &BridgeRequest) -> GooseResult<T>
+fn request_args<T>(request: &BridgeRequest) -> BullResult<T>
 where
     T: for<'de> Deserialize<'de>,
 {
     serde_json::from_value(request.args.clone())
-        .map_err(|error| GooseError::message(format!("invalid args: {error}")))
+        .map_err(|error| BullError::message(format!("invalid args: {error}")))
 }
 
-fn parse_device_type(value: &str) -> GooseResult<DeviceType> {
+fn parse_device_type(value: &str) -> BullResult<DeviceType> {
     match value {
         "GEN_4" | "Gen4" | "gen4" => Ok(DeviceType::Gen4),
         "MAVERICK" | "Maverick" | "maverick" => Ok(DeviceType::Maverick),
         "PUFFIN" | "Puffin" | "puffin" => Ok(DeviceType::Puffin),
-        "GOOSE" | "Goose" | "goose" => Ok(DeviceType::Goose),
-        other => Err(GooseError::message(format!(
+        "BULL" | "Bull" | "bull" => Ok(DeviceType::Bull),
+        other => Err(BullError::message(format!(
             "unsupported device_type: {other}"
         ))),
     }
 }
 
 fn default_device_type() -> String {
-    "GOOSE".to_string()
+    "BULL".to_string()
 }
 
 fn default_algorithm_scope() -> String {
@@ -7579,19 +7579,19 @@ fn default_true() -> bool {
 }
 
 fn default_raw_export_app_version() -> String {
-    "goose-app/bridge".to_string()
+    "bull-app/bridge".to_string()
 }
 
 fn default_raw_export_core_version() -> String {
     format!(
-        "goose-core/{}",
+        "bull-core/{}",
         option_env!("CARGO_PKG_VERSION").unwrap_or("unknown")
     )
 }
 
 fn default_parser_version() -> String {
     format!(
-        "goose-core/{}",
+        "bull-core/{}",
         option_env!("CARGO_PKG_VERSION").unwrap_or("unknown")
     )
 }
@@ -7613,7 +7613,7 @@ fn default_decode_status() -> String {
 }
 
 fn default_capture_sanitize_salt() -> String {
-    "goose-capture-sanitize-v1".to_string()
+    "bull-capture-sanitize-v1".to_string()
 }
 
 fn default_ui_coverage_map_path() -> PathBuf {
@@ -7855,7 +7855,7 @@ mod tests {
 
     #[test]
     fn sleep_v1_external_history_prefers_detailed_stage_rows_over_empty_summary() {
-        let store = GooseStore::open_in_memory().unwrap();
+        let store = BullStore::open_in_memory().unwrap();
         let night_start = sleep_time_unix_ms("2026-05-01T22:00:00Z").unwrap();
         let night_end = sleep_time_unix_ms("2026-05-02T06:00:00Z").unwrap();
         store
@@ -7914,7 +7914,7 @@ mod tests {
 
     #[test]
     fn sleep_v1_external_history_excludes_low_confidence_detailed_stage_rows() {
-        let store = GooseStore::open_in_memory().unwrap();
+        let store = BullStore::open_in_memory().unwrap();
         let night_start = sleep_time_unix_ms("2026-05-01T22:00:00Z").unwrap();
         let night_end = sleep_time_unix_ms("2026-05-02T06:00:00Z").unwrap();
         store
@@ -7968,7 +7968,7 @@ mod tests {
 
     #[test]
     fn sleep_v1_external_history_excludes_manual_detailed_stage_rows() {
-        let store = GooseStore::open_in_memory().unwrap();
+        let store = BullStore::open_in_memory().unwrap();
         let night_start = sleep_time_unix_ms("2026-05-01T22:00:00Z").unwrap();
         let night_end = sleep_time_unix_ms("2026-05-02T06:00:00Z").unwrap();
         store
@@ -8011,7 +8011,7 @@ mod tests {
 
     #[test]
     fn sleep_v1_external_nap_credit_excludes_platform_imported_stage_rows() {
-        let store = GooseStore::open_in_memory().unwrap();
+        let store = BullStore::open_in_memory().unwrap();
         let nap_start = sleep_time_unix_ms("2026-05-02T16:00:00Z").unwrap();
         let nap_end = sleep_time_unix_ms("2026-05-02T17:00:00Z").unwrap();
         store
@@ -8068,7 +8068,7 @@ mod tests {
 
     #[test]
     fn sleep_v1_external_nap_credit_excludes_low_confidence_stage_rows() {
-        let store = GooseStore::open_in_memory().unwrap();
+        let store = BullStore::open_in_memory().unwrap();
         let nap_start = sleep_time_unix_ms("2026-05-02T16:00:00Z").unwrap();
         let nap_end = sleep_time_unix_ms("2026-05-02T17:00:00Z").unwrap();
         store

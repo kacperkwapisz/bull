@@ -1,8 +1,8 @@
 #[test]
 fn metric_input_readiness_cli_emits_machine_readable_blockers_from_database() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-input-readiness"))
+    let db = tempdir.path().join("bull.sqlite");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-input-readiness"))
         .arg("--database")
         .arg(&db)
         .arg("--start")
@@ -18,8 +18,8 @@ fn metric_input_readiness_cli_emits_machine_readable_blockers_from_database() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.metric-input-readiness-report.v1");
-    assert_eq!(report["generated_by"], "goose-metric-input-readiness");
+    assert_eq!(report["schema"], "bull.metric-input-readiness-report.v1");
+    assert_eq!(report["generated_by"], "bull-metric-input-readiness");
     assert_eq!(report["pass"], false);
     assert_eq!(report["require_scores_ready"], true);
     assert_eq!(report["capture_correlation_pass"], false);
@@ -57,7 +57,7 @@ fn metric_input_readiness_cli_accepts_saved_capture_correlation_report() {
     std::fs::write(
         &correlation_path,
         serde_json::json!({
-            "schema": "goose.capture-correlation-report.v1",
+            "schema": "bull.capture-correlation-report.v1",
             "generated_by": "test",
             "fixture_root": "test",
             "pass": false,
@@ -72,7 +72,7 @@ fn metric_input_readiness_cli_accepts_saved_capture_correlation_report() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-metric-input-readiness"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-metric-input-readiness"))
         .arg("--capture-correlation")
         .arg(&correlation_path)
         .arg("--require-scores-ready")
@@ -81,7 +81,7 @@ fn metric_input_readiness_cli_accepts_saved_capture_correlation_report() {
 
     assert!(!output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.metric-input-readiness-report.v1");
+    assert_eq!(report["schema"], "bull.metric-input-readiness-report.v1");
     assert_eq!(report["capture_correlation_pass"], false);
     assert!(
         report["issues"]

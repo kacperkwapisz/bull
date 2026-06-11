@@ -1,4 +1,4 @@
-use goose_core::{
+use bull_core::{
     step_discovery::{
         StepCaptureValidationOptions, StepPacketDiscoveryOptions, run_step_capture_validation,
         run_step_packet_discovery,
@@ -36,7 +36,7 @@ fn step_packet_discovery_promotes_explicit_decoded_step_counter() {
     )
     .unwrap();
 
-    assert_eq!(report.schema, "goose.step-packet-discovery-report.v1");
+    assert_eq!(report.schema, "bull.step-packet-discovery-report.v1");
     assert!(report.pass, "{:?}", report.issues);
     assert!(report.explicit_step_counter_found);
     assert_eq!(report.decoded_frame_count, 1);
@@ -190,7 +190,7 @@ fn step_capture_validation_accepts_monotonic_counter_matching_labels() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(report.schema, "goose.step-capture-validation-report.v1");
+    assert_eq!(report.schema, "bull.step-capture-validation-report.v1");
     assert_eq!(report.matching_counter_delta_count, 1);
     assert_eq!(report.counter_deltas[0].delta, 100);
     assert_eq!(report.counter_deltas[0].manual_delta_error, Some(0));
@@ -339,7 +339,7 @@ fn decoded_frame_row(
         frame_id: frame_id.to_string(),
         evidence_id: format!("{frame_id}.evidence"),
         captured_at: captured_at.to_string(),
-        device_type: "GOOSE".to_string(),
+        device_type: "BULL".to_string(),
         raw_len: 0,
         header_len: 0,
         declared_len: 0,
@@ -352,7 +352,7 @@ fn decoded_frame_row(
         sequence: None,
         command_or_event: None,
         parsed_payload_json: parsed_payload.to_string(),
-        parser_version: "goose-core/step-discovery-test".to_string(),
+        parser_version: "bull-core/step-discovery-test".to_string(),
         warnings_json: "[]".to_string(),
     }
 }

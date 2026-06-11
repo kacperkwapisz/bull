@@ -10,7 +10,7 @@ use crate::{
     metrics::built_in_algorithm_definitions,
 };
 
-pub const METRIC_INPUT_READINESS_REPORT_SCHEMA: &str = "goose.metric-input-readiness-report.v1";
+pub const METRIC_INPUT_READINESS_REPORT_SCHEMA: &str = "bull.metric-input-readiness-report.v1";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MetricInputReadinessOptions {
@@ -289,7 +289,7 @@ fn run_metric_input_readiness_internal(
 
     MetricInputReadinessReport {
         schema: METRIC_INPUT_READINESS_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-metric-input-readiness".to_string(),
+        generated_by: "bull-metric-input-readiness".to_string(),
         pass: issues.is_empty(),
         require_scores_ready: options.require_scores_ready,
         capture_correlation_pass: correlation.pass,

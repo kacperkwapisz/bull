@@ -7,16 +7,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     metrics::{
         HrvInput, RecoveryInput, SleepInput, SleepModelStatusInput, SleepV1Input, StrainInput,
-        StressInput, goose_hrv_v0, goose_recovery_v0, goose_sleep_v0, goose_sleep_v1,
-        goose_strain_v0, goose_stress_v0,
+        StressInput, bull_hrv_v0, bull_recovery_v0, bull_sleep_v0, bull_sleep_v1,
+        bull_strain_v0, bull_stress_v0,
     },
     protocol::{DeviceType, FrameAccumulator, build_v5_payload_frame, parse_frame},
 };
 
-pub const PROPERTY_TEST_REPORT_SCHEMA: &str = "goose.property-test-report.v1";
+pub const PROPERTY_TEST_REPORT_SCHEMA: &str = "bull.property-test-report.v1";
 pub const DEFAULT_PROPERTY_SEED: u64 = 0x676f_6f73_655f_7031;
 pub const DEFAULT_CASES_PER_GROUP: usize = 128;
 
@@ -88,9 +88,9 @@ pub struct PropertyFailure {
     pub context: Value,
 }
 
-pub fn run_property_suite(options: PropertySuiteOptions) -> GooseResult<PropertySuiteReport> {
+pub fn run_property_suite(options: PropertySuiteOptions) -> BullResult<PropertySuiteReport> {
     if options.cases_per_group == 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "cases_per_group must be greater than 0",
         ));
     }
@@ -137,7 +137,7 @@ pub fn property_suite_report_from_groups(
 
     PropertySuiteReport {
         schema: PROPERTY_TEST_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-property-test-suite".to_string(),
+        generated_by: "bull-property-test-suite".to_string(),
         seed,
         cases_per_group,
         pass,
@@ -233,13 +233,13 @@ fn property_failure_action(group_name: &str, property: &str, reason: &str) -> &'
             "Fix split-stream deframing so extracted frames and dropped-prefix counts match the generated stream, then add the seed/case as a deframer regression."
         }
         "algorithm_output_failure" => {
-            "Fix the generated Goose score input or quality gate so valid generated inputs produce an output, then add a deterministic algorithm regression."
+            "Fix the generated Bull score input or quality gate so valid generated inputs produce an output, then add a deterministic algorithm regression."
         }
         "algorithm_bounds_failure" => {
-            "Clamp or correct the Goose score calculation so finite generated inputs stay within documented bounds and component counts remain consistent."
+            "Clamp or correct the Bull score calculation so finite generated inputs stay within documented bounds and component counts remain consistent."
         }
         "algorithm_metamorphic_failure" => {
-            "Review the Goose score formula for this monotonic relationship and add a hand-derived regression before changing expected behavior."
+            "Review the Bull score formula for this monotonic relationship and add a hand-derived regression before changing expected behavior."
         }
         _ => {
             "Inspect the failing property context and add a targeted regression before trusting this parser or calculation path."
@@ -268,7 +268,7 @@ fn parser_frame_properties(rng: &mut DeterministicRng, cases: usize) -> Property
         let payload = random_payload(rng);
         let frame = build_v5_payload_frame(&payload);
         let parsed_result =
-            catch_unwind(AssertUnwindSafe(|| parse_frame(DeviceType::Goose, &frame)));
+            catch_unwind(AssertUnwindSafe(|| parse_frame(DeviceType::Bull, &frame)));
         match parsed_result {
             Ok(Ok(parsed)) => {
                 let padded_payload = &frame[8..frame.len() - 4];
@@ -325,7 +325,7 @@ fn parser_frame_properties(rng: &mut DeterministicRng, cases: usize) -> Property
             let offset = 8 + rng.usize(corrupted.len() - 12);
             corrupted[offset] ^= 0x55;
             match catch_unwind(AssertUnwindSafe(|| {
-                parse_frame(DeviceType::Goose, &corrupted)
+                parse_frame(DeviceType::Bull, &corrupted)
             })) {
                 Ok(Ok(parsed)) => {
                     group.check(
@@ -367,7 +367,7 @@ fn parser_frame_properties(rng: &mut DeterministicRng, cases: usize) -> Property
 
         let noise_len = rng.usize(160);
         let noise = rng.bytes(noise_len);
-        if catch_unwind(AssertUnwindSafe(|| parse_frame(DeviceType::Goose, &noise))).is_err() {
+        if catch_unwind(AssertUnwindSafe(|| parse_frame(DeviceType::Bull, &noise))).is_err() {
             group.fail(
                 case_index,
                 "arbitrary_bytes_no_panic",
@@ -402,7 +402,7 @@ fn deframer_properties(rng: &mut DeterministicRng, cases: usize) -> PropertyGrou
             expected_frames.push(frame);
         }
 
-        let mut accumulator = FrameAccumulator::new(DeviceType::Goose);
+        let mut accumulator = FrameAccumulator::new(DeviceType::Bull);
         let mut extracted = Vec::new();
         let mut dropped_prefix_len = 0usize;
         let mut offset = 0usize;
@@ -476,7 +476,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
     let mut group = GroupBuilder::new("algorithm_metamorphic_invariants", cases);
 
     for case_index in 0..cases {
-        let sleep_short = goose_sleep_v0(&SleepInput {
+        let sleep_short = bull_sleep_v0(&SleepInput {
             start_time: "2026-05-28T00:00:00Z".to_string(),
             end_time: "2026-05-28T08:00:00Z".to_string(),
             sleep_duration_minutes: 300.0,
@@ -489,7 +489,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
         })
         .output
         .expect("valid sleep input");
-        let sleep_long = goose_sleep_v0(&SleepInput {
+        let sleep_long = bull_sleep_v0(&SleepInput {
             sleep_duration_minutes: 360.0,
             ..base_sleep_input()
         })
@@ -506,7 +506,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let sleep_v1_short = goose_sleep_v1(&SleepV1Input {
+        let sleep_v1_short = bull_sleep_v1(&SleepV1Input {
             sleep: SleepInput {
                 sleep_duration_minutes: 300.0,
                 wake_after_sleep_onset_minutes: 30.0,
@@ -527,7 +527,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
         })
         .output
         .expect("valid sleep v1 input");
-        let sleep_v1_long = goose_sleep_v1(&SleepV1Input {
+        let sleep_v1_long = bull_sleep_v1(&SleepV1Input {
             sleep: SleepInput {
                 sleep_duration_minutes: 360.0,
                 wake_after_sleep_onset_minutes: 30.0,
@@ -559,7 +559,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let sleep_v1_low_waso = goose_sleep_v1(&SleepV1Input {
+        let sleep_v1_low_waso = bull_sleep_v1(&SleepV1Input {
             sleep: SleepInput {
                 wake_after_sleep_onset_minutes: 20.0,
                 wake_episode_count: 2,
@@ -580,7 +580,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
         })
         .output
         .expect("valid sleep v1 input");
-        let sleep_v1_high_waso = goose_sleep_v1(&SleepV1Input {
+        let sleep_v1_high_waso = bull_sleep_v1(&SleepV1Input {
             sleep: SleepInput {
                 wake_after_sleep_onset_minutes: 90.0,
                 wake_episode_count: 2,
@@ -612,13 +612,13 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let low_strain = goose_strain_v0(&StrainInput {
+        let low_strain = bull_strain_v0(&StrainInput {
             hr_zone_minutes: vec![60.0, 0.0, 0.0, 0.0, 0.0],
             ..base_strain_input()
         })
         .output
         .expect("valid strain input");
-        let high_strain = goose_strain_v0(&StrainInput {
+        let high_strain = bull_strain_v0(&StrainInput {
             hr_zone_minutes: vec![0.0, 0.0, 0.0, 0.0, 60.0],
             ..base_strain_input()
         })
@@ -635,13 +635,13 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let recovery_low_hrv = goose_recovery_v0(&RecoveryInput {
+        let recovery_low_hrv = bull_recovery_v0(&RecoveryInput {
             hrv_rmssd_ms: 40.0,
             ..base_recovery_input()
         })
         .output
         .expect("valid recovery input");
-        let recovery_high_hrv = goose_recovery_v0(&RecoveryInput {
+        let recovery_high_hrv = bull_recovery_v0(&RecoveryInput {
             hrv_rmssd_ms: 60.0,
             ..base_recovery_input()
         })
@@ -658,13 +658,13 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let low_motion_stress = goose_stress_v0(&StressInput {
+        let low_motion_stress = bull_stress_v0(&StressInput {
             motion_intensity_0_to_1: 0.0,
             ..base_stress_input()
         })
         .output
         .expect("valid stress input");
-        let high_motion_stress = goose_stress_v0(&StressInput {
+        let high_motion_stress = bull_stress_v0(&StressInput {
             motion_intensity_0_to_1: 1.0,
             ..base_stress_input()
         })
@@ -682,7 +682,7 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             }),
         );
 
-        let hrv = goose_hrv_v0(&HrvInput {
+        let hrv = bull_hrv_v0(&HrvInput {
             start_time: "2026-05-28T00:00:00Z".to_string(),
             end_time: "2026-05-28T00:01:00Z".to_string(),
             rr_intervals_ms: vec![800.0, 800.0, 800.0, 800.0],
@@ -728,7 +728,7 @@ fn check_hrv_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_i
         intervals.push(810.0);
         expected_valid_count += 2;
     }
-    let result = goose_hrv_v0(&HrvInput {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-28T00:00:00Z".to_string(),
         end_time: "2026-05-28T00:05:00Z".to_string(),
         rr_intervals_ms: intervals,
@@ -772,7 +772,7 @@ fn check_hrv_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_i
 fn check_sleep_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_index: usize) {
     let time_in_bed = rng.f64(240.0, 660.0);
     let sleep_duration = rng.f64(1.0, time_in_bed);
-    let result = goose_sleep_v0(&SleepInput {
+    let result = bull_sleep_v0(&SleepInput {
         start_time: "2026-05-28T00:00:00Z".to_string(),
         end_time: "2026-05-28T08:00:00Z".to_string(),
         sleep_duration_minutes: sleep_duration,
@@ -820,7 +820,7 @@ fn check_sleep_v1_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, c
     let core = (sleep_duration - deep - rem).max(0.0);
     let start_unix_ms = 1_779_926_400_000_i64;
     let end_unix_ms = start_unix_ms + (time_in_bed * 60_000.0).round() as i64;
-    let result = goose_sleep_v1(&SleepV1Input {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: format!("unix_ms:{start_unix_ms}"),
             end_time: format!("unix_ms:{end_unix_ms}"),
@@ -843,7 +843,7 @@ fn check_sleep_v1_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, c
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: rng.usize(12) as u32,
+            trusted_bull_sleep_nights: rng.usize(12) as u32,
             imported_platform_sleep_nights: rng.usize(20) as u32,
             motion_coverage_fraction: Some(rng.f64(0.70, 1.0)),
             heart_rate_coverage_fraction: Some(rng.f64(0.50, 1.0)),
@@ -910,7 +910,7 @@ fn check_strain_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, cas
     }
     let resting_hr = rng.f64(45.0, 75.0);
     let max_hr = rng.f64(165.0, 210.0);
-    let result = goose_strain_v0(&StrainInput {
+    let result = bull_strain_v0(&StrainInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T13:00:00Z".to_string(),
         duration_minutes: duration,
@@ -944,7 +944,7 @@ fn check_strain_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, cas
 }
 
 fn check_recovery_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_index: usize) {
-    let result = goose_recovery_v0(&RecoveryInput {
+    let result = bull_recovery_v0(&RecoveryInput {
         start_time: "2026-05-28T06:00:00Z".to_string(),
         end_time: "2026-05-28T06:05:00Z".to_string(),
         hrv_rmssd_ms: rng.f64(5.0, 140.0),
@@ -978,7 +978,7 @@ fn check_recovery_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, c
 
 fn check_stress_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_index: usize) {
     let resting_hr = rng.f64(45.0, 80.0);
-    let result = goose_stress_v0(&StressInput {
+    let result = bull_stress_v0(&StressInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T12:05:00Z".to_string(),
         heart_rate_bpm: rng.f64(resting_hr, 190.0),
@@ -1058,7 +1058,7 @@ fn base_sleep_input() -> SleepInput {
 fn base_sleep_v1_status_input() -> SleepModelStatusInput {
     SleepModelStatusInput {
         sleep_permission_granted: true,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         imported_platform_sleep_nights: 7,
         motion_coverage_fraction: Some(0.90),
         heart_rate_coverage_fraction: Some(0.85),

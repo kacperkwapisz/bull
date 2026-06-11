@@ -1,23 +1,23 @@
 use std::{fs, fs::File, io::Write, path::Path};
 
-use goose_core::{
+use bull_core::{
     capture_import::{CaptureImportOptions, import_fixture_index},
     export::{RawExportFilters, RawExportOptions, export_raw_timeframe},
     fixtures::build_fixture_index,
     privacy_lint::lint_privacy_path,
     store::{
         ActivityIntervalInput, ActivityLabelInput, ActivityMetricInput, ActivitySessionInput,
-        GooseStore,
+        BullStore,
     },
 };
 use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 #[test]
-fn clean_goosebundle_export_passes_privacy_lint() {
+fn clean_bullbundle_export_passes_privacy_lint() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -26,7 +26,7 @@ fn clean_goosebundle_export_passes_privacy_lint() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass, "{:?}", import_report.issues);
@@ -37,8 +37,8 @@ fn clean_goosebundle_export_passes_privacy_lint() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -67,17 +67,17 @@ fn clean_goosebundle_export_passes_privacy_lint() {
     assert!(
         lint.files
             .iter()
-            .any(|file| file.path == "data/goose.sqlite" && file.skipped)
+            .any(|file| file.path == "data/bull.sqlite" && file.skipped)
     );
 }
 
 #[test]
-fn clean_zipped_goosebundle_export_passes_privacy_lint() {
+fn clean_zipped_bullbundle_export_passes_privacy_lint() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("export.goosebundle");
-    let zip_path = tempdir.path().join("export.goosebundle.zip");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("export.bullbundle");
+    let zip_path = tempdir.path().join("export.bullbundle.zip");
+    let store = BullStore::open(&db_path).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let import_report = import_fixture_index(
@@ -86,7 +86,7 @@ fn clean_zipped_goosebundle_export_passes_privacy_lint() {
         CaptureImportOptions {
             fixture_root,
             database_path: &db_path,
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     );
     assert!(import_report.pass, "{:?}", import_report.issues);
@@ -97,8 +97,8 @@ fn clean_zipped_goosebundle_export_passes_privacy_lint() {
             output_dir: &export_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -129,9 +129,9 @@ fn clean_zipped_goosebundle_export_passes_privacy_lint() {
 #[test]
 fn activity_export_bundle_passes_privacy_lint_without_leaking_identifiers() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
-    let export_dir = tempdir.path().join("activity.goosebundle");
-    let store = GooseStore::open(&db_path).unwrap();
+    let db_path = tempdir.path().join("bull.sqlite");
+    let export_dir = tempdir.path().join("activity.bullbundle");
+    let store = BullStore::open(&db_path).unwrap();
 
     let session_provenance = serde_json::json!({
         "source": "synthetic.activity.export",
@@ -232,8 +232,8 @@ fn activity_export_bundle_passes_privacy_lint_without_leaking_identifiers() {
             output_dir: &export_dir,
             start: "2026-05-27T00:00:00Z",
             end: "2026-05-28T00:00:00Z",
-            app_version: "goose-app/test",
-            core_version: "goose-core/test",
+            app_version: "bull-app/test",
+            core_version: "bull-core/test",
             data_families: vec![
                 "activity_sessions".to_string(),
                 "activity_metrics".to_string(),
@@ -455,7 +455,7 @@ fn privacy_lint_rejects_tokens_private_api_material_and_identifiers() {
     assert!(
         lint.next_actions
             .iter()
-            .any(|action| action.action.contains("Goose-owned pseudonyms")),
+            .any(|action| action.action.contains("Bull-owned pseudonyms")),
         "missing identifier remediation action: {:?}",
         lint.next_actions
     );
@@ -464,12 +464,12 @@ fn privacy_lint_rejects_tokens_private_api_material_and_identifiers() {
 #[test]
 fn privacy_lint_scans_zip_entries() {
     let tempdir = tempfile::tempdir().unwrap();
-    let zip_path = tempdir.path().join("bad.goosebundle.zip");
+    let zip_path = tempdir.path().join("bad.bullbundle.zip");
     let file = File::create(&zip_path).unwrap();
     let mut zip = ZipWriter::new(file);
     let options = FileOptions::default().compression_method(CompressionMethod::Stored);
     zip.start_file("data/debug_events.jsonl", options).unwrap();
-    zip.write_all(br#"{"data_json":"ws://127.0.0.1/goose-debug/stream?token=secret"}"#)
+    zip.write_all(br#"{"data_json":"ws://127.0.0.1/bull-debug/stream?token=secret"}"#)
         .unwrap();
     zip.finish().unwrap();
 
@@ -493,7 +493,7 @@ fn privacy_lint_scans_zip_entries() {
     assert_next_action(&lint, "debug_query_token");
 }
 
-fn assert_rule(report: &goose_core::privacy_lint::PrivacyLintReport, rule: &str) {
+fn assert_rule(report: &bull_core::privacy_lint::PrivacyLintReport, rule: &str) {
     assert!(
         report
             .files
@@ -505,7 +505,7 @@ fn assert_rule(report: &goose_core::privacy_lint::PrivacyLintReport, rule: &str)
     );
 }
 
-fn assert_next_action(report: &goose_core::privacy_lint::PrivacyLintReport, reason: &str) {
+fn assert_next_action(report: &bull_core::privacy_lint::PrivacyLintReport, reason: &str) {
     assert!(
         report
             .next_actions

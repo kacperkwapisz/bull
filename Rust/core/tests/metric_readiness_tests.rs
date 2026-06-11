@@ -1,4 +1,4 @@
-use goose_core::{
+use bull_core::{
     activity_candidates::{
         ACTIVITY_CANDIDATE_CLASSIFIER_INPUT_SCHEMA, ActivityCandidateClassifierInput,
         ActivityCandidateClassifierOptions, ActivityCommandSyncEvidence,
@@ -12,7 +12,7 @@ use goose_core::{
         run_metric_input_readiness_with_activity_classifier,
     },
     protocol::{DeviceType, PACKET_TYPE_HISTORICAL_DATA, build_v5_payload_frame},
-    store::GooseStore,
+    store::BullStore,
 };
 use serde_json::json;
 
@@ -20,36 +20,36 @@ const K10_FRAME: &str = "aa0164000001fb212b0a01000000000000000000000000000048000
 
 #[test]
 fn metric_input_readiness_marks_motion_ready_after_trusted_extraction_exists() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![
         CapturedFrameInput {
             evidence_id: "app.owned.k10".to_string(),
             frame_id: Some("app.owned.k10.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:00Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: K10_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
         CapturedFrameInput {
             evidence_id: "app.owned.k18".to_string(),
             frame_id: Some("app.owned.k18.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:01Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: historical_k18_frame_hex(77),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
     ];
     let import = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -204,23 +204,23 @@ fn metric_input_readiness_marks_motion_ready_after_trusted_extraction_exists() {
 
 #[test]
 fn metric_input_readiness_keeps_hrv_blocked_until_r17_interval_scale_is_validated() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![CapturedFrameInput {
         evidence_id: "app.owned.r17".to_string(),
         frame_id: Some("app.owned.r17.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-27T04:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: r17_frame_hex(&[800, 810, 790, 800]),
         sensitivity: "user-owned-live-notification".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let import = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -301,7 +301,7 @@ fn metric_input_readiness_keeps_hrv_blocked_until_r17_interval_scale_is_validate
 
 #[test]
 fn metric_input_readiness_can_fail_when_scores_are_required() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let correlation = run_capture_correlation_for_store(
         &store,
         "empty-db",
@@ -585,37 +585,37 @@ fn put_i16(bytes: &mut [u8], offset: usize, value: i16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
 
-fn trusted_motion_correlation() -> goose_core::capture_correlation::CaptureCorrelationReport {
-    let store = GooseStore::open_in_memory().unwrap();
+fn trusted_motion_correlation() -> bull_core::capture_correlation::CaptureCorrelationReport {
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![
         CapturedFrameInput {
             evidence_id: "app.owned.k10".to_string(),
             frame_id: Some("app.owned.k10.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:00Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: K10_FRAME.to_string(),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
         CapturedFrameInput {
             evidence_id: "app.owned.k18".to_string(),
             frame_id: Some("app.owned.k18.frame.0".to_string()),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: "2026-05-27T00:00:01Z".to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: historical_k18_frame_hex(77),
             sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         },
     ];
     let import = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();

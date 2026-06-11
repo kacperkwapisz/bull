@@ -7,11 +7,11 @@ use std::{
 use serde::{Deserialize, Deserializer, Serialize, de};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     protocol::{DeviceType, ParsedPayload, parse_frame_hex},
 };
 
-pub const COMMAND_CAPTURE_PLAN_REPORT_SCHEMA: &str = "goose.command-capture-plan-report.v1";
+pub const COMMAND_CAPTURE_PLAN_REPORT_SCHEMA: &str = "bull.command-capture-plan-report.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1069,13 +1069,13 @@ const TRUSTED_COMMAND_PROVENANCE_CAPTURE_KINDS: &[&str] = &[
     "user_owned_official_capture",
     "owned_device_passive_capture",
 ];
-const GOOSE_COMMAND_SERVICE_UUID: &str = "fd4b0001-cce1-4033-93ce-002d5875f58a";
-const GOOSE_COMMAND_TO_STRAP_UUID: &str = "fd4b0002-cce1-4033-93ce-002d5875f58a";
-const GOOSE_COMMAND_FROM_STRAP_UUID: &str = "fd4b0003-cce1-4033-93ce-002d5875f58a";
+const BULL_COMMAND_SERVICE_UUID: &str = "fd4b0001-cce1-4033-93ce-002d5875f58a";
+const BULL_COMMAND_TO_STRAP_UUID: &str = "fd4b0002-cce1-4033-93ce-002d5875f58a";
+const BULL_COMMAND_FROM_STRAP_UUID: &str = "fd4b0003-cce1-4033-93ce-002d5875f58a";
 const MAX_DIRECT_SEND_OVERRIDE_WINDOW_MS: u64 = 30_000;
 
-pub fn load_command_evidence(path: &Path) -> GooseResult<Vec<CommandEvidence>> {
-    let raw = fs::read_to_string(path).map_err(|source| GooseError::io(path, source))?;
+pub fn load_command_evidence(path: &Path) -> BullResult<Vec<CommandEvidence>> {
+    let raw = fs::read_to_string(path).map_err(|source| BullError::io(path, source))?;
     if raw.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -1094,7 +1094,7 @@ pub fn load_command_evidence(path: &Path) -> GooseResult<Vec<CommandEvidence>> {
 
 pub fn load_command_local_frame_candidates(
     path: &Path,
-) -> GooseResult<Vec<CommandLocalFrameCandidate>> {
+) -> BullResult<Vec<CommandLocalFrameCandidate>> {
     if path.is_dir() {
         return load_command_local_frame_candidates_dir(path);
     }
@@ -1103,12 +1103,12 @@ pub fn load_command_local_frame_candidates(
 
 fn load_command_local_frame_candidates_dir(
     path: &Path,
-) -> GooseResult<Vec<CommandLocalFrameCandidate>> {
+) -> BullResult<Vec<CommandLocalFrameCandidate>> {
     let mut files = fs::read_dir(path)
-        .map_err(|source| GooseError::io(path, source))?
+        .map_err(|source| BullError::io(path, source))?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| GooseError::io(path, source))?;
+        .map_err(|source| BullError::io(path, source))?;
     files.sort();
 
     let mut candidates = Vec::new();
@@ -1130,8 +1130,8 @@ fn command_candidate_file_extension(path: &Path) -> bool {
 
 fn load_command_local_frame_candidates_file(
     path: &Path,
-) -> GooseResult<Vec<CommandLocalFrameCandidate>> {
-    let raw = fs::read_to_string(path).map_err(|source| GooseError::io(path, source))?;
+) -> BullResult<Vec<CommandLocalFrameCandidate>> {
+    let raw = fs::read_to_string(path).map_err(|source| BullError::io(path, source))?;
     if raw.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -1153,7 +1153,7 @@ fn load_command_local_frame_candidates_file(
 fn load_command_local_frame_candidates_jsonl(
     path: &Path,
     raw: &str,
-) -> GooseResult<Vec<CommandLocalFrameCandidate>> {
+) -> BullResult<Vec<CommandLocalFrameCandidate>> {
     let mut candidates = Vec::new();
     for (line_index, line) in raw.lines().enumerate() {
         let line = line.trim();
@@ -1161,7 +1161,7 @@ fn load_command_local_frame_candidates_jsonl(
             continue;
         }
         let row = serde_json::from_str::<CommandLocalFrameCandidate>(line).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} line {} is not valid command-local-frame-candidate JSONL: {error}",
                 path.display(),
                 line_index + 1
@@ -1215,7 +1215,7 @@ fn normalize_command_identifier(raw: &str) -> Option<String> {
         .map(|definition| definition.id.to_string())
 }
 
-fn load_command_evidence_jsonl(path: &Path, raw: &str) -> GooseResult<Vec<CommandEvidence>> {
+fn load_command_evidence_jsonl(path: &Path, raw: &str) -> BullResult<Vec<CommandEvidence>> {
     let mut evidence = Vec::new();
     for (line_index, line) in raw.lines().enumerate() {
         let line = line.trim();
@@ -1223,7 +1223,7 @@ fn load_command_evidence_jsonl(path: &Path, raw: &str) -> GooseResult<Vec<Comman
             continue;
         }
         let row = serde_json::from_str::<CommandEvidence>(line).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "{} line {} is not valid command-evidence JSONL: {error}",
                 path.display(),
                 line_index + 1
@@ -1237,8 +1237,8 @@ fn load_command_evidence_jsonl(path: &Path, raw: &str) -> GooseResult<Vec<Comman
 pub fn command_evidence_from_emulator_log(
     path: &Path,
     options: &CommandEmulatorLogEvidenceOptions,
-) -> GooseResult<CommandEmulatorLogEvidenceReport> {
-    let raw = fs::read_to_string(path).map_err(|source| GooseError::io(path, source))?;
+) -> BullResult<CommandEmulatorLogEvidenceReport> {
+    let raw = fs::read_to_string(path).map_err(|source| BullError::io(path, source))?;
     command_evidence_from_emulator_log_text(&path.display().to_string(), &raw, options)
 }
 
@@ -1246,7 +1246,7 @@ pub fn command_evidence_from_emulator_log_text(
     source_log: &str,
     raw: &str,
     options: &CommandEmulatorLogEvidenceOptions,
-) -> GooseResult<CommandEmulatorLogEvidenceReport> {
+) -> BullResult<CommandEmulatorLogEvidenceReport> {
     let lines = emulator_log_lines(&raw);
     let mut issues = Vec::new();
     let mut pending_writes = Vec::<PendingEmulatorCommandWrite>::new();
@@ -1257,7 +1257,7 @@ pub fn command_evidence_from_emulator_log_text(
         let line_no = index + 1;
         let message = emulator_log_message(line);
         if let Some(write) = emulator_command_write_record(line_no, message, options) {
-            let parsed = match parse_frame_hex(DeviceType::Goose, &write.frame_hex) {
+            let parsed = match parse_frame_hex(DeviceType::Bull, &write.frame_hex) {
                 Ok(parsed) => parsed,
                 Err(error) => {
                     issues.push(format!(
@@ -1303,7 +1303,7 @@ pub fn command_evidence_from_emulator_log_text(
         if !seen_responses.insert(response_key) {
             continue;
         }
-        let parsed = match parse_frame_hex(DeviceType::Goose, &response.frame_hex) {
+        let parsed = match parse_frame_hex(DeviceType::Bull, &response.frame_hex) {
             Ok(parsed) => parsed,
             Err(error) => {
                 issues.push(format!(
@@ -1393,8 +1393,8 @@ pub fn command_evidence_from_emulator_log_text(
     );
 
     Ok(CommandEmulatorLogEvidenceReport {
-        schema: "goose.command-evidence.v1".to_string(),
-        generated_by: "goose-command-validator emulator-log".to_string(),
+        schema: "bull.command-evidence.v1".to_string(),
+        generated_by: "bull-command-validator emulator-log".to_string(),
         pass: official_capture_ready,
         input_valid,
         log_lines_ready,
@@ -1406,7 +1406,7 @@ pub fn command_evidence_from_emulator_log_text(
         direct_validation_ready,
         source_capture: source_log.to_string(),
         source_log: source_log.to_string(),
-        device_type: "GOOSE".to_string(),
+        device_type: "BULL".to_string(),
         evidence_source: "user_owned_official_capture".to_string(),
         capture_kind: options.capture_kind.clone(),
         owner: options.owner.clone(),
@@ -1420,7 +1420,7 @@ pub fn command_evidence_from_emulator_log_text(
         issues,
         notes: vec![
             "Rows were parsed from a local macOS WHOOP BLE peripheral emulator log.".to_string(),
-            "The official app produced these writes; Goose did not send BLE commands during conversion.".to_string(),
+            "The official app produced these writes; Bull did not send BLE commands during conversion.".to_string(),
             "local_frame_hex is populated only when --emulator-mirror-local-frame is used after a separate byte-match/replay comparison.".to_string(),
         ],
         next_actions,
@@ -1488,7 +1488,7 @@ fn emulator_log_next_actions(
             &mut actions,
             &mut seen,
             "local_frame_matches_official_frame",
-            "Import Goose dry-run local frame candidates and run local-frame promotion before validating direct sends.",
+            "Import Bull dry-run local frame candidates and run local-frame promotion before validating direct sends.",
         );
     }
     actions
@@ -1514,7 +1514,7 @@ fn emulator_log_issue_next_action(issue: &str) -> (&'static str, String) {
     if issue.starts_with("emulator_write_parse_failed:") {
         (
             "official_write_frame_parseable",
-            "Recapture or repair the official app write frame so Goose can parse it.".to_string(),
+            "Recapture or repair the official app write frame so Bull can parse it.".to_string(),
         )
     } else if issue.starts_with("emulator_write_not_command_payload:") {
         (
@@ -1531,7 +1531,7 @@ fn emulator_log_issue_next_action(issue: &str) -> (&'static str, String) {
     } else if issue.starts_with("emulator_response_parse_failed:") {
         (
             "official_response_frame_parseable",
-            "Recapture or repair the strap response frame so Goose can parse it.".to_string(),
+            "Recapture or repair the strap response frame so Bull can parse it.".to_string(),
         )
     } else if issue.starts_with("emulator_response_not_command_response:") {
         (
@@ -1557,7 +1557,7 @@ fn emulator_log_issue_next_action(issue: &str) -> (&'static str, String) {
 
 pub fn command_evidence_template() -> CommandEvidenceTemplate {
     CommandEvidenceTemplate {
-        schema: "goose.command-evidence.v1".to_string(),
+        schema: "bull.command-evidence.v1".to_string(),
         evidence: COMMAND_DEFINITIONS
             .iter()
             .map(|definition| CommandEvidence {
@@ -1606,7 +1606,7 @@ pub fn command_evidence_with_local_frame_matches(
                 official_frame_hex: row.official_frame_hex.as_deref().map(normalize_hex),
                 local_frame_hex: row.local_frame_hex.as_deref().map(normalize_hex),
                 source: None,
-                warnings: vec!["command is not in Goose command definitions".to_string()],
+                warnings: vec!["command is not in Bull command definitions".to_string()],
             });
             continue;
         };
@@ -1635,7 +1635,7 @@ pub fn command_evidence_with_local_frame_matches(
                 local_frame_hex: None,
                 source: None,
                 warnings: vec![
-                    "import a Goose dry-run/local frame candidate for this command".to_string(),
+                    "import a Bull dry-run/local frame candidate for this command".to_string(),
                 ],
             });
             continue;
@@ -1687,8 +1687,8 @@ pub fn command_evidence_with_local_frame_matches(
     let next_actions = local_frame_match_next_actions(evidence, candidates, &comparisons);
 
     CommandLocalFrameMatchReport {
-        schema: "goose.command-local-frame-match-report.v1".to_string(),
-        generated_by: "goose-command-local-frame-match".to_string(),
+        schema: "bull.command-local-frame-match-report.v1".to_string(),
+        generated_by: "bull-command-local-frame-match".to_string(),
         pass: promotion_ready,
         input_valid,
         comparisons_ready,
@@ -1718,7 +1718,7 @@ fn local_frame_match_next_actions(
             &mut seen,
             "",
             "official_command_evidence_required",
-            "Import official-app command evidence from the real strap or macOS BLE emulator before matching Goose dry-run bytes.",
+            "Import official-app command evidence from the real strap or macOS BLE emulator before matching Bull dry-run bytes.",
         );
     }
     if candidates.is_empty() {
@@ -1727,7 +1727,7 @@ fn local_frame_match_next_actions(
             &mut seen,
             "",
             "local_frame_candidates_required",
-            "Import Goose dry-run local frame candidates from the APK/firmware-derived builder or whoop-rev command builder.",
+            "Import Bull dry-run local frame candidates from the APK/firmware-derived builder or whoop-rev command builder.",
         );
     }
     for comparison in comparisons {
@@ -1766,11 +1766,11 @@ fn push_local_frame_next_action(
 fn local_frame_match_action_for_reason(command: &str, reason: &str) -> String {
     match reason {
         "unknown_command" => {
-            "Map this evidence row to a known Goose command definition before comparing bytes."
+            "Map this evidence row to a known Bull command definition before comparing bytes."
                 .to_string()
         }
         "local_candidate_missing" | "local_frame_missing" => format!(
-            "Build or import a Goose dry-run frame candidate for {command} before promotion."
+            "Build or import a Bull dry-run frame candidate for {command} before promotion."
         ),
         "official_frame_missing" => format!(
             "Import the official app write frame for {command} before comparing local bytes."
@@ -1779,7 +1779,7 @@ fn local_frame_match_action_for_reason(command: &str, reason: &str) -> String {
             "Add the static APK/firmware command number for {command} before local byte promotion."
         ),
         "official_frame_parse_failed" | "official_frame_crc_invalid" => format!(
-            "Recapture or repair the official {command} frame so Goose can parse it with valid CRCs."
+            "Recapture or repair the official {command} frame so Bull can parse it with valid CRCs."
         ),
         "official_frame_not_command_payload" => format!(
             "Use the official command write frame for {command}, not a notification or data packet."
@@ -1788,16 +1788,16 @@ fn local_frame_match_action_for_reason(command: &str, reason: &str) -> String {
             format!("Re-check the static command map; the official frame must parse as {command}.")
         }
         "local_frame_parse_failed" | "local_frame_crc_invalid" => format!(
-            "Regenerate the Goose dry-run frame for {command} so it parses with valid CRCs."
+            "Regenerate the Bull dry-run frame for {command} so it parses with valid CRCs."
         ),
         "local_frame_not_command_payload" => {
             format!("Regenerate the local candidate for {command} as a command write frame.")
         }
         "local_frame_command_number_mismatch" => format!(
-            "Fix the Goose dry-run builder so the local frame parses as the same command number as {command}."
+            "Fix the Bull dry-run builder so the local frame parses as the same command number as {command}."
         ),
         "frame_bytes_differ" => format!(
-            "Replay or adjust the Goose dry-run builder until the local {command} bytes exactly match the official frame."
+            "Replay or adjust the Bull dry-run builder until the local {command} bytes exactly match the official frame."
         ),
         "local_service_uuid_mismatch" => format!(
             "Set the local dry-run service UUID for {command} to the official captured service UUID."
@@ -1846,8 +1846,8 @@ pub fn validate_commands(evidence: &[CommandEvidence]) -> CommandValidationRepor
     let all_direct_sends_ready = blocked_count == 0;
 
     CommandValidationReport {
-        schema: "goose.command-validation-report.v1".to_string(),
-        generated_by: "goose-command-validator".to_string(),
+        schema: "bull.command-validation-report.v1".to_string(),
+        generated_by: "bull-command-validator".to_string(),
         pass: evidence_valid && all_direct_sends_ready,
         evidence_valid,
         all_direct_sends_ready,
@@ -1859,9 +1859,9 @@ pub fn validate_commands(evidence: &[CommandEvidence]) -> CommandValidationRepor
     }
 }
 
-pub fn command_result_from_report_json(report_json: &str) -> GooseResult<CommandValidationResult> {
+pub fn command_result_from_report_json(report_json: &str) -> BullResult<CommandValidationResult> {
     serde_json::from_str::<CommandValidationResult>(report_json)
-        .map_err(|error| GooseError::message(format!("invalid command validation JSON: {error}")))
+        .map_err(|error| BullError::message(format!("invalid command validation JSON: {error}")))
 }
 
 pub fn direct_send_gate_from_result(
@@ -1870,7 +1870,7 @@ pub fn direct_send_gate_from_result(
 ) -> CommandDirectSendGate {
     match result {
         Some(result) => CommandDirectSendGate {
-            schema: "goose.command-direct-send-gate.v1".to_string(),
+            schema: "bull.command-direct-send-gate.v1".to_string(),
             command: result.command.clone(),
             command_number: result.command_number,
             family: Some(result.family.clone()),
@@ -1891,7 +1891,7 @@ pub fn direct_send_gate_from_result(
             validated_triggering_ui_action: result.validated_triggering_ui_action.clone(),
         },
         None => CommandDirectSendGate {
-            schema: "goose.command-direct-send-gate.v1".to_string(),
+            schema: "bull.command-direct-send-gate.v1".to_string(),
             command: command.to_string(),
             command_number: None,
             family: None,
@@ -1901,7 +1901,7 @@ pub fn direct_send_gate_from_result(
             warnings: Vec::new(),
             next_capture_actions: vec![CommandNextCaptureAction {
                 requirement: "command_validation_record".to_string(),
-                action: "Import or validate official command evidence so Goose can persist a validation record for this command.".to_string(),
+                action: "Import or validate official command evidence so Bull can persist a validation record for this command.".to_string(),
             }],
             issues: vec!["command validation record not found".to_string()],
             validated_local_frame_hex: None,
@@ -2001,7 +2001,7 @@ pub fn command_capture_plan_from_results(
 
     CommandCapturePlanReport {
         schema: COMMAND_CAPTURE_PLAN_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-command-capture-plan".to_string(),
+        generated_by: "bull-command-capture-plan".to_string(),
         pass,
         requested_commands_valid,
         validation_records_valid,
@@ -2176,7 +2176,7 @@ pub fn direct_send_preflight_from_gate(
     warnings.dedup();
 
     CommandDirectSendPreflight {
-        schema: "goose.command-direct-send-preflight.v1".to_string(),
+        schema: "bull.command-direct-send-preflight.v1".to_string(),
         command: input.command.clone(),
         direct_send_allowed: missing.is_empty(),
         gate,
@@ -2503,7 +2503,7 @@ impl EmulatorCommandEvidenceAccumulator {
             "capture_kind": options.capture_kind.clone(),
             "owner": options.owner.clone(),
             "source_capture": source_log,
-            "device_type": "GOOSE",
+            "device_type": "BULL",
             "command_name": self.command_name,
             "command_number": self.command_number,
             "transaction_lines": self.transaction_lines,
@@ -2588,8 +2588,8 @@ fn emulator_command_write_record(
     Some(EmulatorCommandWriteRecord {
         line_no,
         frame_hex,
-        service_uuid: GOOSE_COMMAND_SERVICE_UUID.to_string(),
-        characteristic_uuid: GOOSE_COMMAND_TO_STRAP_UUID.to_string(),
+        service_uuid: BULL_COMMAND_SERVICE_UUID.to_string(),
+        characteristic_uuid: BULL_COMMAND_TO_STRAP_UUID.to_string(),
         write_type: normalize_write_type(&options.write_type)
             .unwrap_or_else(|| options.write_type.trim().to_string()),
     })
@@ -2635,7 +2635,7 @@ fn structured_emulator_command_write_record(
     options: &CommandEmulatorLogEvidenceOptions,
 ) -> Option<EmulatorCommandWriteRecord> {
     let value = serde_json::from_str::<serde_json::Value>(message).ok()?;
-    if !structured_emulator_role_matches(&value, "command_to_strap", GOOSE_COMMAND_TO_STRAP_UUID) {
+    if !structured_emulator_role_matches(&value, "command_to_strap", BULL_COMMAND_TO_STRAP_UUID) {
         return None;
     }
     if structured_emulator_direction(&value).as_deref() == Some("device_to_phone") {
@@ -2649,7 +2649,7 @@ fn structured_emulator_command_write_record(
     )
     .map(normalize_ble_endpoint_value)
     .filter(|value| !value.is_empty())
-    .unwrap_or_else(|| GOOSE_COMMAND_SERVICE_UUID.to_string());
+    .unwrap_or_else(|| BULL_COMMAND_SERVICE_UUID.to_string());
     let characteristic_uuid = structured_emulator_string_field(
         &value,
         &[
@@ -2660,7 +2660,7 @@ fn structured_emulator_command_write_record(
     )
     .map(normalize_ble_endpoint_value)
     .filter(|value| !value.is_empty())
-    .unwrap_or_else(|| GOOSE_COMMAND_TO_STRAP_UUID.to_string());
+    .unwrap_or_else(|| BULL_COMMAND_TO_STRAP_UUID.to_string());
     let write_type = structured_emulator_string_field(&value, &["write_type", "writeType"])
         .and_then(normalize_write_type)
         .or_else(|| normalize_write_type(&options.write_type))
@@ -2682,7 +2682,7 @@ fn structured_emulator_command_response_record(
     if !structured_emulator_role_matches(
         &value,
         "command_from_strap",
-        GOOSE_COMMAND_FROM_STRAP_UUID,
+        BULL_COMMAND_FROM_STRAP_UUID,
     ) {
         return None;
     }
@@ -2706,11 +2706,11 @@ fn is_structured_emulator_command_row(value: &serde_json::Value) -> bool {
         && (structured_emulator_role_matches(
             value,
             "command_to_strap",
-            GOOSE_COMMAND_TO_STRAP_UUID,
+            BULL_COMMAND_TO_STRAP_UUID,
         ) || structured_emulator_role_matches(
             value,
             "command_from_strap",
-            GOOSE_COMMAND_FROM_STRAP_UUID,
+            BULL_COMMAND_FROM_STRAP_UUID,
         ))
 }
 
@@ -3010,13 +3010,13 @@ fn next_capture_action_for_requirement(
             "Record the BLE service UUID used by the official app write.".to_string()
         }
         "local_ble_service_uuid" => {
-            "Set the Goose dry-run service UUID to the official captured command service.".to_string()
+            "Set the Bull dry-run service UUID to the official captured command service.".to_string()
         }
         "official_ble_characteristic_uuid" => {
             "Record the BLE characteristic UUID used by the official app write.".to_string()
         }
         "local_ble_characteristic_uuid" => {
-            "Set the Goose dry-run characteristic UUID to the official captured command characteristic.".to_string()
+            "Set the Bull dry-run characteristic UUID to the official captured command characteristic.".to_string()
         }
         "official_ble_write_type" => {
             "Record whether the official app writes with response or without response.".to_string()
@@ -3025,25 +3025,25 @@ fn next_capture_action_for_requirement(
             "Normalize the captured official write type to with_response or without_response.".to_string()
         }
         "local_ble_write_type" => {
-            "Set the Goose dry-run write type to the official captured write type.".to_string()
+            "Set the Bull dry-run write type to the official captured write type.".to_string()
         }
         "local_ble_write_type_valid" => {
-            "Normalize the Goose dry-run write type to with_response or without_response.".to_string()
+            "Normalize the Bull dry-run write type to with_response or without_response.".to_string()
         }
         "ble_service_uuid_matches_official_capture" => {
-            "Update the Goose dry-run endpoint so its service UUID exactly matches the official capture.".to_string()
+            "Update the Bull dry-run endpoint so its service UUID exactly matches the official capture.".to_string()
         }
         "ble_characteristic_uuid_matches_official_capture" => {
-            "Update the Goose dry-run endpoint so its characteristic UUID exactly matches the official capture.".to_string()
+            "Update the Bull dry-run endpoint so its characteristic UUID exactly matches the official capture.".to_string()
         }
         "ble_write_type_matches_official_capture" => {
-            "Update the Goose dry-run endpoint so its write type exactly matches the official capture.".to_string()
+            "Update the Bull dry-run endpoint so its write type exactly matches the official capture.".to_string()
         }
         "local_frame_matches_official_frame" => format!(
-            "Use the APK/firmware-derived builder or raw replay args until Goose dry-run bytes exactly match the official {command} frame."
+            "Use the APK/firmware-derived builder or raw replay args until Bull dry-run bytes exactly match the official {command} frame."
         ),
         "official_frame_parseable" => {
-            "Preserve the complete official app write frame and verify Goose can parse it.".to_string()
+            "Preserve the complete official app write frame and verify Bull can parse it.".to_string()
         }
         "official_frame_crc_valid" => {
             "Capture or reconstruct the full official frame with valid header and payload CRCs.".to_string()
@@ -3061,7 +3061,7 @@ fn next_capture_action_for_requirement(
             "Capture the strap-to-app success response for {command} after the official app write."
         ),
         "official_response_frame_parseable" => {
-            "Preserve the complete success response frame and verify Goose can parse it.".to_string()
+            "Preserve the complete success response frame and verify Bull can parse it.".to_string()
         }
         "official_response_frame_crc_valid" => {
             "Capture or reconstruct the full success response with valid header and payload CRCs.".to_string()
@@ -3079,10 +3079,10 @@ fn next_capture_action_for_requirement(
             "Record the exact official app screen, button, or test action that produced this state-changing write.".to_string()
         }
         "event_logging" => {
-            "Persist a Goose event-log entry for dry-run, preflight, and send attempts before enabling this command.".to_string()
+            "Persist a Bull event-log entry for dry-run, preflight, and send attempts before enabling this command.".to_string()
         }
         "timeout_behavior" => {
-            "Capture or document the official app timeout/retry behavior and encode the Goose timeout path for this command.".to_string()
+            "Capture or document the official app timeout/retry behavior and encode the Bull timeout path for this command.".to_string()
         }
         "failure_parser" => {
             "Implement or enable the critical failure parser, then prove it parses a non-success official response.".to_string()
@@ -3091,7 +3091,7 @@ fn next_capture_action_for_requirement(
             "Capture a non-success official command response for this critical command.".to_string()
         }
         "official_failure_response_frame_parseable" => {
-            "Preserve the complete failure response frame and verify Goose can parse it.".to_string()
+            "Preserve the complete failure response frame and verify Bull can parse it.".to_string()
         }
         "official_failure_response_frame_crc_valid" => {
             "Capture or reconstruct the full failure response with valid header and payload CRCs.".to_string()
@@ -3481,7 +3481,7 @@ fn promote_local_frame_candidate(
         });
     };
 
-    let official_parsed = match parse_frame_hex(DeviceType::Goose, official) {
+    let official_parsed = match parse_frame_hex(DeviceType::Bull, official) {
         Ok(parsed) => parsed,
         Err(error) => {
             warnings.push(format!("official frame parse failed: {error}"));
@@ -3534,7 +3534,7 @@ fn promote_local_frame_candidate(
         });
     }
 
-    let local_parsed = match parse_frame_hex(DeviceType::Goose, local) {
+    let local_parsed = match parse_frame_hex(DeviceType::Bull, local) {
         Ok(parsed) => parsed,
         Err(error) => {
             warnings.push(format!("local frame parse failed: {error}"));
@@ -3706,7 +3706,7 @@ fn merged_local_frame_match_provenance(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .unwrap_or("goose_local_dry_run")
+                .unwrap_or("bull_local_dry_run")
         ),
     );
     match_object.insert(
@@ -3745,7 +3745,7 @@ fn validate_official_command_frame(
         return;
     };
 
-    let parsed = match parse_frame_hex(DeviceType::Goose, official_frame_hex) {
+    let parsed = match parse_frame_hex(DeviceType::Bull, official_frame_hex) {
         Ok(parsed) => parsed,
         Err(error) => {
             missing.push("official_frame_parseable".to_string());
@@ -3794,7 +3794,7 @@ fn validate_official_response_frame(
         return;
     };
 
-    let parsed = match parse_frame_hex(DeviceType::Goose, response_frame_hex) {
+    let parsed = match parse_frame_hex(DeviceType::Bull, response_frame_hex) {
         Ok(parsed) => parsed,
         Err(error) => {
             missing.push("official_response_frame_parseable".to_string());
@@ -3846,7 +3846,7 @@ fn validate_official_failure_response_frame(
         return;
     };
 
-    let parsed = match parse_frame_hex(DeviceType::Goose, response_frame_hex) {
+    let parsed = match parse_frame_hex(DeviceType::Bull, response_frame_hex) {
         Ok(parsed) => parsed,
         Err(error) => {
             missing.push("official_failure_response_frame_parseable".to_string());

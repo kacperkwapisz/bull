@@ -9,18 +9,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     export::{RawExportOptions, export_raw_timeframe},
     metrics::{
-        HrvInput, RecoveryInput, SleepInput, StrainInput, StressInput, goose_hrv_v0,
-        goose_recovery_v0, goose_sleep_v0, goose_strain_v0, goose_stress_v0,
+        HrvInput, RecoveryInput, SleepInput, StrainInput, StressInput, bull_hrv_v0,
+        bull_recovery_v0, bull_sleep_v0, bull_strain_v0, bull_stress_v0,
     },
     protocol::{DeviceType, FrameAccumulator, build_v5_payload_frame, parse_frame},
-    store::GooseStore,
+    store::BullStore,
 };
 
-pub const PERF_BUDGET_REPORT_SCHEMA: &str = "goose.perf-budget-report.v1";
+pub const PERF_BUDGET_REPORT_SCHEMA: &str = "bull.perf-budget-report.v1";
 pub const DEFAULT_PERF_SCALE: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,9 +123,9 @@ pub struct PerfBudgetNextAction {
     pub action: String,
 }
 
-pub fn run_perf_budget(options: PerfBudgetOptions) -> GooseResult<PerfBudgetReport> {
+pub fn run_perf_budget(options: PerfBudgetOptions) -> BullResult<PerfBudgetReport> {
     if options.scale == 0 {
-        return Err(GooseError::message("scale must be greater than 0"));
+        return Err(BullError::message("scale must be greater than 0"));
     }
 
     let suite_started = Instant::now();
@@ -154,7 +154,7 @@ pub fn perf_budget_report_from_workloads(
     let input_valid = scale > 0;
     let parser_workload_ready = perf_workload_ready(&workloads, "parser_frame_batch");
     let deframer_workload_ready = perf_workload_ready(&workloads, "deframer_split_stream");
-    let score_workload_ready = perf_workload_ready(&workloads, "goose_score_batch");
+    let score_workload_ready = perf_workload_ready(&workloads, "bull_score_batch");
     let export_workload_ready = perf_workload_ready(&workloads, "raw_export_bundle");
     let duration_budget_ready = perf_budget_reason_ready(&workloads, "duration_budget_exceeded");
     let memory_budget_ready = perf_budget_reason_ready(&workloads, "memory_budget_exceeded");
@@ -187,7 +187,7 @@ pub fn perf_budget_report_from_workloads(
 
     PerfBudgetReport {
         schema: PERF_BUDGET_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-perf-budget".to_string(),
+        generated_by: "bull-perf-budget".to_string(),
         scale,
         pass,
         input_valid,
@@ -236,7 +236,7 @@ fn parser_workload(scale: usize, budgets: &PerfBudgets) -> PerfWorkloadReport {
     for frame in &frames {
         bytes_processed += frame.len() as u64;
         checks += 1;
-        match parse_frame(DeviceType::Goose, frame) {
+        match parse_frame(DeviceType::Bull, frame) {
             Ok(parsed) if parsed.header_crc_valid && parsed.payload_crc_valid => {}
             _ => parse_failures += 1,
         }
@@ -253,7 +253,7 @@ fn parser_workload(scale: usize, budgets: &PerfBudgets) -> PerfWorkloadReport {
         max_estimated_peak_bytes: budgets.parser_max_estimated_peak_bytes,
         bytes_processed,
         details: json!({
-            "device_type": "GOOSE",
+            "device_type": "BULL",
             "parse_failures": parse_failures,
             "payload_family": "mixed_command_event_data_packet"
         }),
@@ -281,7 +281,7 @@ fn deframer_workload(scale: usize, budgets: &PerfBudgets) -> PerfWorkloadReport 
     }
 
     let started = Instant::now();
-    let mut accumulator = FrameAccumulator::new(DeviceType::Goose);
+    let mut accumulator = FrameAccumulator::new(DeviceType::Bull);
     let mut extracted = Vec::new();
     let mut dropped_prefix_bytes = 0usize;
     for chunk in stream.chunks(7) {
@@ -338,19 +338,19 @@ fn algorithms_workload(scale: usize, budgets: &PerfBudgets) -> PerfWorkloadRepor
     for index in 0..scale {
         let hrv_input = hrv_input(index);
         bytes_processed += hrv_input.rr_intervals_ms.len() as u64 * 8;
-        output_failures += goose_hrv_v0(&hrv_input).output.is_none() as usize;
+        output_failures += bull_hrv_v0(&hrv_input).output.is_none() as usize;
         checks += 1;
 
-        output_failures += goose_sleep_v0(&sleep_input(index)).output.is_none() as usize;
-        output_failures += goose_strain_v0(&strain_input(index)).output.is_none() as usize;
-        output_failures += goose_recovery_v0(&recovery_input(index)).output.is_none() as usize;
-        output_failures += goose_stress_v0(&stress_input(index)).output.is_none() as usize;
+        output_failures += bull_sleep_v0(&sleep_input(index)).output.is_none() as usize;
+        output_failures += bull_strain_v0(&strain_input(index)).output.is_none() as usize;
+        output_failures += bull_recovery_v0(&recovery_input(index)).output.is_none() as usize;
+        output_failures += bull_stress_v0(&stress_input(index)).output.is_none() as usize;
         checks += 4;
     }
 
     let duration_ms = duration_ms(started.elapsed());
     finish_workload(WorkloadFinish {
-        name: "goose_score_batch",
+        name: "bull_score_batch",
         cases: scale * 5,
         checks,
         duration_ms,
@@ -372,35 +372,35 @@ fn algorithms_workload(scale: usize, budgets: &PerfBudgets) -> PerfWorkloadRepor
     })
 }
 
-fn export_workload(scale: usize, budgets: &PerfBudgets) -> GooseResult<PerfWorkloadReport> {
+fn export_workload(scale: usize, budgets: &PerfBudgets) -> BullResult<PerfWorkloadReport> {
     let workspace = PerfWorkspace::new()?;
-    let db_path = workspace.path.join("goose.sqlite");
-    let output_dir = workspace.path.join("export.goosebundle");
-    let zip_path = workspace.path.join("export.goosebundle.zip");
+    let db_path = workspace.path.join("bull.sqlite");
+    let output_dir = workspace.path.join("export.bullbundle");
+    let zip_path = workspace.path.join("export.bullbundle.zip");
 
-    let store = GooseStore::open(&db_path)?;
+    let store = BullStore::open(&db_path)?;
     let frames = (0..scale)
         .map(|index| CapturedFrameInput {
             evidence_id: format!("perf.raw.{index:04}"),
             frame_id: Some(format!("perf.frame.{index:04}")),
             source: "perf-budget.synthetic".to_string(),
             captured_at: captured_at(index),
-            device_model: "WHOOP 5.0 Goose synthetic".to_string(),
+            device_model: "WHOOP 5.0 Bull synthetic".to_string(),
             frame_hex: hex::encode(build_v5_payload_frame(&synthetic_payload(index))),
             sensitivity: "synthetic-no-user-data".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         })
         .collect::<Vec<_>>();
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/perf-budget",
+            parser_version: "bull-core/perf-budget",
         },
     )?;
     if !import_report.pass {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "perf export setup import failed: {:?}",
             import_report.issues
         )));
@@ -413,8 +413,8 @@ fn export_workload(scale: usize, budgets: &PerfBudgets) -> GooseResult<PerfWorkl
             output_dir: &output_dir,
             start: "2026-05-01T00:00:00Z",
             end: "2026-05-29T00:00:00Z",
-            app_version: "goose-app/perf-budget",
-            core_version: "goose-core/perf-budget",
+            app_version: "bull-app/perf-budget",
+            core_version: "bull-core/perf-budget",
             data_families: Vec::new(),
             filters: Default::default(),
             sqlite_source_path: Some(&db_path),
@@ -562,8 +562,8 @@ fn perf_budget_action(workload_name: &str, reason: &str) -> &'static str {
             "deframer_split_stream" => {
                 "Profile deframer chunk handling at this scale, then reduce buffer copies and retained stream state before raising the mobile budget."
             }
-            "goose_score_batch" => {
-                "Profile Goose score calculations at this scale, then cache shared feature work or simplify repeated math before raising the mobile budget."
+            "bull_score_batch" => {
+                "Profile Bull score calculations at this scale, then cache shared feature work or simplify repeated math before raising the mobile budget."
             }
             "raw_export_bundle" => {
                 "Profile raw export writes at this scale, then stream rows and zip output instead of buffering before raising the mobile budget."
@@ -579,8 +579,8 @@ fn perf_budget_action(workload_name: &str, reason: &str) -> &'static str {
             "deframer_split_stream" => {
                 "Reduce deframer buffer growth and copied frame retention so streaming capture stays inside the mobile memory budget."
             }
-            "goose_score_batch" => {
-                "Reduce temporary vectors in Goose score inputs/outputs or process windows incrementally before raising the mobile memory budget."
+            "bull_score_batch" => {
+                "Reduce temporary vectors in Bull score inputs/outputs or process windows incrementally before raising the mobile memory budget."
             }
             "raw_export_bundle" => {
                 "Stream export rows, SQLite reads, and zip writes so raw timeframe export stays inside the mobile memory budget."
@@ -596,7 +596,7 @@ fn perf_budget_action(workload_name: &str, reason: &str) -> &'static str {
             "Fix deframer correctness against split-stream fixtures before using this performance report for mobile readiness."
         }
         "algorithm_output_failure" => {
-            "Fix Goose score input generation or quality gates so generated valid inputs produce score outputs before benchmarking."
+            "Fix Bull score input generation or quality gates so generated valid inputs produce score outputs before benchmarking."
         }
         "raw_export_row_mismatch" => {
             "Fix raw export row accounting or report generation before treating export performance as mobile-ready."
@@ -737,14 +737,14 @@ fn captured_at(index: usize) -> String {
     format!("2026-05-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
-fn directory_size(path: &Path) -> GooseResult<u64> {
+fn directory_size(path: &Path) -> BullResult<u64> {
     let mut total = 0u64;
-    for entry in fs::read_dir(path).map_err(|source| GooseError::io(path, source))? {
-        let entry = entry.map_err(|source| GooseError::io(path, source))?;
+    for entry in fs::read_dir(path).map_err(|source| BullError::io(path, source))? {
+        let entry = entry.map_err(|source| BullError::io(path, source))?;
         let entry_path = entry.path();
         let metadata = entry
             .metadata()
-            .map_err(|source| GooseError::io(&entry_path, source))?;
+            .map_err(|source| BullError::io(&entry_path, source))?;
         if metadata.is_dir() {
             total += directory_size(&entry_path)?;
         } else {
@@ -754,9 +754,9 @@ fn directory_size(path: &Path) -> GooseResult<u64> {
     Ok(total)
 }
 
-fn file_size(path: &Path) -> GooseResult<u64> {
+fn file_size(path: &Path) -> BullResult<u64> {
     Ok(fs::metadata(path)
-        .map_err(|source| GooseError::io(path, source))?
+        .map_err(|source| BullError::io(path, source))?
         .len())
 }
 
@@ -773,16 +773,16 @@ struct PerfWorkspace {
 }
 
 impl PerfWorkspace {
-    fn new() -> GooseResult<Self> {
+    fn new() -> BullResult<Self> {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| {
-                GooseError::message(format!("system clock before unix epoch: {error}"))
+                BullError::message(format!("system clock before unix epoch: {error}"))
             })?
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("goose-perf-budget-{}-{unique}", std::process::id()));
-        fs::create_dir_all(&path).map_err(|source| GooseError::io(&path, source))?;
+            std::env::temp_dir().join(format!("bull-perf-budget-{}-{unique}", std::process::id()));
+        fs::create_dir_all(&path).map_err(|source| BullError::io(&path, source))?;
         Ok(Self { path })
     }
 }

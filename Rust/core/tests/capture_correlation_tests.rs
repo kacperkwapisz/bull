@@ -1,12 +1,12 @@
 use std::{collections::BTreeSet, fs, path::Path};
 
-use goose_core::{
+use bull_core::{
     capture_correlation::run_capture_correlation_for_store,
     capture_correlation::{CaptureCorrelationOptions, run_capture_correlation},
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     fixtures::build_fixture_index,
     protocol::DeviceType,
-    store::GooseStore,
+    store::BullStore,
 };
 
 const K10_FRAME: &str = "aa0164000001fb212b0a010000000000000000000000000000480000000000000000000000000000 00000000000000000000000000000000000000000000000000000000000000000000000000000000 000000000000000000000000000100feff0300000000000068cc8271";
@@ -143,7 +143,7 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
             && observation.body_summary_kind == "raw_motion_k10"
     }));
     assert!(report.observations.iter().any(|observation| {
-        observation.evidence_id == "synthetic.goose.v5.temperature_event"
+        observation.evidence_id == "synthetic.bull.v5.temperature_event"
             && observation.body_summary_kind == "event_temperature_level"
     }));
     assert!(report.observations.iter().any(|observation| {
@@ -188,7 +188,7 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
 }
 
 fn owned_sources_for(
-    report: &goose_core::capture_correlation::CaptureCorrelationReport,
+    report: &bull_core::capture_correlation::CaptureCorrelationReport,
     body_summary_kind: &str,
 ) -> BTreeSet<String> {
     report
@@ -231,17 +231,17 @@ fn owned_sanitized_capture_can_satisfy_metric_promotion_gate() {
         tempdir.path().join("owned_batch.json"),
         format!(
             r#"{{
-  "schema": "goose.captured-frame-batch.v1",
+  "schema": "bull.captured-frame-batch.v1",
   "frames": [
     {{
       "evidence_id": "owned.capture.k10",
       "frame_id": "owned.capture.k10.frame.0",
       "source": "ios.corebluetooth.notification",
       "captured_at": "2026-05-27T00:00:00Z",
-      "device_model": "WHOOP 5.0 Goose",
+      "device_model": "WHOOP 5.0 Bull",
       "frame_hex": "{K10_FRAME}",
       "sensitivity": "user-owned-capture",
-      "device_type": "GOOSE"
+      "device_type": "BULL"
     }}
   ]
 }}"#
@@ -256,10 +256,10 @@ fn owned_sanitized_capture_can_satisfy_metric_promotion_gate() {
   "kind": "sanitized_capture",
   "source": "owned_corebluetooth_capture",
   "captured_at": "2026-05-27T00:00:00Z",
-  "device_model": "WHOOP 5.0 Goose",
+  "device_model": "WHOOP 5.0 Bull",
   "device_firmware": "owned",
-  "app_version": "goose-fixture",
-  "schema": "goose.captured-frame-batch.v1",
+  "app_version": "bull-fixture",
+  "schema": "bull.captured-frame-batch.v1",
   "consent": "user-owned-capture",
   "sensitivity": "user-owned-capture",
   "notes": "Owned sanitized capture fixture used to prove the correlation trust gate."
@@ -326,23 +326,23 @@ fn correlation_report_gives_next_action_when_no_summaries_exist() {
 
 #[test]
 fn store_correlation_counts_owned_app_imports() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let frames = vec![CapturedFrameInput {
         evidence_id: "app.owned.k10".to_string(),
         frame_id: Some("app.owned.k10.frame.0".to_string()),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-27T00:00:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: K10_FRAME.to_string(),
         sensitivity: "user-owned-live-notification".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let import = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();

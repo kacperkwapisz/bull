@@ -1,4 +1,4 @@
-use goose_core::{
+use bull_core::{
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     metric_features::{
         HeartRateFeatureOptions, HrvFeatureOptions, MetricWindowFeatureOptions,
@@ -17,12 +17,12 @@ use goose_core::{
         DeviceType, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
         build_v5_payload_frame,
     },
-    store::GooseStore,
+    store::BullStore,
 };
 
 #[test]
 fn motion_feature_extraction_normalizes_owned_k10_raw_amplitude() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame(&store, "user-owned-live-notification");
 
     let report = run_motion_feature_report_for_store(
@@ -60,7 +60,7 @@ fn motion_feature_extraction_normalizes_owned_k10_raw_amplitude() {
 
 #[test]
 fn motion_feature_extraction_keeps_synthetic_candidates_untrusted() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame(&store, "synthetic");
 
     let report = run_motion_feature_report_for_store(
@@ -102,7 +102,7 @@ fn motion_feature_extraction_keeps_synthetic_candidates_untrusted() {
 
 #[test]
 fn heart_rate_feature_extraction_promotes_owned_normal_history_marker() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame(&store, "user-owned-live-notification", 77);
 
     let report = run_heart_rate_feature_report_for_store(
@@ -140,7 +140,7 @@ fn heart_rate_feature_extraction_promotes_owned_normal_history_marker() {
 
 #[test]
 fn heart_rate_feature_extraction_promotes_owned_k10_live_heart_rate() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame(&store, "user-owned-live-notification");
 
     let report = run_heart_rate_feature_report_for_store(
@@ -174,7 +174,7 @@ fn heart_rate_feature_extraction_promotes_owned_k10_live_heart_rate() {
 
 #[test]
 fn heart_rate_feature_extraction_does_not_promote_zero_marker() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame(&store, "user-owned-live-notification", 0);
 
     let report = run_heart_rate_feature_report_for_store(
@@ -209,7 +209,7 @@ fn heart_rate_feature_extraction_does_not_promote_zero_marker() {
 
 #[test]
 fn heart_rate_feature_extraction_keeps_synthetic_candidates_untrusted() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame(&store, "synthetic", 77);
 
     let report = run_heart_rate_feature_report_for_store(
@@ -251,7 +251,7 @@ fn heart_rate_feature_extraction_keeps_synthetic_candidates_untrusted() {
 
 #[test]
 fn vital_event_features_expose_owned_temperature_candidates_without_promoting_units() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_temperature_event(
         &store,
         "user-owned-live-notification",
@@ -297,7 +297,7 @@ fn vital_event_features_expose_owned_temperature_candidates_without_promoting_un
 
 #[test]
 fn vital_event_features_keep_synthetic_temperature_candidates_untrusted() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_temperature_event(&store, "synthetic", &[0xde, 0xad, 0xbe, 0xef]);
 
     let report = run_vital_event_feature_report_for_store(
@@ -339,7 +339,7 @@ fn vital_event_features_keep_synthetic_temperature_candidates_untrusted() {
 
 #[test]
 fn vital_event_features_expose_history_skin_temperature_candidates_without_promoting() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_with_hex(
         &store,
         "user-owned-live-notification",
@@ -384,7 +384,7 @@ fn vital_event_features_expose_history_skin_temperature_candidates_without_promo
 
 #[test]
 fn vital_event_features_expose_history_respiratory_rate_candidates_without_promoting() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_with_hex(
         &store,
         "user-owned-live-notification",
@@ -432,8 +432,8 @@ fn vital_event_features_expose_history_respiratory_rate_candidates_without_promo
 }
 
 #[test]
-fn hrv_feature_extraction_builds_goose_hrv_score_from_trusted_r17_samples() {
-    let store = GooseStore::open_in_memory().unwrap();
+fn hrv_feature_extraction_builds_bull_hrv_score_from_trusted_r17_samples() {
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "user-owned-live-notification",
@@ -475,7 +475,7 @@ fn hrv_feature_extraction_builds_goose_hrv_score_from_trusted_r17_samples() {
 
 #[test]
 fn hrv_feature_extraction_filters_implausible_r17_samples_with_flags() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "user-owned-live-notification",
@@ -515,7 +515,7 @@ fn hrv_feature_extraction_filters_implausible_r17_samples_with_flags() {
 
 #[test]
 fn hrv_feature_extraction_keeps_synthetic_r17_samples_untrusted() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "synthetic",
@@ -555,7 +555,7 @@ fn hrv_feature_extraction_keeps_synthetic_r17_samples_untrusted() {
 
 #[test]
 fn hrv_feature_extraction_computes_daily_rmssd_baseline_from_trusted_r17_samples() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "user-owned-live-notification",
@@ -608,7 +608,7 @@ fn hrv_feature_extraction_computes_daily_rmssd_baseline_from_trusted_r17_samples
 
 #[test]
 fn hrv_feature_extraction_can_require_baseline_days() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "user-owned-live-notification",
@@ -651,7 +651,7 @@ fn hrv_feature_extraction_can_require_baseline_days() {
 
 #[test]
 fn recovery_sensor_discovery_keeps_unverified_health_widgets_unavailable() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_r17_frame_at(
         &store,
         "user-owned-live-notification",
@@ -685,7 +685,7 @@ fn recovery_sensor_discovery_keeps_unverified_health_widgets_unavailable() {
     .unwrap();
 
     assert!(!report.pass);
-    assert_eq!(report.schema, "goose.recovery-sensor-discovery-report.v1");
+    assert_eq!(report.schema, "bull.recovery-sensor-discovery-report.v1");
     assert_eq!(report.widgets.len(), 4);
 
     let hrv = widget(&report.widgets, "hrv_rmssd_ms");
@@ -748,7 +748,7 @@ fn recovery_sensor_discovery_keeps_unverified_health_widgets_unavailable() {
 
 #[test]
 fn metric_window_features_aggregate_trusted_hr_and_motion_candidates() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -809,7 +809,7 @@ fn metric_window_features_aggregate_trusted_hr_and_motion_candidates() {
 
 #[test]
 fn metric_window_features_require_trusted_hr_when_requested() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(&store, "synthetic", 80, "2026-05-27T13:00:00Z");
     import_history_frame_at(&store, "synthetic", 100, "2026-05-27T13:10:00Z");
 
@@ -847,7 +847,7 @@ fn metric_window_features_require_trusted_hr_when_requested() {
 
 #[test]
 fn resting_heart_rate_features_compute_window_and_baseline_from_trusted_markers() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -915,7 +915,7 @@ fn resting_heart_rate_features_compute_window_and_baseline_from_trusted_markers(
 
 #[test]
 fn resting_heart_rate_features_can_require_baseline_days() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -956,7 +956,7 @@ fn resting_heart_rate_features_can_require_baseline_days() {
 
 #[test]
 fn resting_heart_rate_features_keep_synthetic_candidates_untrusted() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(&store, "synthetic", 60, "2026-05-27T04:00:00Z");
 
     let report = run_resting_heart_rate_feature_report_for_store(
@@ -993,7 +993,7 @@ fn resting_heart_rate_features_keep_synthetic_candidates_untrusted() {
 
 #[test]
 fn resting_heart_rate_features_compute_from_owned_k10_live_heart_rate() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value(
         &store,
         "user-owned-live-notification",
@@ -1056,7 +1056,7 @@ fn resting_heart_rate_features_compute_from_owned_k10_live_heart_rate() {
 
 #[test]
 fn resting_heart_rate_features_exclude_high_motion_heart_rate_samples() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value_and_heart_rate(
         &store,
         "user-owned-live-notification",
@@ -1134,7 +1134,7 @@ fn resting_heart_rate_features_exclude_high_motion_heart_rate_samples() {
 
 #[test]
 fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value_without_heart_rate(
         &store,
         "user-owned-live-notification",
@@ -1205,7 +1205,7 @@ fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() 
 
 #[test]
 fn motion_feature_extraction_normalizes_historical_k21_sample_time() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_historical_k21_motion_frame_at_with_device_timestamp(
         &store,
         "user-owned-live-notification",
@@ -1244,7 +1244,7 @@ fn motion_feature_extraction_normalizes_historical_k21_sample_time() {
 
 #[test]
 fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value_with_device_timestamp_subseconds(
         &store,
         "user-owned-live-notification",
@@ -1290,7 +1290,7 @@ fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
 
 #[test]
 fn sleep_feature_score_report_uses_device_sample_time_for_sleep_epochs() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for (timestamp_seconds, sample_value) in [
         (1_767_304_800, 10000),
         (1_767_308_400, 1000),
@@ -1363,7 +1363,7 @@ fn sleep_feature_score_report_uses_device_sample_time_for_sleep_epochs() {
 
 #[test]
 fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for (captured_at, sample_value) in [
         ("2026-05-27T22:00:00Z", 10000),
         ("2026-05-27T23:00:00Z", 1000),
@@ -1467,7 +1467,7 @@ fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
 
 #[test]
 fn sleep_feature_score_report_falls_back_to_highest_quartile_hr_dip_baseline() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for captured_at in [
         "2026-05-27T22:00:00Z",
         "2026-05-27T23:00:00Z",
@@ -1532,7 +1532,7 @@ fn sleep_feature_score_report_falls_back_to_highest_quartile_hr_dip_baseline() {
 
 #[test]
 fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for captured_at in [
         "2026-05-27T22:00:00Z",
         "2026-05-27T23:00:00Z",
@@ -1605,7 +1605,7 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
 
 #[test]
 fn sleep_feature_score_report_smooths_short_non_wake_stage_islands() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for captured_at in [
         "2026-05-27T22:00:00Z",
         "2026-05-27T22:30:00Z",
@@ -1652,7 +1652,7 @@ fn sleep_feature_score_report_smooths_short_non_wake_stage_islands() {
     let window = report.sleep_window.unwrap();
     assert_eq!(
         window.stage_model_version,
-        "goose_sleep_stage_heuristic_v1_transition_smoothed"
+        "bull_sleep_stage_heuristic_v1_transition_smoothed"
     );
     assert_eq!(
         window.stage_segments.len(),
@@ -1686,7 +1686,7 @@ fn sleep_feature_score_report_smooths_short_non_wake_stage_islands() {
 
 #[test]
 fn sleep_feature_score_report_preserves_short_awake_stage_islands() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for (captured_at, sample_value) in [
         ("2026-05-27T22:00:00Z", 1000),
         ("2026-05-27T22:30:00Z", 10000),
@@ -1750,7 +1750,7 @@ fn sleep_feature_score_report_preserves_short_awake_stage_islands() {
 
 #[test]
 fn sleep_feature_score_report_reports_duplicate_and_gap_coverage() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for (captured_at, sample_value) in [
         ("2026-05-27T22:00:00Z", 1000),
         ("2026-05-27T23:00:00Z", 1000),
@@ -1810,7 +1810,7 @@ fn sleep_feature_score_report_reports_duplicate_and_gap_coverage() {
 
 #[test]
 fn sleep_feature_score_report_drops_nonexistent_calendar_timestamps() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for captured_at in [
         "2026-02-28T22:00:00Z",
         "2026-02-30T23:00:00Z",
@@ -1851,7 +1851,7 @@ fn sleep_feature_score_report_drops_nonexistent_calendar_timestamps() {
 
 #[test]
 fn sleep_feature_score_report_requires_enough_trusted_motion_features() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value_without_heart_rate(
         &store,
         "user-owned-live-notification",
@@ -1896,7 +1896,7 @@ fn sleep_feature_score_report_requires_enough_trusted_motion_features() {
 #[test]
 fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_reports_and_packet_vitals()
  {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_recovery_feature_inputs(&store);
 
     let report = run_recovery_feature_score_report_for_store(
@@ -1931,7 +1931,7 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
             skin_temp_delta_c: Some(0.0),
             provided_vitals_source: Some("metrics.recovery_sensor_discovery".to_string()),
             provided_vitals_provenance_json: Some(
-                r#"{"source_kind":"device_sensor","decoder":"goose_packet_decoder","packet_family":"vital_event","source":"metric_features_test"}"#.to_string(),
+                r#"{"source_kind":"device_sensor","decoder":"bull_packet_decoder","packet_family":"vital_event","source":"metric_features_test"}"#.to_string(),
             ),
         },
     )
@@ -1977,7 +1977,7 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
 
 #[test]
 fn recovery_feature_score_report_blocks_manual_vitals_even_with_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_recovery_feature_inputs(&store);
 
     let report = run_recovery_feature_score_report_for_store(
@@ -2040,7 +2040,7 @@ fn recovery_feature_score_report_blocks_manual_vitals_even_with_provenance() {
 
 #[test]
 fn recovery_feature_score_report_requires_provided_resp_temp_until_score_promotion_is_verified() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_recovery_feature_inputs(&store);
 
     let report = run_recovery_feature_score_report_for_store(
@@ -2102,7 +2102,7 @@ fn recovery_feature_score_report_requires_provided_resp_temp_until_score_promoti
 
 #[test]
 fn recovery_feature_score_report_blocks_unproven_manual_vitals() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_recovery_feature_inputs(&store);
 
     let report = run_recovery_feature_score_report_for_store(
@@ -2168,7 +2168,7 @@ fn recovery_feature_score_report_blocks_unproven_manual_vitals() {
 
 #[test]
 fn strain_feature_score_report_builds_local_strain_from_trusted_features() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -2233,7 +2233,7 @@ fn strain_feature_score_report_builds_local_strain_from_trusted_features() {
 
 #[test]
 fn strain_feature_score_report_requires_trusted_resting_hr_when_requested() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(&store, "synthetic", 60, "2026-05-27T12:00:00Z");
     import_history_frame_at(&store, "synthetic", 100, "2026-05-27T12:20:00Z");
 
@@ -2278,7 +2278,7 @@ fn strain_feature_score_report_requires_trusted_resting_hr_when_requested() {
 
 #[test]
 fn strain_feature_score_report_rejects_max_hr_below_resting_hr() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -2328,7 +2328,7 @@ fn strain_feature_score_report_rejects_max_hr_below_resting_hr() {
 
 #[test]
 fn stress_feature_score_report_builds_local_stress_from_trusted_features() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -2411,7 +2411,7 @@ fn stress_feature_score_report_builds_local_stress_from_trusted_features() {
 
 #[test]
 fn stress_feature_score_report_requires_trusted_hrv_baseline() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_history_frame_at(
         &store,
         "user-owned-live-notification",
@@ -2486,11 +2486,11 @@ fn stress_feature_score_report_requires_trusted_hrv_baseline() {
     );
 }
 
-fn import_motion_frame(store: &GooseStore, sensitivity: &str) {
+fn import_motion_frame(store: &BullStore, sensitivity: &str) {
     import_motion_frame_at(store, sensitivity, "2026-05-27T12:00:00Z");
 }
 
-fn import_recovery_feature_inputs(store: &GooseStore) {
+fn import_recovery_feature_inputs(store: &BullStore) {
     for (captured_at, marker) in [
         ("2026-05-25T04:00:00Z", 56),
         ("2026-05-26T04:00:00Z", 55),
@@ -2538,12 +2538,12 @@ fn import_recovery_feature_inputs(store: &GooseStore) {
     }
 }
 
-fn import_motion_frame_at(store: &GooseStore, sensitivity: &str, captured_at: &str) {
+fn import_motion_frame_at(store: &BullStore, sensitivity: &str, captured_at: &str) {
     import_motion_frame_at_value(store, sensitivity, captured_at, 1000);
 }
 
 fn import_motion_frame_at_without_heart_rate(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
 ) {
@@ -2551,7 +2551,7 @@ fn import_motion_frame_at_without_heart_rate(
 }
 
 fn import_motion_frame_at_value(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2566,7 +2566,7 @@ fn import_motion_frame_at_value(
 }
 
 fn import_motion_frame_at_value_without_heart_rate(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2581,7 +2581,7 @@ fn import_motion_frame_at_value_without_heart_rate(
 }
 
 fn import_motion_frame_at_value_and_heart_rate(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2597,7 +2597,7 @@ fn import_motion_frame_at_value_and_heart_rate(
 }
 
 fn import_motion_frame_at_value_with_device_timestamp(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2614,7 +2614,7 @@ fn import_motion_frame_at_value_with_device_timestamp(
 }
 
 fn import_motion_frame_at_value_with_device_timestamp_subseconds(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2635,7 +2635,7 @@ fn import_motion_frame_at_value_with_device_timestamp_subseconds(
 }
 
 fn import_motion_frame_with_hex(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     sample_value: i16,
@@ -2649,17 +2649,17 @@ fn import_motion_frame_with_hex(
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -2667,7 +2667,7 @@ fn import_motion_frame_with_hex(
 }
 
 fn import_historical_k21_motion_frame_at_with_device_timestamp(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     timestamp_seconds: u32,
@@ -2681,29 +2681,29 @@ fn import_historical_k21_motion_frame_at_with_device_timestamp(
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
     assert!(report.pass, "{:?}", report.issues);
 }
 
-fn import_history_frame(store: &GooseStore, sensitivity: &str, marker_value: u8) {
+fn import_history_frame(store: &BullStore, sensitivity: &str, marker_value: u8) {
     import_history_frame_at(store, sensitivity, marker_value, "2026-05-27T13:00:00Z");
 }
 
 fn import_history_frame_at(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     marker_value: u8,
     captured_at: &str,
@@ -2718,7 +2718,7 @@ fn import_history_frame_at(
 }
 
 fn import_history_frame_at_with_device_timestamp(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     marker_value: u8,
     captured_at: &str,
@@ -2734,7 +2734,7 @@ fn import_history_frame_at_with_device_timestamp(
 }
 
 fn import_history_frame_with_hex(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     marker_value: u8,
     captured_at: &str,
@@ -2748,17 +2748,17 @@ fn import_history_frame_with_hex(
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -2766,7 +2766,7 @@ fn import_history_frame_with_hex(
 }
 
 fn import_r17_frame_at(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     rr_candidates: &[i16],
     captured_at: &str,
@@ -2781,24 +2781,24 @@ fn import_r17_frame_at(
         frame_id: Some(format!("{frame_stem}.frame.0")),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: r17_frame_hex(rr_candidates),
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
     assert!(report.pass, "{:?}", report.issues);
 }
 
-fn import_temperature_event(store: &GooseStore, sensitivity: &str, body: &[u8]) {
+fn import_temperature_event(store: &BullStore, sensitivity: &str, body: &[u8]) {
     let frames = vec![CapturedFrameInput {
         evidence_id: format!("app.temperature.{sensitivity}.{}", hex::encode(body)),
         frame_id: Some(format!(
@@ -2807,17 +2807,17 @@ fn import_temperature_event(store: &GooseStore, sensitivity: &str, body: &[u8]) 
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: "2026-05-27T00:10:00Z".to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: temperature_event_frame_hex(body),
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();

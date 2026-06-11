@@ -1,5 +1,5 @@
-use goose_core::{
-    algorithm_compare::compare_sleep_v1_goose_to_reference,
+use bull_core::{
+    algorithm_compare::compare_sleep_v1_bull_to_reference,
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     historical_sync::{
         HistoricalSyncCharacteristicEvidence, HistoricalSyncGeneration,
@@ -24,7 +24,7 @@ use goose_core::{
         validate_sleep_v1_explanation_and_stability, validate_sleep_v1_release_gates,
         validate_sleep_v1_stage_labels_for_store,
     },
-    store::{GooseStore, SleepCorrectionLabelInput},
+    store::{BullStore, SleepCorrectionLabelInput},
 };
 use std::{collections::BTreeMap, fs};
 
@@ -241,7 +241,7 @@ fn sleep_v1_stability_validator_cli_reports_complete_stable_output() {
     write_json(&input_path, &sleep_v1_quality_gate_input());
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-v1-stability-validator"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-v1-stability-validator"))
             .args([
                 "--input",
                 input_path.to_str().unwrap(),
@@ -260,7 +260,7 @@ fn sleep_v1_stability_validator_cli_reports_complete_stable_output() {
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.sleep-v1-explanation-stability-report.v1"
+        "bull.sleep-v1-explanation-stability-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["explanation_pass"], true);
@@ -270,7 +270,7 @@ fn sleep_v1_stability_validator_cli_reports_complete_stable_output() {
 
 #[test]
 fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     for (index, sleep_id) in [
         "packet-derived-sleep-2026-05-27",
@@ -320,7 +320,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
             SleepV1ExplanationStabilityOptions::default(),
         )),
         benchmark_comparisons: vec![
-            compare_sleep_v1_goose_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
+            compare_sleep_v1_bull_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
         ],
         min_hand_reviewed_window_comparisons: 3,
         min_stage_label_comparisons: 1,
@@ -335,7 +335,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
         .unwrap();
     assert_eq!(benchmark_acceptance["pass"], true);
     assert_eq!(benchmark_acceptance["reference_contract_valid"], true);
-    assert_eq!(benchmark_acceptance["goose_output_ready"], true);
+    assert_eq!(benchmark_acceptance["bull_output_ready"], true);
     assert_eq!(benchmark_acceptance["reference_output_ready"], true);
     assert_eq!(benchmark_acceptance["shared_fields_ready"], true);
     assert_eq!(benchmark_acceptance["issue_count"], 0);
@@ -401,7 +401,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
             .get("subgate_report_integrity_policies")
             .and_then(|policies| policies.get("historical-sync-validation.json"))
             .and_then(serde_json::Value::as_str),
-        Some(goose_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
+        Some(bull_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
     );
     assert_eq!(
         report
@@ -427,12 +427,12 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
             .get("subgate_report_validation_policies")
             .and_then(|policies| policies.get("sleep-v1-benchmark.json"))
             .and_then(serde_json::Value::as_str),
-        Some(goose_core::algorithm_compare::SLEEP_V1_BENCHMARK_COMPARISON_POLICY)
+        Some(bull_core::algorithm_compare::SLEEP_V1_BENCHMARK_COMPARISON_POLICY)
     );
     let benchmark_coverage = input.benchmark_comparisons[0]
         .data_coverage
         .as_ref()
-        .and_then(|coverage| coverage.get("goose_output_data_coverage_fraction"))
+        .and_then(|coverage| coverage.get("bull_output_data_coverage_fraction"))
         .and_then(serde_json::Value::as_f64)
         .unwrap();
     assert!((0.0..=1.0).contains(&benchmark_coverage));
@@ -685,7 +685,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_physical = forged_input.physical_historical_sync.take().unwrap();
     forged_physical
         .next_actions
-        .push(goose_core::historical_sync::HistoricalSyncNextAction {
+        .push(bull_core::historical_sync::HistoricalSyncNextAction {
             scope: "historical_sync_physical_validation".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited physical proof actions.".to_string(),
@@ -962,7 +962,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_input = input.clone();
     let mut forged_window = forged_input.sleep_window_label_validation.take().unwrap();
     forged_window.next_actions.push(
-        goose_core::sleep_validation::SleepWindowLabelValidationNextAction {
+        bull_core::sleep_validation::SleepWindowLabelValidationNextAction {
             scope: "sleep_window_validation".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited sleep-window actions.".to_string(),
@@ -1450,7 +1450,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_input = input.clone();
     let mut forged_stability = forged_input.explanation_stability.take().unwrap();
     forged_stability.next_actions.push(
-        goose_core::sleep_validation::SleepV1ExplanationStabilityNextAction {
+        bull_core::sleep_validation::SleepV1ExplanationStabilityNextAction {
             scope: "sleep_v1.stability".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited stability reports.".to_string(),
@@ -1607,7 +1607,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    forged_benchmark.goose_algorithm_id = "goose.sleep.v0".to_string();
+    forged_benchmark.bull_algorithm_id = "bull.sleep.v0".to_string();
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
 
@@ -1671,11 +1671,11 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
         "pass": true,
         "benchmark_ready": true,
         "reference_contract_valid": true,
-        "goose_output_ready": true,
+        "bull_output_ready": true,
         "reference_output_ready": true,
         "shared_fields_ready": true,
-        "goose_algorithm_id": "goose.sleep.v1",
-        "goose_algorithm_version": "0.1.0",
+        "bull_algorithm_id": "bull.sleep.v1",
+        "bull_algorithm_version": "0.1.0",
         "reference_algorithm_id": "reference.sleep.actigraphy.v1",
         "reference_algorithm_version": "1.0.0",
         "start_time": forged_benchmark.start_time.clone(),
@@ -1684,7 +1684,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
         "delta_count": 999,
         "non_comparable_field_count": forged_benchmark.non_comparable_fields.len(),
         "data_coverage_fraction": 0.90,
-        "goose_quality_flag_count": 0,
+        "bull_quality_flag_count": 0,
         "reference_quality_flag_count": 0,
         "quality_flag_count": 0,
         "error_count": 0,
@@ -1725,7 +1725,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
     forged_benchmark.next_actions.push(
-        goose_core::algorithm_compare::AlgorithmComparisonNextAction {
+        bull_core::algorithm_compare::AlgorithmComparisonNextAction {
             scope: "comparison".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited benchmark actions.".to_string(),
@@ -1782,7 +1782,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
     forged_benchmark.data_coverage = Some(serde_json::json!({
-        "goose_output_data_coverage_fraction": 1.5,
+        "bull_output_data_coverage_fraction": 1.5,
     }));
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -1819,8 +1819,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]
             .as_object_mut()
             .unwrap()
             .remove("calibration_label_count");
@@ -1841,9 +1841,9 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"][0]["name"] = serde_json::json!("sleep need fulfillment");
-        let component_provenance = goose_output["component_provenance"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"][0]["name"] = serde_json::json!("sleep need fulfillment");
+        let component_provenance = bull_output["component_provenance"]
             .as_object_mut()
             .unwrap();
         let sleep_need_provenance = component_provenance
@@ -1867,8 +1867,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"]
             .as_array_mut()
             .unwrap()
             .push(serde_json::json!({
@@ -1879,7 +1879,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
                 "weight": 0.0,
                 "contribution": 0.0
             }));
-        goose_output["component_provenance"]
+        bull_output["component_provenance"]
             .as_object_mut()
             .unwrap()
             .insert(
@@ -1906,8 +1906,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["component_provenance"]["continuity"]["policy"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["component_provenance"]["continuity"]["policy"] =
             serde_json::json!("awake_time_and_waso_continuity");
     }
     forged_benchmark.pass = true;
@@ -1926,8 +1926,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["component_provenance"]["sleep_architecture"]["inputs"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["component_provenance"]["sleep_architecture"]["inputs"]
             .as_object_mut()
             .unwrap()
             .remove("stage_prior_calibration");
@@ -1948,8 +1948,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["component_provenance"]["data_confidence"]["policy"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["component_provenance"]["data_confidence"]["policy"] =
             serde_json::json!("combined_sleep_v1_confidence_and_coverage");
     }
     forged_benchmark.pass = true;
@@ -1968,8 +1968,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["component_provenance"]["data_confidence"]["inputs"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["component_provenance"]["data_confidence"]["inputs"]
             .as_object_mut()
             .unwrap()
             .remove("sleep_window_confidence_0_to_1");
@@ -1990,14 +1990,14 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"]
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
             .find(|component| component["name"] == "data_confidence")
             .unwrap()["name"] = serde_json::json!("sensor_reliability");
-        let provenance = goose_output["component_provenance"]
+        let provenance = bull_output["component_provenance"]
             .as_object_mut()
             .unwrap();
         let data_confidence = provenance.remove("data_confidence").unwrap();
@@ -2019,19 +2019,19 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["model_status"] = serde_json::json!("hand_edited_status");
-        goose_output["model_status_label"] = serde_json::json!("Hand edited");
-        goose_output["model_status_reason"] = serde_json::json!("This is not a Sleep V1 status.");
-        goose_output["status_report"]["status"] = serde_json::json!("hand_edited_status");
-        goose_output["status_report"]["status_label"] = serde_json::json!("Hand edited");
-        goose_output["status_report"]["status_reason"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["model_status"] = serde_json::json!("hand_edited_status");
+        bull_output["model_status_label"] = serde_json::json!("Hand edited");
+        bull_output["model_status_reason"] = serde_json::json!("This is not a Sleep V1 status.");
+        bull_output["status_report"]["status"] = serde_json::json!("hand_edited_status");
+        bull_output["status_report"]["status_label"] = serde_json::json!("Hand edited");
+        bull_output["status_report"]["status_reason"] =
             serde_json::json!("This is not a Sleep V1 status.");
-        goose_output["status_report"]["report_state"] = serde_json::json!("provisional");
-        goose_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
-        goose_output["status_report"]["can_show_personal_baseline"] = serde_json::json!(false);
-        goose_output["status_report"]["can_show_trained_score"] = serde_json::json!(false);
-        goose_output["status_report"]["next_actions"] =
+        bull_output["status_report"]["report_state"] = serde_json::json!("provisional");
+        bull_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
+        bull_output["status_report"]["can_show_personal_baseline"] = serde_json::json!(false);
+        bull_output["status_report"]["can_show_trained_score"] = serde_json::json!(false);
+        bull_output["status_report"]["next_actions"] =
             serde_json::json!(["Regenerate the Sleep V1 status report."]);
     }
     forged_benchmark.pass = true;
@@ -2050,8 +2050,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["nights_until_training"] = serde_json::json!(99);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["nights_until_training"] = serde_json::json!(99);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2069,8 +2069,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["excluded_sleep_nights"] = serde_json::json!(-1);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["excluded_sleep_nights"] = serde_json::json!(-1);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2088,19 +2088,19 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["model_status"] = serde_json::json!("training");
-        goose_output["model_status_label"] = serde_json::json!("Training");
-        goose_output["model_status_reason"] =
-            serde_json::json!("Goose is training a personal sleep model.");
-        goose_output["status_report"]["status"] = serde_json::json!("training");
-        goose_output["status_report"]["status_label"] = serde_json::json!("Training");
-        goose_output["status_report"]["status_reason"] =
-            serde_json::json!("Goose is training a personal sleep model.");
-        goose_output["status_report"]["calibration_label_count"] = serde_json::json!(14);
-        goose_output["status_report"]["nights_until_training"] = serde_json::json!(0);
-        goose_output["status_report"]["next_actions"] =
-            serde_json::json!(["Collect 4 more Goose packet-derived sleep nights."]);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["model_status"] = serde_json::json!("training");
+        bull_output["model_status_label"] = serde_json::json!("Training");
+        bull_output["model_status_reason"] =
+            serde_json::json!("Bull is training a personal sleep model.");
+        bull_output["status_report"]["status"] = serde_json::json!("training");
+        bull_output["status_report"]["status_label"] = serde_json::json!("Training");
+        bull_output["status_report"]["status_reason"] =
+            serde_json::json!("Bull is training a personal sleep model.");
+        bull_output["status_report"]["calibration_label_count"] = serde_json::json!(14);
+        bull_output["status_report"]["nights_until_training"] = serde_json::json!(0);
+        bull_output["status_report"]["next_actions"] =
+            serde_json::json!(["Collect 4 more Bull packet-derived sleep nights."]);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2118,10 +2118,10 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
-        goose_output["status_report"]["can_show_provisional_score"] = serde_json::json!(false);
-        goose_output["status_report"]["report_state"] = serde_json::json!("pending");
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
+        bull_output["status_report"]["can_show_provisional_score"] = serde_json::json!(false);
+        bull_output["status_report"]["report_state"] = serde_json::json!("pending");
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2139,8 +2139,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["next_actions"] = serde_json::json!([]);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["next_actions"] = serde_json::json!([]);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2158,8 +2158,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["provenance"]["score_policy"] = serde_json::json!("hand-edited-policy");
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["provenance"]["score_policy"] = serde_json::json!("hand-edited-policy");
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2177,8 +2177,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["component_provenance"]["sleep_need_fulfillment"]["inputs"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["component_provenance"]["sleep_need_fulfillment"]["inputs"] =
             serde_json::json!({});
     }
     forged_benchmark.pass = true;
@@ -2197,8 +2197,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"][0]["contribution"] = serde_json::json!(999.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"][0]["contribution"] = serde_json::json!(999.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2216,8 +2216,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["score_0_to_100"] = serde_json::json!(99.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["score_0_to_100"] = serde_json::json!(99.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2235,8 +2235,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["stage_minutes"]["awake"] = serde_json::json!(999.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["stage_minutes"]["awake"] = serde_json::json!(999.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2254,8 +2254,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["next_actions"] = serde_json::json!([""]);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["next_actions"] = serde_json::json!([""]);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2273,23 +2273,23 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["model_status"] = serde_json::json!("learning");
-        goose_output["model_status_label"] = serde_json::json!("Learning");
-        goose_output["model_status_reason"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["model_status"] = serde_json::json!("learning");
+        bull_output["model_status_label"] = serde_json::json!("Learning");
+        bull_output["model_status_reason"] =
             serde_json::json!("3 valid sleep nights collected; 4 more for baseline.");
-        goose_output["status_report"]["status"] = serde_json::json!("learning");
-        goose_output["status_report"]["status_label"] = serde_json::json!("Learning");
-        goose_output["status_report"]["status_reason"] =
+        bull_output["status_report"]["status"] = serde_json::json!("learning");
+        bull_output["status_report"]["status_label"] = serde_json::json!("Learning");
+        bull_output["status_report"]["status_reason"] =
             serde_json::json!("3 valid sleep nights collected; 4 more for baseline.");
-        goose_output["status_report"]["report_state"] = serde_json::json!("provisional");
-        goose_output["status_report"]["valid_sleep_nights"] = serde_json::json!(3);
-        goose_output["status_report"]["trusted_goose_sleep_nights"] = serde_json::json!(3);
-        goose_output["status_report"]["imported_platform_sleep_nights"] = serde_json::json!(0);
-        goose_output["status_report"]["nights_until_baseline"] = serde_json::json!(4);
-        goose_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
-        goose_output["status_report"]["can_show_personal_baseline"] = serde_json::json!(false);
-        goose_output["status_report"]["next_actions"] = serde_json::json!([]);
+        bull_output["status_report"]["report_state"] = serde_json::json!("provisional");
+        bull_output["status_report"]["valid_sleep_nights"] = serde_json::json!(3);
+        bull_output["status_report"]["trusted_bull_sleep_nights"] = serde_json::json!(3);
+        bull_output["status_report"]["imported_platform_sleep_nights"] = serde_json::json!(0);
+        bull_output["status_report"]["nights_until_baseline"] = serde_json::json!(4);
+        bull_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
+        bull_output["status_report"]["can_show_personal_baseline"] = serde_json::json!(false);
+        bull_output["status_report"]["next_actions"] = serde_json::json!([]);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2307,8 +2307,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["quality_flags"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["quality_flags"] =
             serde_json::json!(["hand_edited_status_quality_flag"]);
     }
     forged_benchmark.pass = true;
@@ -2327,14 +2327,14 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["valid_sleep_nights"] =
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["valid_sleep_nights"] =
             serde_json::json!((u32::MAX as u64) + 1);
-        goose_output["status_report"]["trusted_goose_sleep_nights"] =
+        bull_output["status_report"]["trusted_bull_sleep_nights"] =
             serde_json::json!((u32::MAX as u64) + 1);
-        goose_output["status_report"]["imported_platform_sleep_nights"] = serde_json::json!(0);
-        goose_output["status_report"]["nights_until_baseline"] = serde_json::json!(0);
-        goose_output["status_report"]["nights_until_goose_training"] = serde_json::json!(0);
+        bull_output["status_report"]["imported_platform_sleep_nights"] = serde_json::json!(0);
+        bull_output["status_report"]["nights_until_baseline"] = serde_json::json!(0);
+        bull_output["status_report"]["nights_until_bull_training"] = serde_json::json!(0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2352,8 +2352,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["quality_flags"] = serde_json::json!(["sleep_architecture_unavailable"]);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["quality_flags"] = serde_json::json!(["sleep_architecture_unavailable"]);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2371,8 +2371,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["provenance"] = serde_json::json!({});
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["provenance"] = serde_json::json!({});
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2390,8 +2390,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"] = serde_json::json!([
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"] = serde_json::json!([
             {
                 "name": "only_component",
                 "value": 420.0,
@@ -2401,7 +2401,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
                 "contribution": 21.875
             }
         ]);
-        goose_output["component_provenance"] = serde_json::json!({
+        bull_output["component_provenance"] = serde_json::json!({
             "only_component": {
                 "inputs": {"sleep_duration_minutes": 420.0},
                 "policy": "too_few_components_for_release_benchmark"
@@ -2424,8 +2424,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output
             .as_object_mut()
             .unwrap()
             .remove("component_provenance");
@@ -2446,8 +2446,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["components"][0]["name"] = serde_json::json!("");
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["components"][0]["name"] = serde_json::json!("");
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2465,8 +2465,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output
             .as_object_mut()
             .unwrap()
             .remove("status_report");
@@ -2487,8 +2487,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output
             .as_object_mut()
             .unwrap()
             .remove("previous_night_comparison");
@@ -2509,9 +2509,9 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["report_state"] = serde_json::json!("final");
-        goose_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["report_state"] = serde_json::json!("final");
+        bull_output["status_report"]["can_show_final_score"] = serde_json::json!(false);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2529,8 +2529,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["status_report"]["valid_sleep_nights"] = serde_json::json!(999);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["status_report"]["valid_sleep_nights"] = serde_json::json!(999);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2548,8 +2548,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["sleep_duration_minutes"] = serde_json::json!(999.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["sleep_duration_minutes"] = serde_json::json!(999.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2567,8 +2567,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["confidence_0_to_1"] = serde_json::json!(1.5);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["confidence_0_to_1"] = serde_json::json!(1.5);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2586,8 +2586,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output
             .as_object_mut()
             .unwrap()
             .remove("data_coverage_fraction");
@@ -2608,8 +2608,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["stage_segment_confidence_0_to_1"] = serde_json::json!(1.5);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["stage_segment_confidence_0_to_1"] = serde_json::json!(1.5);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2627,8 +2627,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["stage_minutes"]["deep"] = serde_json::json!(999.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["stage_minutes"]["deep"] = serde_json::json!(999.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2646,8 +2646,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["stage_minutes"]["unknown"] = serde_json::json!(0.0);
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["stage_minutes"]["unknown"] = serde_json::json!(0.0);
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2665,8 +2665,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["previous_night_comparison"] = serde_json::json!({
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["previous_night_comparison"] = serde_json::json!({
             "night_id": "",
             "sleep_duration_delta_minutes": "not-a-number",
             "sleep_efficiency_delta_fraction": 0.1,
@@ -2693,8 +2693,8 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    if let Some(goose_output) = forged_benchmark.goose_output.as_mut() {
-        goose_output["previous_night_comparison"] = serde_json::json!({
+    if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
+        bull_output["previous_night_comparison"] = serde_json::json!({
             "night_id": "sleep-history-6",
             "sleep_duration_delta_minutes": 20.0,
             "awake_minutes_delta": -10.0,
@@ -2714,7 +2714,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
             "sleep_hr_trend_delta_bpm_per_hour": -0.2,
             "sleep_hr_dip_delta_percent": 1.5
         });
-        goose_output["provenance"]["previous_night_comparison"] = serde_json::json!({
+        bull_output["provenance"]["previous_night_comparison"] = serde_json::json!({
             "policy": "latest_usable_prior_night_before_scored_sleep",
             "selected_night_id": "different-night",
             "usable_prior_night_count": 7,
@@ -2774,7 +2774,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
-    forged_benchmark.provenance["goose_comparable_inputs"]["disturbance_count"] =
+    forged_benchmark.provenance["bull_comparable_inputs"]["disturbance_count"] =
         serde_json::json!(999.0);
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -2827,7 +2827,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
 
 #[test]
 fn sleep_v1_release_gate_default_requires_multiple_hand_reviewed_nights() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     insert_sleep_window_label(
         &store,
@@ -2867,7 +2867,7 @@ fn sleep_v1_release_gate_default_requires_multiple_hand_reviewed_nights() {
             SleepV1ExplanationStabilityOptions::default(),
         )),
         benchmark_comparisons: vec![
-            compare_sleep_v1_goose_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
+            compare_sleep_v1_bull_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
         ],
         ..Default::default()
     };
@@ -2886,7 +2886,7 @@ fn sleep_v1_release_gate_default_requires_multiple_hand_reviewed_nights() {
 
 #[test]
 fn sleep_v1_release_gate_counts_distinct_hand_reviewed_windows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     for index in 0..3 {
         insert_sleep_window_label_with_sleep_id(
@@ -2929,7 +2929,7 @@ fn sleep_v1_release_gate_counts_distinct_hand_reviewed_windows() {
             SleepV1ExplanationStabilityOptions::default(),
         )),
         benchmark_comparisons: vec![
-            compare_sleep_v1_goose_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
+            compare_sleep_v1_bull_to_reference(&sleep_v1_quality_gate_input()).unwrap(),
         ],
         ..Default::default()
     };
@@ -3043,7 +3043,7 @@ fn sleep_v1_release_gate_rejects_physical_reports_without_proof_counts() {
 #[test]
 fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
     let tempdir = tempfile::tempdir().unwrap();
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     for (index, sleep_id) in [
         "packet-derived-sleep-2026-05-27",
@@ -3087,7 +3087,7 @@ fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
         SleepV1ExplanationStabilityOptions::default(),
     );
     let benchmark_report =
-        compare_sleep_v1_goose_to_reference(&sleep_v1_quality_gate_input()).unwrap();
+        compare_sleep_v1_bull_to_reference(&sleep_v1_quality_gate_input()).unwrap();
 
     let physical_path = tempdir.path().join("physical.json");
     let window_path = tempdir.path().join("window.json");
@@ -3102,7 +3102,7 @@ fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
     write_json(&stability_path, &stability_report);
     write_json(&benchmark_path, &benchmark_report);
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-v1-release-gate"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-v1-release-gate"))
         .args([
             "--physical-historical-sync-report",
             physical_path.to_str().unwrap(),
@@ -3131,7 +3131,7 @@ fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
     );
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.sleep-v1-release-gate-report.v1");
+    assert_eq!(report["schema"], "bull.sleep-v1-release-gate-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["physical_historical_sync_pass"], true);
     assert_eq!(report["sleep_stage_label_pass"], true);
@@ -3140,7 +3140,7 @@ fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
         serde_json::from_str(&fs::read_to_string(&input_output_path).unwrap()).unwrap();
     assert_eq!(
         input_manifest["physical_historical_sync"]["schema"],
-        "goose.historical-sync-physical-validation-report.v1"
+        "bull.historical-sync-physical-validation-report.v1"
     );
     assert_eq!(
         input_manifest["benchmark_comparisons"]
@@ -3209,7 +3209,7 @@ fn sleep_v1_evidence_folder_validation_passes_complete_auditable_folder() {
             .get("required_report_integrity_policies")
             .and_then(|policies| policies.get("historical-sync-validation.json"))
             .and_then(serde_json::Value::as_str),
-        Some(goose_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
+        Some(bull_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
     );
     assert_eq!(
         report
@@ -3235,7 +3235,7 @@ fn sleep_v1_evidence_folder_validation_passes_complete_auditable_folder() {
             .get("required_report_validation_policies")
             .and_then(|policies| policies.get("sleep-v1-benchmark.json"))
             .and_then(serde_json::Value::as_str),
-        Some(goose_core::algorithm_compare::SLEEP_V1_BENCHMARK_COMPARISON_POLICY)
+        Some(bull_core::algorithm_compare::SLEEP_V1_BENCHMARK_COMPARISON_POLICY)
     );
     assert!(report.required_files.iter().all(|file| file.exists));
     assert!(report.supporting_files.iter().all(|file| file.exists));
@@ -3268,7 +3268,7 @@ fn sleep_v1_evidence_folder_validation_passes_complete_auditable_folder() {
             .required_files
             .iter()
             .any(|file| file.filename == "sleep-v1-release-gate.json"
-                && file.schema.as_deref() == Some("goose.sleep-v1-release-gate-report.v1"))
+                && file.schema.as_deref() == Some("bull.sleep-v1-release-gate-report.v1"))
     );
     assert!(
         report
@@ -3674,7 +3674,7 @@ fn sleep_v1_evidence_folder_validation_rejects_unexpected_report_generator() {
         .unwrap();
     assert_eq!(
         benchmark.expected_generated_by.as_deref(),
-        Some("goose.algorithm_compare")
+        Some("bull.algorithm_compare")
     );
     assert_eq!(
         benchmark.generated_by.as_deref(),
@@ -3899,7 +3899,7 @@ fn sleep_v1_evidence_folder_validation_rejects_benchmark_missing_quality_flag_ar
     benchmark_report
         .as_object_mut()
         .unwrap()
-        .remove("goose_quality_flags");
+        .remove("bull_quality_flags");
     benchmark_report
         .as_object_mut()
         .unwrap()
@@ -3913,7 +3913,7 @@ fn sleep_v1_evidence_folder_validation_rejects_benchmark_missing_quality_flag_ar
     assert_eq!(report.required_file_count, 6);
     assert_eq!(report.passing_required_file_count, 5);
     assert!(report.issues.contains(
-        &"passing_required_file_missing_quality_flags:sleep-v1-benchmark.json:goose_quality_flags"
+        &"passing_required_file_missing_quality_flags:sleep-v1-benchmark.json:bull_quality_flags"
             .to_string()
     ));
     assert!(report.issues.contains(
@@ -3927,17 +3927,17 @@ fn sleep_v1_evidence_folder_validation_rejects_benchmark_missing_quality_flag_ar
         .unwrap();
     assert_eq!(benchmark.pass, Some(true));
     assert!(benchmark.issues.contains(
-        &"passing_required_file_missing_quality_flags:sleep-v1-benchmark.json:goose_quality_flags"
+        &"passing_required_file_missing_quality_flags:sleep-v1-benchmark.json:bull_quality_flags"
             .to_string()
     ));
     assert!(report.next_actions.iter().any(|action| {
         action.scope == "sleep_v1.evidence_folder.reports"
             && action
                 .reason
-                .contains("sleep-v1-benchmark.json:goose_quality_flags")
+                .contains("sleep-v1-benchmark.json:bull_quality_flags")
             && action
                 .action
-                .contains("explicit empty goose_quality_flags list")
+                .contains("explicit empty bull_quality_flags list")
     }));
 }
 
@@ -3948,7 +3948,7 @@ fn sleep_v1_evidence_folder_validation_rejects_passing_report_with_quality_flags
     let report_path = tempdir.path().join("sleep-v1-benchmark.json");
     let mut benchmark_report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    benchmark_report["goose_quality_flags"] = serde_json::json!(["sleep_architecture_unavailable"]);
+    benchmark_report["bull_quality_flags"] = serde_json::json!(["sleep_architecture_unavailable"]);
     benchmark_report["pass"] = serde_json::json!(true);
     write_json(&report_path, &benchmark_report);
 
@@ -3959,7 +3959,7 @@ fn sleep_v1_evidence_folder_validation_rejects_passing_report_with_quality_flags
     assert_eq!(report.passing_required_file_count, 5);
     assert!(
         report.issues.contains(
-            &"passing_required_file_has_quality_flags:sleep-v1-benchmark.json:goose_quality_flags"
+            &"passing_required_file_has_quality_flags:sleep-v1-benchmark.json:bull_quality_flags"
                 .to_string()
         )
     );
@@ -3971,7 +3971,7 @@ fn sleep_v1_evidence_folder_validation_rejects_passing_report_with_quality_flags
     assert_eq!(benchmark.pass, Some(true));
     assert!(
         benchmark.issues.contains(
-            &"passing_required_file_has_quality_flags:sleep-v1-benchmark.json:goose_quality_flags"
+            &"passing_required_file_has_quality_flags:sleep-v1-benchmark.json:bull_quality_flags"
                 .to_string()
         )
     );
@@ -4171,7 +4171,7 @@ fn sleep_v1_evidence_folder_validation_detects_benchmark_embedded_output_drift()
     let benchmark_path = tempdir.path().join("sleep-v1-benchmark.json");
     let mut benchmark_report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&benchmark_path).unwrap()).unwrap();
-    benchmark_report["goose_output"]["provenance"]["hand_edited"] = serde_json::json!(true);
+    benchmark_report["bull_output"]["provenance"]["hand_edited"] = serde_json::json!(true);
     write_json(&benchmark_path, &benchmark_report);
 
     let report = validate_sleep_v1_evidence_folder(tempdir.path()).unwrap();
@@ -4431,7 +4431,7 @@ fn sleep_v1_evidence_folder_validation_rejects_stale_benchmark_contract_file() {
     let benchmark_path = tempdir.path().join("sleep-v1-benchmark.json");
     let mut benchmark_report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&benchmark_path).unwrap()).unwrap();
-    benchmark_report["goose_output"]["components"]
+    benchmark_report["bull_output"]["components"]
         .as_array_mut()
         .unwrap()
         .push(serde_json::json!({
@@ -4442,7 +4442,7 @@ fn sleep_v1_evidence_folder_validation_rejects_stale_benchmark_contract_file() {
             "weight": 0.0,
             "contribution": 0.0
         }));
-    benchmark_report["goose_output"]["component_provenance"]
+    benchmark_report["bull_output"]["component_provenance"]
         .as_object_mut()
         .unwrap()
         .insert(
@@ -4490,7 +4490,7 @@ fn sleep_v1_evidence_folder_validation_rejects_stale_benchmark_contract_file() {
 fn sleep_v1_evidence_folder_validation_detects_sleep_window_store_drift() {
     let tempdir = tempfile::tempdir().unwrap();
     write_passing_sleep_v1_evidence_folder(tempdir.path());
-    let store = GooseStore::open(&tempdir.path().join("sleep-window-store.sqlite")).unwrap();
+    let store = BullStore::open(&tempdir.path().join("sleep-window-store.sqlite")).unwrap();
     insert_sleep_window_label(
         &store,
         "manual-reviewed-window-extra",
@@ -4697,7 +4697,7 @@ fn sleep_v1_evidence_folder_validation_rejects_hand_edited_release_gate_report_c
     release_report.hand_reviewed_window_comparisons = 1;
     release_report
         .next_actions
-        .push(goose_core::sleep_validation::SleepV1ReleaseGateNextAction {
+        .push(bull_core::sleep_validation::SleepV1ReleaseGateNextAction {
             scope: "sleep_window.labels".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited release reports.".to_string(),
@@ -4748,7 +4748,7 @@ fn sleep_v1_evidence_folder_validation_rejects_hand_edited_release_gate_stage_la
     release_report.stage_label_comparison_count = 0;
     release_report
         .next_actions
-        .push(goose_core::sleep_validation::SleepV1ReleaseGateNextAction {
+        .push(bull_core::sleep_validation::SleepV1ReleaseGateNextAction {
             scope: "sleep_stage.labels".to_string(),
             reason: "forged_next_action".to_string(),
             action: "Do not accept hand-edited stage-label release counts.".to_string(),
@@ -5109,7 +5109,7 @@ fn sleep_v1_evidence_folder_cli_reports_complete_auditable_folder() {
     write_passing_sleep_v1_evidence_folder(tempdir.path());
     let output_path = tempdir.path().join("sleep-v1-evidence-folder.json");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-v1-evidence-folder"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-v1-evidence-folder"))
         .args([
             "--evidence-dir",
             tempdir.path().to_str().unwrap(),
@@ -5128,7 +5128,7 @@ fn sleep_v1_evidence_folder_cli_reports_complete_auditable_folder() {
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.sleep-v1-validation-evidence-folder-report.v1"
+        "bull.sleep-v1-validation-evidence-folder-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["required_file_count"], 6);
@@ -5157,7 +5157,7 @@ fn sleep_v1_evidence_folder_cli_fails_for_pinned_manifest_hash_mismatch() {
     write_passing_sleep_v1_evidence_folder(tempdir.path());
     let output_path = tempdir.path().join("sleep-v1-evidence-folder.json");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-v1-evidence-folder"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-v1-evidence-folder"))
         .args([
             "--evidence-dir",
             tempdir.path().to_str().unwrap(),
@@ -5188,7 +5188,7 @@ fn sleep_v1_evidence_folder_cli_fails_for_invalid_pinned_manifest_hash() {
     write_passing_sleep_v1_evidence_folder(tempdir.path());
     let output_path = tempdir.path().join("sleep-v1-evidence-folder.json");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-v1-evidence-folder"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-v1-evidence-folder"))
         .args([
             "--evidence-dir",
             tempdir.path().to_str().unwrap(),
@@ -5215,7 +5215,7 @@ fn sleep_v1_evidence_folder_cli_fails_for_invalid_pinned_manifest_hash() {
 
 #[test]
 fn sleep_window_label_validation_passes_hand_reviewed_window_inside_tolerance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     insert_sleep_window_label(
         &store,
@@ -5263,7 +5263,7 @@ fn sleep_window_label_validation_passes_hand_reviewed_window_inside_tolerance() 
 
 #[test]
 fn sleep_window_label_validation_rejects_duplicate_reviewed_sleep_id() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     for index in 0..2 {
         insert_sleep_window_label_with_sleep_id(
@@ -5311,7 +5311,7 @@ fn sleep_window_label_validation_rejects_duplicate_reviewed_sleep_id() {
 fn sleep_window_validator_cli_reports_hand_reviewed_window_match() {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("sleep-window-validation.sqlite");
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     seed_sleep_window_motion(&store);
     insert_sleep_window_label(
         &store,
@@ -5323,7 +5323,7 @@ fn sleep_window_validator_cli_reports_hand_reviewed_window_match() {
     let output_path = tempdir.path().join("sleep-window-validation.json");
     let input_output_path = tempdir.path().join("sleep-window-validation-input.json");
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-window-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-window-validator"))
         .args([
             "--db",
             db_path.to_str().unwrap(),
@@ -5353,7 +5353,7 @@ fn sleep_window_validator_cli_reports_hand_reviewed_window_match() {
         serde_json::from_str(&fs::read_to_string(&output_path).unwrap()).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.sleep-window-label-validation-report.v1"
+        "bull.sleep-window-label-validation-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["compared_label_count"], 1);
@@ -5375,7 +5375,7 @@ fn sleep_window_validator_cli_reports_hand_reviewed_window_match() {
         serde_json::from_str(&fs::read_to_string(&input_output_path).unwrap()).unwrap();
     assert_eq!(
         input_manifest["schema"],
-        "goose.sleep-window-label-validation-input.v1"
+        "bull.sleep-window-label-validation-input.v1"
     );
     assert_eq!(input_manifest["database_path"], db_path.to_str().unwrap());
     assert_eq!(input_manifest["start"], "2026-05-27T22:00:00Z");
@@ -5390,7 +5390,7 @@ fn sleep_window_validator_cli_reports_hand_reviewed_window_match() {
 
 #[test]
 fn sleep_window_label_validation_reports_actionable_tolerance_failures() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     insert_sleep_window_label(
         &store,
@@ -5440,7 +5440,7 @@ fn sleep_window_label_validation_reports_actionable_tolerance_failures() {
 
 #[test]
 fn sleep_window_label_validation_requires_explicit_reviewer_confidence() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": 1_779_919_800_000i64,
@@ -5497,7 +5497,7 @@ fn sleep_window_label_validation_requires_explicit_reviewer_confidence() {
 
 #[test]
 fn sleep_window_label_storage_rejects_out_of_range_reviewer_confidence() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": 1_779_919_800_000i64,
         "corrected_end_time_unix_ms": 1_779_933_000_000i64,
@@ -5527,7 +5527,7 @@ fn sleep_window_label_storage_rejects_out_of_range_reviewer_confidence() {
 
 #[test]
 fn sleep_window_label_validation_requires_hand_review_policy() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": 1_779_919_800_000i64,
@@ -5583,7 +5583,7 @@ fn sleep_window_label_validation_requires_hand_review_policy() {
 
 #[test]
 fn sleep_window_label_validation_requires_matching_provenance_source() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": 1_779_919_800_000i64,
@@ -5655,7 +5655,7 @@ fn sleep_window_label_validation_requires_matching_provenance_source() {
 
 #[test]
 fn sleep_window_label_validation_requires_reviewed_sleep_id() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": 1_779_919_800_000i64,
@@ -5712,7 +5712,7 @@ fn sleep_window_label_validation_requires_reviewed_sleep_id() {
 
 #[test]
 fn sleep_window_label_validation_rejects_malformed_corrected_times() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     seed_sleep_window_motion(&store);
     let value_json = serde_json::json!({
         "corrected_start_time_unix_ms": "1779919800000",
@@ -5764,7 +5764,7 @@ fn sleep_window_label_validation_rejects_malformed_corrected_times() {
 
 #[test]
 fn sleep_stage_label_validation_compares_user_owned_stage_labels() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_sleep_stage_label(
         &store,
         "stage-label-deep",
@@ -5792,7 +5792,7 @@ fn sleep_stage_label_validation_compares_user_owned_stage_labels() {
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(
         report.schema,
-        "goose.sleep-stage-label-validation-report.v1"
+        "bull.sleep-stage-label-validation-report.v1"
     );
     assert_eq!(report.label_count, 2);
     assert_eq!(report.compared_label_count, 2);
@@ -5817,7 +5817,7 @@ fn sleep_stage_label_validation_compares_user_owned_stage_labels() {
     );
     assert_eq!(
         report.provenance["report_integrity_policy"],
-        serde_json::json!(goose_core::sleep_validation::SLEEP_STAGE_LABEL_REPORT_INTEGRITY_POLICY)
+        serde_json::json!(bull_core::sleep_validation::SLEEP_STAGE_LABEL_REPORT_INTEGRITY_POLICY)
     );
     assert!(
         report
@@ -5829,7 +5829,7 @@ fn sleep_stage_label_validation_compares_user_owned_stage_labels() {
 
 #[test]
 fn sleep_stage_label_validation_blocks_mismatched_or_untrusted_stage_labels() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     insert_sleep_stage_label(
         &store,
         "stage-label-mismatch",
@@ -5928,15 +5928,15 @@ fn sleep_stage_label_validation_blocks_mismatched_or_untrusted_stage_labels() {
 #[test]
 fn sleep_stage_label_validator_cli_reports_user_owned_stage_matches() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     seed_release_gate_sleep_stage_labels(&store);
     let input_path = tempdir.path().join("sleep-v1-input.json");
     let output_path = tempdir.path().join("sleep-stage-validation.json");
     write_json(&input_path, &sleep_v1_quality_gate_input());
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-sleep-stage-label-validator"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-stage-label-validator"))
             .args([
                 "--db",
                 db.to_str().unwrap(),
@@ -5969,7 +5969,7 @@ fn sleep_stage_label_validator_cli_reports_user_owned_stage_matches() {
 
 fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
     let sleep_window_store_path = evidence_dir.join("sleep-window-store.sqlite");
-    let store = GooseStore::open(&sleep_window_store_path).unwrap();
+    let store = BullStore::open(&sleep_window_store_path).unwrap();
     seed_sleep_window_motion(&store);
     for (index, sleep_id) in [
         "packet-derived-sleep-2026-05-27",
@@ -5995,7 +5995,7 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
         ..Default::default()
     };
     let window_input = SleepWindowLabelValidationEvidenceInput {
-        schema: "goose.sleep-window-label-validation-input.v1".to_string(),
+        schema: "bull.sleep-window-label-validation-input.v1".to_string(),
         database_path: "sleep-window-store.sqlite".to_string(),
         start: "2026-05-27T22:00:00Z".to_string(),
         end: "2026-05-28T03:00:00Z".to_string(),
@@ -6027,7 +6027,7 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
         SleepStageLabelValidationOptions::default(),
     )
     .unwrap();
-    let benchmark_report = compare_sleep_v1_goose_to_reference(&sleep_v1_input).unwrap();
+    let benchmark_report = compare_sleep_v1_bull_to_reference(&sleep_v1_input).unwrap();
     let release_gate_input = SleepV1ReleaseGateInput {
         physical_historical_sync: Some(physical_report.clone()),
         sleep_window_label_validation: Some(window_report.clone()),
@@ -6114,7 +6114,7 @@ fn add_cli_benchmark_coverage_fields(evidence_dir: &std::path::Path, corrupt: bo
     write_json(&release_input_path, &release_input);
 }
 
-fn seed_sleep_window_motion(store: &GooseStore) {
+fn seed_sleep_window_motion(store: &BullStore) {
     for (index, (captured_at, sample_value)) in [
         ("2026-05-27T22:00:00Z", 10000),
         ("2026-05-27T23:00:00Z", 1000),
@@ -6130,17 +6130,17 @@ fn seed_sleep_window_motion(store: &GooseStore) {
             frame_id: Some(format!("sleep-window-motion-{index}.frame.0")),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: captured_at.to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: k10_motion_frame_hex_with_value(sample_value),
             sensitivity: "user-owned-capture".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         }];
         let report = import_captured_frame_batch(
             store,
             &frames,
             CapturedFrameBatchOptions {
-                parser_version: "goose-core/test",
+                parser_version: "bull-core/test",
             },
         )
         .unwrap();
@@ -6149,7 +6149,7 @@ fn seed_sleep_window_motion(store: &GooseStore) {
     seed_sleep_window_heart_rate(store);
 }
 
-fn seed_sleep_window_heart_rate(store: &GooseStore) {
+fn seed_sleep_window_heart_rate(store: &BullStore) {
     for (index, (captured_at, marker_value)) in [
         ("2026-05-27T22:00:00Z", 78),
         ("2026-05-27T23:00:00Z", 70),
@@ -6165,17 +6165,17 @@ fn seed_sleep_window_heart_rate(store: &GooseStore) {
             frame_id: Some(format!("sleep-window-heart-rate-{index}.frame.0")),
             source: "ios.corebluetooth.notification".to_string(),
             captured_at: captured_at.to_string(),
-            device_model: "WHOOP 5.0 Goose".to_string(),
+            device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: historical_k18_frame_hex(marker_value),
             sensitivity: "user-owned-capture".to_string(),
             capture_session_id: None,
-            device_type: DeviceType::Goose,
+            device_type: DeviceType::Bull,
         }];
         let report = import_captured_frame_batch(
             store,
             &frames,
             CapturedFrameBatchOptions {
-                parser_version: "goose-core/test",
+                parser_version: "bull-core/test",
             },
         )
         .unwrap();
@@ -6184,7 +6184,7 @@ fn seed_sleep_window_heart_rate(store: &GooseStore) {
 }
 
 fn insert_sleep_window_label(
-    store: &GooseStore,
+    store: &BullStore,
     label_id: &str,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
@@ -6199,7 +6199,7 @@ fn insert_sleep_window_label(
 }
 
 fn insert_sleep_window_label_with_sleep_id(
-    store: &GooseStore,
+    store: &BullStore,
     label_id: &str,
     sleep_id: &str,
     start_time_unix_ms: i64,
@@ -6229,7 +6229,7 @@ fn insert_sleep_window_label_with_sleep_id(
 }
 
 fn insert_sleep_stage_label(
-    store: &GooseStore,
+    store: &BullStore,
     label_id: &str,
     stage_kind: &str,
     start_time_unix_ms: i64,
@@ -6248,7 +6248,7 @@ fn insert_sleep_stage_label(
 }
 
 fn insert_sleep_stage_label_with_sleep_id(
-    store: &GooseStore,
+    store: &BullStore,
     label_id: &str,
     sleep_id: &str,
     stage_kind: &str,
@@ -6277,7 +6277,7 @@ fn insert_sleep_stage_label_with_sleep_id(
     );
 }
 
-fn seed_release_gate_sleep_stage_labels(store: &GooseStore) {
+fn seed_release_gate_sleep_stage_labels(store: &BullStore) {
     insert_sleep_stage_label(
         store,
         "release-stage-label-deep",
@@ -6298,7 +6298,7 @@ fn seed_release_gate_sleep_stage_labels(store: &GooseStore) {
 
 fn physical_validation_input() -> HistoricalSyncPhysicalValidationInput {
     HistoricalSyncPhysicalValidationInput {
-        schema: "goose.historical-sync-physical-validation.v1".to_string(),
+        schema: "bull.historical-sync-physical-validation.v1".to_string(),
         generation: HistoricalSyncGeneration::Gen5,
         capture_session_id: "strap-capture-2026-01-01".to_string(),
         service_uuids: vec!["fd4b0001-cce1-4033-93ce-002d5875f58a".to_string()],
@@ -6475,7 +6475,7 @@ fn sleep_v1_quality_gate_input() -> SleepV1Input {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 10,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.82),
             ..Default::default()

@@ -1,5 +1,5 @@
 {
-  "schema": "goose.activity-candidate-classifier-input.v1",
+  "schema": "bull.activity-candidate-classifier-input.v1",
   "windows": [
     {
       "window_id": "synthetic.activity.packet_derived.hr_only.window",
@@ -15,7 +15,7 @@
           "frame_id": "synthetic.activity.packet_derived.hr_only.frame",
           "note": "Derived from a historical packet HR marker",
           "details": {
-            "fixture_id": "synthetic.goose.v5.historical_k18_packet",
+            "fixture_id": "synthetic.bull.v5.historical_k18_packet",
             "packet_type_name": "HISTORICAL_DATA",
             "packet_k": 18,
             "body_summary_kind": "normal_history",
@@ -44,7 +44,7 @@
               "frame_id": "synthetic.activity.packet_derived.motion_only.frame",
               "note": "Packet-derived gravity sample 0",
               "details": {
-                "fixture_id": "synthetic.goose.v5.k10_motion_summary_short",
+                "fixture_id": "synthetic.bull.v5.k10_motion_summary_short",
                 "sample_index": 0,
                 "body_summary_kind": "raw_motion_k10",
                 "trusted_packet_derived": true
@@ -63,7 +63,7 @@
               "frame_id": "synthetic.activity.packet_derived.motion_only.frame",
               "note": "Packet-derived gravity sample 1",
               "details": {
-                "fixture_id": "synthetic.goose.v5.k10_motion_summary_short",
+                "fixture_id": "synthetic.bull.v5.k10_motion_summary_short",
                 "sample_index": 1,
                 "body_summary_kind": "raw_motion_k10",
                 "trusted_packet_derived": true
@@ -82,7 +82,7 @@
               "frame_id": "synthetic.activity.packet_derived.motion_only.frame",
               "note": "Packet-derived gravity sample 2",
               "details": {
-                "fixture_id": "synthetic.goose.v5.k10_motion_summary_short",
+                "fixture_id": "synthetic.bull.v5.k10_motion_summary_short",
                 "sample_index": 2,
                 "body_summary_kind": "raw_motion_k10",
                 "trusted_packet_derived": true
@@ -98,7 +98,7 @@
           "frame_id": "synthetic.activity.packet_derived.motion_only.frame",
           "note": "Derived from a raw motion packet summary",
           "details": {
-            "fixture_id": "synthetic.goose.v5.k10_motion_summary_short",
+            "fixture_id": "synthetic.bull.v5.k10_motion_summary_short",
             "packet_type_name": "REALTIME_RAW_DATA",
             "packet_k": 10,
             "body_summary_kind": "raw_motion_k10",

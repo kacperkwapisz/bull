@@ -1,4 +1,4 @@
-use goose_core::{
+use bull_core::{
     debug_ws::{
         DEBUG_COMMAND_SCHEMA, DEBUG_EVENT_TOPIC_ACTIVITY_CANDIDATE_CORRECTED,
         DEBUG_EVENT_TOPIC_ACTIVITY_CANDIDATE_CREATED,
@@ -14,7 +14,7 @@ use goose_core::{
         start_debug_session, validate_debug_ws_contract,
     },
     debug_ws_server::{DebugWsServerOptions, bind_debug_ws_listener, serve_debug_ws_listener_once},
-    store::GooseStore,
+    store::BullStore,
 };
 use serde_json::json;
 use std::thread;
@@ -213,7 +213,7 @@ fn command_args_and_event_data_must_be_objects() {
 
 #[test]
 fn debug_session_store_records_command_lifecycle_and_valid_snapshot() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let bridge = valid_input().bridge;
 
     let empty_snapshot = start_debug_session(
@@ -298,7 +298,7 @@ fn debug_session_store_records_command_lifecycle_and_valid_snapshot() {
 
 #[test]
 fn debug_session_store_records_structured_activity_export_and_health_sync_events() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let bridge = valid_input().bridge;
 
     start_debug_session(
@@ -437,7 +437,7 @@ fn debug_session_store_records_structured_activity_export_and_health_sync_events
             data: json!({
                 "export_job_id": "export-1",
                 "row_count": 3,
-                "bundle_path": "export.goosebundle"
+                "bundle_path": "export.bullbundle"
             }),
         },
     )
@@ -481,7 +481,7 @@ fn debug_session_store_records_structured_activity_export_and_health_sync_events
     .unwrap();
 
     let snapshot =
-        goose_core::debug_ws::debug_session_snapshot(&store, "debug-session-structured").unwrap();
+        bull_core::debug_ws::debug_session_snapshot(&store, "debug-session-structured").unwrap();
 
     assert!(
         snapshot.contract_report.pass,
@@ -521,7 +521,7 @@ fn debug_session_store_records_structured_activity_export_and_health_sync_events
 
 #[test]
 fn debug_session_store_rejects_invalid_bridge_and_event_shapes() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let mut bridge = valid_input().bridge;
     bridge.remote_bind_enabled = true;
     bridge.visible_remote_bind_toggle = false;
@@ -576,7 +576,7 @@ fn debug_session_store_rejects_invalid_bridge_and_event_shapes() {
 
 #[test]
 fn debug_session_store_preserves_monotonic_stream_order() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     start_debug_session(
         &store,
         &DebugSessionStartInput {
@@ -627,7 +627,7 @@ fn debug_session_store_preserves_monotonic_stream_order() {
 #[test]
 fn debug_ws_server_streams_persisted_events_over_loopback_websocket() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let options = DebugWsServerOptions {
         database_path: db.clone(),
         session_id: "debug-session-ws".to_string(),
@@ -640,9 +640,9 @@ fn debug_ws_server_streams_persisted_events_over_loopback_websocket() {
     };
     let listener = bind_debug_ws_listener(&options).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let url = format!("ws://127.0.0.1:{port}/goose-debug/stream?token=test-token");
+    let url = format!("ws://127.0.0.1:{port}/bull-debug/stream?token=test-token");
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     start_debug_session(
         &store,
         &DebugSessionStartInput {
@@ -697,7 +697,7 @@ fn debug_ws_server_streams_persisted_events_over_loopback_websocket() {
     let first_event: serde_json::Value = serde_json::from_str(&first).unwrap();
     let second_event: serde_json::Value = serde_json::from_str(&second).unwrap();
 
-    assert_eq!(first_event["schema"], "goose.debug.event.v1");
+    assert_eq!(first_event["schema"], "bull.debug.event.v1");
     assert_eq!(first_event["sequence"], 1);
     assert_eq!(first_event["topic"], "app.ready");
     assert_eq!(second_event["sequence"], 2);
@@ -717,7 +717,7 @@ fn debug_ws_server_streams_persisted_events_over_loopback_websocket() {
 #[test]
 fn debug_ws_server_reports_empty_stream_as_validation_gap() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let options = DebugWsServerOptions {
         database_path: db.clone(),
         session_id: "debug-session-ws-empty".to_string(),
@@ -730,9 +730,9 @@ fn debug_ws_server_reports_empty_stream_as_validation_gap() {
     };
     let listener = bind_debug_ws_listener(&options).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let url = format!("ws://127.0.0.1:{port}/goose-debug/stream?token=empty-token");
+    let url = format!("ws://127.0.0.1:{port}/bull-debug/stream?token=empty-token");
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     start_debug_session(
         &store,
         &DebugSessionStartInput {
@@ -780,7 +780,7 @@ fn debug_ws_server_reports_empty_stream_as_validation_gap() {
 #[test]
 fn debug_ws_server_rejects_missing_or_wrong_token_at_handshake() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let options = DebugWsServerOptions {
         database_path: db,
         session_id: "debug-session-ws-token".to_string(),
@@ -793,7 +793,7 @@ fn debug_ws_server_rejects_missing_or_wrong_token_at_handshake() {
     };
     let listener = bind_debug_ws_listener(&options).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let bad_url = format!("ws://127.0.0.1:{port}/goose-debug/stream?token=wrong-token");
+    let bad_url = format!("ws://127.0.0.1:{port}/bull-debug/stream?token=wrong-token");
     let server_options = options.clone();
     let server = thread::spawn(move || serve_debug_ws_listener_once(listener, server_options));
 
@@ -816,7 +816,7 @@ fn debug_ws_server_rejects_missing_or_wrong_token_at_handshake() {
             && action.reason == "websocket_handshake_failed"
             && action
                 .action
-                .contains("path /goose-debug/stream and the current per-session token")
+                .contains("path /bull-debug/stream and the current per-session token")
     }));
 }
 

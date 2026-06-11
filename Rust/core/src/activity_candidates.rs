@@ -17,17 +17,17 @@ use crate::activity_sessions::{
 use crate::health_sync::{ActivitySyncCandidate, ActivitySyncMetric, HealthSyncSessionKind};
 
 pub const ACTIVITY_CANDIDATE_CLASSIFIER_INPUT_SCHEMA: &str =
-    "goose.activity-candidate-classifier-input.v1";
+    "bull.activity-candidate-classifier-input.v1";
 pub const ACTIVITY_CANDIDATE_CLASSIFIER_REPORT_SCHEMA: &str =
-    "goose.activity-candidate-classifier-report.v1";
+    "bull.activity-candidate-classifier-report.v1";
 pub const ACTIVITY_CANDIDATE_UNKNOWN_ACTIVITY_TYPE: &str = "unknown";
 pub const ACTIVITY_CANDIDATE_HEURISTIC_MOTION: &str = "heuristic_motion";
 pub const ACTIVITY_CANDIDATE_HEURISTIC_HR_MOTION: &str = "heuristic_hr_motion";
-pub const ACTIVITY_CANDIDATE_GENERATED_BY: &str = "goose-activity-candidate-classifier";
+pub const ACTIVITY_CANDIDATE_GENERATED_BY: &str = "bull-activity-candidate-classifier";
 pub const ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_REPORT_SCHEMA: &str =
-    "goose.activity-session-packet-derived-metric-plan-report.v1";
+    "bull.activity-session-packet-derived-metric-plan-report.v1";
 pub const ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_GENERATED_BY: &str =
-    "goose-activity-session-packet-derived-metric-planner";
+    "bull-activity-session-packet-derived-metric-planner";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActivityCandidateClassifierInput {

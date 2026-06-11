@@ -5,11 +5,11 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     algorithm_compare::{
         ALGORITHM_COMPARISON_SCHEMA, AlgorithmComparisonDelta, AlgorithmComparisonReport,
         SLEEP_V1_BENCHMARK_COMPARISON_POLICY, SLEEP_V1_BENCHMARK_REPORT_INTEGRITY_POLICY,
-        algorithm_comparison_next_actions, compare_sleep_v1_goose_to_reference,
+        algorithm_comparison_next_actions, compare_sleep_v1_bull_to_reference,
         sleep_v1_benchmark_acceptance_summary,
     },
     historical_sync::{
@@ -28,19 +28,19 @@ use crate::{
         SleepWindowFeature, run_sleep_feature_score_report_for_store,
     },
     metrics::{
-        GOOSE_SLEEP_V0_ID, GOOSE_SLEEP_V0_VERSION, GOOSE_SLEEP_V1_ID, GOOSE_SLEEP_V1_VERSION,
-        SleepInput, SleepV1Input, SleepV1Output, goose_sleep_v0, goose_sleep_v1,
+        BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION, BULL_SLEEP_V1_ID, BULL_SLEEP_V1_VERSION,
+        SleepInput, SleepV1Input, SleepV1Output, bull_sleep_v0, bull_sleep_v1,
     },
     reference::{REFERENCE_SLEEP_ACTIGRAPHY_ID, REFERENCE_SLEEP_ACTIGRAPHY_VERSION},
-    store::{GooseStore, SleepCorrectionLabelRow},
+    store::{BullStore, SleepCorrectionLabelRow},
 };
 
 pub const SLEEP_WINDOW_LABEL_VALIDATION_SCHEMA: &str =
-    "goose.sleep-window-label-validation-report.v1";
+    "bull.sleep-window-label-validation-report.v1";
 pub const SLEEP_WINDOW_LABEL_VALIDATION_INPUT_SCHEMA: &str =
-    "goose.sleep-window-label-validation-input.v1";
+    "bull.sleep-window-label-validation-input.v1";
 pub const SLEEP_STAGE_LABEL_VALIDATION_SCHEMA: &str =
-    "goose.sleep-stage-label-validation-report.v1";
+    "bull.sleep-stage-label-validation-report.v1";
 pub const SLEEP_STAGE_LABEL_REPORT_INTEGRITY_POLICY: &str =
     "sleep_stage_label_validation_requires_current_stage_comparison_integrity";
 pub const SLEEP_WINDOW_LABEL_REPORT_INTEGRITY_POLICY: &str =
@@ -50,14 +50,14 @@ pub const SLEEP_WINDOW_LABEL_VALIDATION_POLICY: &str =
 pub const SLEEP_STAGE_LABEL_VALIDATION_POLICY: &str =
     "sleep_v1_stage_segments_vs_user_owned_sleep_stage_labels";
 pub const SLEEP_V1_EXPLANATION_STABILITY_SCHEMA: &str =
-    "goose.sleep-v1-explanation-stability-report.v1";
+    "bull.sleep-v1-explanation-stability-report.v1";
 pub const SLEEP_V1_EXPLANATION_STABILITY_INTEGRITY_POLICY: &str =
     "sleep_v1_explanation_stability_requires_current_component_status_and_delta_integrity";
 pub const SLEEP_V1_EXPLANATION_STABILITY_VALIDATION_POLICY: &str =
     "sleep_v1_explanation_completeness_and_score_stability";
-pub const SLEEP_V1_RELEASE_GATE_SCHEMA: &str = "goose.sleep-v1-release-gate-report.v1";
+pub const SLEEP_V1_RELEASE_GATE_SCHEMA: &str = "bull.sleep-v1-release-gate-report.v1";
 pub const SLEEP_V1_EVIDENCE_FOLDER_SCHEMA: &str =
-    "goose.sleep-v1-validation-evidence-folder-report.v1";
+    "bull.sleep-v1-validation-evidence-folder-report.v1";
 const SLEEP_V1_RELEASE_GATE_THRESHOLD_POLICY: &str =
     "sleep_v1_primary_release_uses_default_or_stricter_review_stage_and_benchmark_thresholds";
 
@@ -169,7 +169,7 @@ pub struct SleepV1EvidenceFolderNextAction {
 
 pub fn validate_sleep_v1_evidence_folder(
     evidence_dir: &Path,
-) -> GooseResult<SleepV1EvidenceFolderReport> {
+) -> BullResult<SleepV1EvidenceFolderReport> {
     validate_sleep_v1_evidence_folder_with_options(
         evidence_dir,
         SleepV1EvidenceFolderOptions::default(),
@@ -179,7 +179,7 @@ pub fn validate_sleep_v1_evidence_folder(
 pub fn validate_sleep_v1_evidence_folder_with_options(
     evidence_dir: &Path,
     options: SleepV1EvidenceFolderOptions,
-) -> GooseResult<SleepV1EvidenceFolderReport> {
+) -> BullResult<SleepV1EvidenceFolderReport> {
     let mut file_reports = Vec::new();
     let mut issues = Vec::new();
 
@@ -243,7 +243,7 @@ pub fn validate_sleep_v1_evidence_folder_with_options(
 
     let mut report = SleepV1EvidenceFolderReport {
         schema: SLEEP_V1_EVIDENCE_FOLDER_SCHEMA.to_string(),
-        generated_by: "goose-sleep-v1-evidence-folder-validator".to_string(),
+        generated_by: "bull-sleep-v1-evidence-folder-validator".to_string(),
         pass,
         evidence_dir: evidence_dir.display().to_string(),
         required_file_count: file_reports.len(),
@@ -581,7 +581,7 @@ fn validate_sleep_v1_evidence_file(
             )),
         }
         if filename == "sleep-v1-benchmark.json" {
-            for field in ["goose_quality_flags", "reference_quality_flags"] {
+            for field in ["bull_quality_flags", "reference_quality_flags"] {
                 match value.get(field).and_then(Value::as_array) {
                     Some(quality_flags) if quality_flags.is_empty() => {}
                     Some(_) => issues.push(format!(
@@ -841,12 +841,12 @@ fn sleep_v1_release_gate_file_integrity_issues(value: &Value) -> Vec<String> {
 
 fn expected_sleep_v1_report_generator(filename: &str) -> Option<&'static str> {
     match filename {
-        "historical-sync-validation.json" => Some("goose-historical-sync-physical-validator"),
-        "sleep-window-validation.json" => Some("goose-sleep-window-label-validator"),
-        "sleep-stage-validation.json" => Some("goose-sleep-stage-label-validator"),
-        "sleep-v1-stability.json" => Some("goose-sleep-v1-explanation-stability-validator"),
-        "sleep-v1-benchmark.json" => Some("goose.algorithm_compare"),
-        "sleep-v1-release-gate.json" => Some("goose-sleep-v1-release-gate-validator"),
+        "historical-sync-validation.json" => Some("bull-historical-sync-physical-validator"),
+        "sleep-window-validation.json" => Some("bull-sleep-window-label-validator"),
+        "sleep-stage-validation.json" => Some("bull-sleep-stage-label-validator"),
+        "sleep-v1-stability.json" => Some("bull-sleep-v1-explanation-stability-validator"),
+        "sleep-v1-benchmark.json" => Some("bull.algorithm_compare"),
+        "sleep-v1-release-gate.json" => Some("bull-sleep-v1-release-gate-validator"),
         _ => None,
     }
 }
@@ -1120,7 +1120,7 @@ fn validate_sleep_v1_window_derivation(evidence_dir: &Path) -> SleepV1EvidenceDe
     ) {
         (Ok(input), Ok(report)) => {
             let db_path = evidence_dir.join(SLEEP_V1_EVIDENCE_SLEEP_WINDOW_STORE);
-            match GooseStore::open_read_only(&db_path).and_then(|store| {
+            match BullStore::open_read_only(&db_path).and_then(|store| {
                 run_sleep_window_label_validation_for_store(
                     &store,
                     &input.database_path,
@@ -1170,7 +1170,7 @@ fn validate_sleep_v1_benchmark_derivation(evidence_dir: &Path) -> SleepV1Evidenc
         read_evidence_json::<SleepV1Input>(evidence_dir, source_file),
         read_evidence_json::<AlgorithmComparisonReport>(evidence_dir, report_file),
     ) {
-        (Ok(input), Ok(report)) => match compare_sleep_v1_goose_to_reference(&input) {
+        (Ok(input), Ok(report)) => match compare_sleep_v1_bull_to_reference(&input) {
             Ok(expected)
                 if sleep_v1_benchmark_report_equivalent_for_evidence_folder(
                     &expected,
@@ -1318,10 +1318,10 @@ fn sleep_v1_benchmark_cli_data_coverage_valid(
         && start_time == Some(report.start_time.as_str())
         && end_time == Some(report.end_time.as_str())
         && output_present
-            == Some(report.goose_output.is_some() && report.reference_output.is_some())
+            == Some(report.bull_output.is_some() && report.reference_output.is_some())
         && quality_flag_count
             == Some(
-                (report.goose_quality_flags.len() + report.reference_quality_flags.len()) as u64,
+                (report.bull_quality_flags.len() + report.reference_quality_flags.len()) as u64,
             )
         && error_count == Some(report.errors.len() as u64)
 }
@@ -1458,23 +1458,23 @@ fn algorithm_comparison_reports_equivalent(
         && expected.family == observed.family
         && json_options_equivalent(&expected.data_coverage, &observed.data_coverage)
         && expected.reference_contract_valid == observed.reference_contract_valid
-        && expected.goose_output_ready == observed.goose_output_ready
+        && expected.bull_output_ready == observed.bull_output_ready
         && expected.reference_output_ready == observed.reference_output_ready
         && expected.shared_fields_ready == observed.shared_fields_ready
         && expected.pass == observed.pass
-        && expected.goose_algorithm_id == observed.goose_algorithm_id
-        && expected.goose_algorithm_version == observed.goose_algorithm_version
+        && expected.bull_algorithm_id == observed.bull_algorithm_id
+        && expected.bull_algorithm_version == observed.bull_algorithm_version
         && expected.reference_algorithm_id == observed.reference_algorithm_id
         && expected.reference_algorithm_version == observed.reference_algorithm_version
         && expected.start_time == observed.start_time
         && expected.end_time == observed.end_time
         && expected.comparable_fields == observed.comparable_fields
         && expected.non_comparable_fields == observed.non_comparable_fields
-        && expected.goose_quality_flags == observed.goose_quality_flags
+        && expected.bull_quality_flags == observed.bull_quality_flags
         && expected.reference_quality_flags == observed.reference_quality_flags
         && expected.quality_flags == observed.quality_flags
         && expected.errors == observed.errors
-        && json_options_equivalent(&expected.goose_output, &observed.goose_output)
+        && json_options_equivalent(&expected.bull_output, &observed.bull_output)
         && json_options_equivalent(&expected.reference_output, &observed.reference_output)
         && json_values_equivalent(&expected.provenance, &observed.provenance)
         && expected.next_actions == observed.next_actions
@@ -1485,10 +1485,10 @@ fn algorithm_comparison_reports_equivalent(
             .zip(&observed.deltas)
             .all(|(left, right)| {
                 left.field == right.field
-                    && left.goose_path == right.goose_path
+                    && left.bull_path == right.bull_path
                     && left.reference_path == right.reference_path
                     && left.unit == right.unit
-                    && approx_equal(left.goose_value, right.goose_value)
+                    && approx_equal(left.bull_value, right.bull_value)
                     && approx_equal(left.reference_value, right.reference_value)
                     && approx_equal(left.absolute_delta, right.absolute_delta)
                     && optional_approx_equal(
@@ -1747,13 +1747,13 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
             "Remove or archive {filename} outside the Sleep V1 evidence folder before promotion review."
         )
     } else if issue.starts_with("schema_mismatch:") {
-        "Regenerate the report with the current Goose validator so the expected schema matches."
+        "Regenerate the report with the current Bull validator so the expected schema matches."
             .to_string()
     } else if issue.starts_with("generated_by_mismatch:") {
-        "Regenerate the report with the expected Goose validator instead of editing or substituting the artifact."
+        "Regenerate the report with the expected Bull validator instead of editing or substituting the artifact."
             .to_string()
     } else if issue.starts_with("supporting_schema_mismatch:") {
-        "Regenerate or replace the supporting JSON with the expected Goose schema.".to_string()
+        "Regenerate or replace the supporting JSON with the expected Bull schema.".to_string()
     } else if issue.starts_with("invalid_required_file_json:")
         || issue.starts_with("unreadable_required_file:")
         || issue.starts_with("invalid_supporting_file_json:")
@@ -1811,7 +1811,7 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
     } else if issue.starts_with("release_gate_subgate_not_passing:") {
         "Resolve the failing release-gate subcheck and rerun the final Sleep V1 gate.".to_string()
     } else if issue == "release_gate_report_unparseable" {
-        "Regenerate the release-gate report with the current Goose validator.".to_string()
+        "Regenerate the release-gate report with the current Bull validator.".to_string()
     } else if issue == "release_gate_report_promotion_policy_missing" {
         "Regenerate the release-gate report with the current promotion policy provenance instead of editing the report by hand.".to_string()
     } else if issue == "release_gate_report_integrity_policy_missing" {
@@ -1837,16 +1837,16 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
         "Regenerate the release-gate report instead of editing pass status or subgate fields."
             .to_string()
     } else if issue == "physical_historical_sync_report_unparseable" {
-        "Regenerate historical-sync-validation.json with the current Goose physical-sync validator."
+        "Regenerate historical-sync-validation.json with the current Bull physical-sync validator."
             .to_string()
     } else if issue == "physical_historical_sync_report_integrity_failed" {
         "Regenerate historical-sync-validation.json from the current physical capture evidence, including all required physical-flow subgates, proof counts, and acceptance summary.".to_string()
     } else if issue == "sleep_window_label_report_unparseable" {
-        "Regenerate sleep-window-validation.json with the current Goose sleep-window label validator.".to_string()
+        "Regenerate sleep-window-validation.json with the current Bull sleep-window label validator.".to_string()
     } else if issue == "sleep_window_label_report_integrity_failed" {
         "Regenerate sleep-window-validation.json from the current sleep-window store snapshot, including the current label-report integrity policy.".to_string()
     } else if issue == "sleep_stage_label_report_unparseable" {
-        "Regenerate sleep-stage-validation.json with the current Goose sleep-stage label validator."
+        "Regenerate sleep-stage-validation.json with the current Bull sleep-stage label validator."
             .to_string()
     } else if issue == "sleep_stage_label_report_integrity_failed" {
         "Regenerate sleep-stage-validation.json from the current sleep-window store snapshot and Sleep V1 input, including the current stage-label integrity policy.".to_string()
@@ -1859,7 +1859,7 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
             default_min_stage_label_comparisons()
         )
     } else if issue == "stability_report_unparseable" {
-        "Regenerate sleep-v1-stability.json with the current Goose stability validator.".to_string()
+        "Regenerate sleep-v1-stability.json with the current Bull stability validator.".to_string()
     } else if issue == "stability_report_integrity_failed" {
         "Regenerate sleep-v1-stability.json from the current Sleep V1 input and component contract."
             .to_string()
@@ -1867,7 +1867,7 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
         "Regenerate sleep-v1-stability.json with release-default stability thresholds before promotion."
             .to_string()
     } else if issue == "benchmark_report_unparseable" {
-        "Regenerate sleep-v1-benchmark.json with the current Goose benchmark comparator."
+        "Regenerate sleep-v1-benchmark.json with the current Bull benchmark comparator."
             .to_string()
     } else if issue == "benchmark_report_integrity_failed" {
         "Regenerate sleep-v1-benchmark.json from the current Sleep V1 input and benchmark contract."
@@ -1897,26 +1897,26 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
             }
         }
     } else if issue.starts_with("missing_pass_field:") {
-        "Regenerate the report with a Goose validator that emits an explicit pass field."
+        "Regenerate the report with a Bull validator that emits an explicit pass field."
             .to_string()
     } else if issue.starts_with("passing_required_file_has_issues:") {
         "Regenerate the report instead of editing pass status; passing Sleep V1 reports must carry an empty issues list.".to_string()
     } else if issue.starts_with("passing_required_file_missing_issues:") {
-        "Regenerate the report with the current Goose validator; passing Sleep V1 reports must carry an explicit empty issues list.".to_string()
+        "Regenerate the report with the current Bull validator; passing Sleep V1 reports must carry an explicit empty issues list.".to_string()
     } else if issue.starts_with("passing_required_file_has_next_actions:") {
         "Regenerate the report instead of editing next actions; passing Sleep V1 reports must carry an empty next_actions list.".to_string()
     } else if issue.starts_with("passing_required_file_missing_next_actions:") {
-        "Regenerate the report with the current Goose validator; passing Sleep V1 reports must carry an explicit empty next_actions list.".to_string()
+        "Regenerate the report with the current Bull validator; passing Sleep V1 reports must carry an explicit empty next_actions list.".to_string()
     } else if issue.starts_with("passing_required_file_has_errors:") {
         "Regenerate the report after resolving errors; passing Sleep V1 reports must carry empty error lists.".to_string()
     } else if issue.starts_with("passing_required_file_missing_errors:") {
-        "Regenerate the report with the current Goose validator; passing Sleep V1 reports must carry an explicit empty errors list.".to_string()
+        "Regenerate the report with the current Bull validator; passing Sleep V1 reports must carry an explicit empty errors list.".to_string()
     } else if issue.starts_with("passing_required_file_has_quality_flags:") {
         "Regenerate the report after resolving quality flags; passing Sleep V1 reports must carry empty quality-flag lists.".to_string()
     } else if issue.starts_with("passing_required_file_missing_quality_flags:") {
         let field = issue.rsplit(':').next().unwrap_or("quality_flags");
         format!(
-            "Regenerate the report with the current Goose validator; passing Sleep V1 reports must carry an explicit empty {field} list."
+            "Regenerate the report with the current Bull validator; passing Sleep V1 reports must carry an explicit empty {field} list."
         )
     } else {
         "Inspect the Sleep V1 evidence folder before promotion.".to_string()
@@ -2556,7 +2556,7 @@ pub fn validate_sleep_v1_release_gates(
 
     let mut report = SleepV1ReleaseGateReport {
         schema: SLEEP_V1_RELEASE_GATE_SCHEMA.to_string(),
-        generated_by: "goose-sleep-v1-release-gate-validator".to_string(),
+        generated_by: "bull-sleep-v1-release-gate-validator".to_string(),
         pass,
         physical_historical_sync_pass,
         timestamp_evidence_pass,
@@ -2740,7 +2740,7 @@ fn historical_sync_physical_report_integrity_pass(
             && report.motion_timestamp_evidence_count > 0
             && report.heart_rate_timestamp_evidence_count > 0);
     report.schema == HISTORICAL_SYNC_PHYSICAL_VALIDATION_REPORT_SCHEMA
-        && report.generated_by == "goose-historical-sync-physical-validator"
+        && report.generated_by == "bull-historical-sync-physical-validator"
         && !report.capture_session_id.trim().is_empty()
         && passing_proof_counts_present
         && report.quality_flags.is_empty()
@@ -2879,7 +2879,7 @@ fn sleep_window_label_report_integrity_pass(report: &SleepWindowLabelValidationR
         && report.issues.is_empty();
 
     report.schema == SLEEP_WINDOW_LABEL_VALIDATION_SCHEMA
-        && report.generated_by == "goose-sleep-window-label-validator"
+        && report.generated_by == "bull-sleep-window-label-validator"
         && report.pass == pass
         && sleep_feature_report_valid
         && provenance_valid
@@ -2929,7 +2929,7 @@ fn sleep_stage_label_report_integrity_pass(report: &SleepStageLabelValidationRep
             .provenance
             .get("official_labels_policy")
             .and_then(Value::as_str)
-            == Some("official_or_platform_stage_values_are_labels_not_goose_outputs")
+            == Some("official_or_platform_stage_values_are_labels_not_bull_outputs")
         && report
             .provenance
             .get("report_integrity_policy")
@@ -3004,7 +3004,7 @@ fn sleep_stage_label_report_integrity_pass(report: &SleepStageLabelValidationRep
         && report.issues.is_empty();
 
     report.schema == SLEEP_STAGE_LABEL_VALIDATION_SCHEMA
-        && report.generated_by == "goose-sleep-stage-label-validator"
+        && report.generated_by == "bull-sleep-stage-label-validator"
         && report.pass == pass
         && provenance_valid
         && comparison_rows_valid
@@ -3052,7 +3052,7 @@ fn sleep_feature_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool
     };
 
     report.schema == SLEEP_FEATURE_SCORE_REPORT_SCHEMA
-        && report.generated_by == "goose-sleep-feature-score-builder"
+        && report.generated_by == "bull-sleep-feature-score-builder"
         && report.pass == report.issues.is_empty()
         && report.pass
         && report.require_trusted_evidence
@@ -3060,14 +3060,14 @@ fn sleep_feature_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool
         && sleep_motion_report_integrity_pass(report)
         && sleep_heart_rate_report_integrity_pass(report)
         && sleep_window_feature_input_integrity_pass(window, input)
-        && score_result.algorithm_id == GOOSE_SLEEP_V0_ID
-        && score_result.algorithm_version == GOOSE_SLEEP_V0_VERSION
+        && score_result.algorithm_id == BULL_SLEEP_V0_ID
+        && score_result.algorithm_version == BULL_SLEEP_V0_VERSION
         && score_result.family == "sleep"
         && score_result.start_time == input.start_time
         && score_result.end_time == input.end_time
         && score_result.errors.is_empty()
-        && score_output.algorithm_id == GOOSE_SLEEP_V0_ID
-        && score_output.algorithm_version == GOOSE_SLEEP_V0_VERSION
+        && score_output.algorithm_id == BULL_SLEEP_V0_ID
+        && score_output.algorithm_version == BULL_SLEEP_V0_VERSION
         && finite_non_negative(score_output.score_0_to_100)
         && score_output.score_0_to_100 <= 100.0
         && finite_non_negative(score_output.sleep_performance_fraction)
@@ -3093,7 +3093,7 @@ fn sleep_feature_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool
 fn sleep_motion_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool {
     let motion = &report.motion_report;
     motion.schema == MOTION_FEATURE_REPORT_SCHEMA
-        && motion.generated_by == "goose-motion-feature-extractor"
+        && motion.generated_by == "bull-motion-feature-extractor"
         && motion.pass == motion.issues.is_empty()
         && motion.pass
         && motion.require_trusted_evidence
@@ -3113,7 +3113,7 @@ fn sleep_motion_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool 
 fn sleep_heart_rate_report_integrity_pass(report: &SleepFeatureScoreReport) -> bool {
     let heart_rate = &report.heart_rate_report;
     heart_rate.schema == HEART_RATE_FEATURE_REPORT_SCHEMA
-        && heart_rate.generated_by == "goose-heart-rate-feature-extractor"
+        && heart_rate.generated_by == "bull-heart-rate-feature-extractor"
         && heart_rate.pass == heart_rate.issues.is_empty()
         && heart_rate.pass
         && heart_rate.require_trusted_evidence
@@ -3273,17 +3273,17 @@ fn sleep_window_label_thresholds_at_least_default(
 
 fn sleep_v1_benchmark_report_ready(report: &AlgorithmComparisonReport) -> bool {
     report.schema == ALGORITHM_COMPARISON_SCHEMA
-        && report.generated_by == "goose.algorithm_compare"
+        && report.generated_by == "bull.algorithm_compare"
         && report.family == "sleep"
         && report.pass
         && benchmark_delta_rows_integrity_pass(report)
         && report.reference_contract_valid
-        && report.goose_output_ready
+        && report.bull_output_ready
         && report.reference_output_ready
         && report.shared_fields_ready
         && sleep_v1_benchmark_data_coverage_integrity_pass(report)
-        && report.goose_algorithm_id == GOOSE_SLEEP_V1_ID
-        && report.goose_algorithm_version == GOOSE_SLEEP_V1_VERSION
+        && report.bull_algorithm_id == BULL_SLEEP_V1_ID
+        && report.bull_algorithm_version == BULL_SLEEP_V1_VERSION
         && report.reference_algorithm_id == REFERENCE_SLEEP_ACTIGRAPHY_ID
         && report.reference_algorithm_version == REFERENCE_SLEEP_ACTIGRAPHY_VERSION
         && report
@@ -3296,12 +3296,12 @@ fn sleep_v1_benchmark_report_ready(report: &AlgorithmComparisonReport) -> bool {
             .get("validation_policy")
             .and_then(Value::as_str)
             == Some(SLEEP_V1_BENCHMARK_COMPARISON_POLICY)
-        && report.goose_output.is_some()
+        && report.bull_output.is_some()
         && report.reference_output.is_some()
-        && sleep_v1_benchmark_goose_output_integrity_pass(report)
+        && sleep_v1_benchmark_bull_output_integrity_pass(report)
         && sleep_v1_benchmark_delta_output_integrity_pass(report)
         && !report.deltas.is_empty()
-        && report.goose_quality_flags.is_empty()
+        && report.bull_quality_flags.is_empty()
         && report.reference_quality_flags.is_empty()
         && report.quality_flags.is_empty()
         && report.errors.is_empty()
@@ -3315,14 +3315,14 @@ fn sleep_v1_benchmark_report_ready(report: &AlgorithmComparisonReport) -> bool {
 fn sleep_v1_benchmark_data_coverage_integrity_pass(report: &AlgorithmComparisonReport) -> bool {
     report.data_coverage.as_ref().is_some_and(|coverage| {
         coverage
-            .get("goose_output_data_coverage_fraction")
+            .get("bull_output_data_coverage_fraction")
             .and_then(Value::as_f64)
             .is_some_and(|value| value.is_finite() && (0.0..=1.0).contains(&value))
     })
 }
 
-fn sleep_v1_benchmark_goose_output_integrity_pass(report: &AlgorithmComparisonReport) -> bool {
-    let Some(output) = report.goose_output.as_ref() else {
+fn sleep_v1_benchmark_bull_output_integrity_pass(report: &AlgorithmComparisonReport) -> bool {
+    let Some(output) = report.bull_output.as_ref() else {
         return false;
     };
     let Some(output_quality_flags) = output.get("quality_flags").and_then(Value::as_array) else {
@@ -3341,13 +3341,13 @@ fn sleep_v1_benchmark_goose_output_integrity_pass(report: &AlgorithmComparisonRe
     let Some(output_quality_flags) = output_quality_flags else {
         return false;
     };
-    output.get("algorithm_id").and_then(Value::as_str) == Some(report.goose_algorithm_id.as_str())
+    output.get("algorithm_id").and_then(Value::as_str) == Some(report.bull_algorithm_id.as_str())
         && output.get("algorithm_version").and_then(Value::as_str)
-            == Some(report.goose_algorithm_version.as_str())
-        && output_quality_flags == report.goose_quality_flags
+            == Some(report.bull_algorithm_version.as_str())
+        && output_quality_flags == report.bull_quality_flags
         && sleep_v1_output_provenance_integrity_pass(output)
         && sleep_v1_benchmark_component_explanations_pass(output)
-        && sleep_v1_benchmark_goose_output_contract_pass(output)
+        && sleep_v1_benchmark_bull_output_contract_pass(output)
         && sleep_v1_status_report_contract_pass(output)
         && sleep_v1_previous_night_comparison_integrity_pass(output)
 }
@@ -3363,7 +3363,7 @@ fn sleep_v1_output_provenance_integrity_pass(output: &Value) -> bool {
         && provenance
             .get("expected_values_policy")
             .and_then(Value::as_str)
-            == Some("hand-derived-tests-and-versioned-goose-output")
+            == Some("hand-derived-tests-and-versioned-bull-output")
         && provenance
             .get("input_ids")
             .and_then(Value::as_array)
@@ -3666,7 +3666,7 @@ fn sleep_v1_component_policy_ready(component_name: &str, policy: &str) -> bool {
     }
 }
 
-fn sleep_v1_benchmark_goose_output_contract_pass(output: &Value) -> bool {
+fn sleep_v1_benchmark_bull_output_contract_pass(output: &Value) -> bool {
     let Some(time_in_bed_minutes) = sleep_v1_json_number(output.get("time_in_bed_minutes")) else {
         return false;
     };
@@ -3790,8 +3790,8 @@ fn sleep_v1_status_report_contract_pass(output: &Value) -> bool {
     else {
         return false;
     };
-    let Some(trusted_goose_sleep_nights) = status_report
-        .get("trusted_goose_sleep_nights")
+    let Some(trusted_bull_sleep_nights) = status_report
+        .get("trusted_bull_sleep_nights")
         .and_then(Value::as_u64)
     else {
         return false;
@@ -3826,32 +3826,32 @@ fn sleep_v1_status_report_contract_pass(output: &Value) -> bool {
     else {
         return false;
     };
-    let Some(nights_until_goose_training) = status_report
-        .get("nights_until_goose_training")
+    let Some(nights_until_bull_training) = status_report
+        .get("nights_until_bull_training")
         .and_then(Value::as_u64)
     else {
         return false;
     };
     let status_counts_within_rust_contract = [
         valid_sleep_nights,
-        trusted_goose_sleep_nights,
+        trusted_bull_sleep_nights,
         imported_platform_sleep_nights,
         calibration_label_count,
         nights_until_baseline,
         nights_until_training,
-        nights_until_goose_training,
+        nights_until_bull_training,
     ]
     .into_iter()
     .all(|count| count <= u32::MAX as u64);
     let counts_coherent = valid_sleep_nights
-        == trusted_goose_sleep_nights.saturating_add(imported_platform_sleep_nights)
+        == trusted_bull_sleep_nights.saturating_add(imported_platform_sleep_nights)
         && nights_until_baseline == 7u64.saturating_sub(valid_sleep_nights);
     let training_progress_coherent = nights_until_training <= 14
         && nights_until_training == 14u64.saturating_sub(calibration_label_count)
-        && nights_until_goose_training <= 7
-        && nights_until_goose_training == 7u64.saturating_sub(trusted_goose_sleep_nights)
+        && nights_until_bull_training <= 7
+        && nights_until_bull_training == 7u64.saturating_sub(trusted_bull_sleep_nights)
         && (!matches!(status, "training" | "trained")
-            || (nights_until_training == 0 && nights_until_goose_training == 0));
+            || (nights_until_training == 0 && nights_until_bull_training == 0));
     let status_quality_flags_clean = status_report
         .get("quality_flags")
         .and_then(Value::as_array)
@@ -3926,7 +3926,7 @@ fn sleep_v1_status_report_contract_pass(output: &Value) -> bool {
         && can_show_provisional_score == expected_can_show_provisional_score
         && report_state == expected_report_state
         && (valid_sleep_nights > 0 || (!can_show_provisional_score && !can_show_final_score))
-        && (!can_show_final_score || trusted_goose_sleep_nights > 0)
+        && (!can_show_final_score || trusted_bull_sleep_nights > 0)
         && (!can_show_final_score || (report_state == "final" && can_show_provisional_score))
         && (can_show_final_score || report_state != "final")
         && (can_show_trained_score == (status == "trained" && can_show_final_score))
@@ -4128,8 +4128,8 @@ fn sleep_v1_json_optional_finite_number(value: Option<&Value>) -> bool {
 }
 
 fn sleep_v1_benchmark_delta_output_integrity_pass(report: &AlgorithmComparisonReport) -> bool {
-    let (Some(goose_output), Some(reference_output)) = (
-        report.goose_output.as_ref(),
+    let (Some(bull_output), Some(reference_output)) = (
+        report.bull_output.as_ref(),
         report.reference_output.as_ref(),
     ) else {
         return false;
@@ -4140,47 +4140,47 @@ fn sleep_v1_benchmark_delta_output_integrity_pass(report: &AlgorithmComparisonRe
         .all(|delta| match delta.field.as_str() {
             "time_in_bed_minutes" => sleep_v1_benchmark_delta_values_match(
                 delta,
-                goose_output,
+                bull_output,
                 "time_in_bed_minutes",
                 reference_output,
                 "time_in_bed_minutes",
             ),
             "sleep_minutes" => sleep_v1_benchmark_delta_values_match(
                 delta,
-                goose_output,
+                bull_output,
                 "sleep_duration_minutes",
                 reference_output,
                 "sleep_minutes",
             ),
             "wake_minutes" => sleep_v1_benchmark_delta_values_match(
                 delta,
-                goose_output,
+                bull_output,
                 "awake_minutes",
                 reference_output,
                 "wake_minutes",
             ),
             "sleep_efficiency_fraction" => sleep_v1_benchmark_delta_values_match(
                 delta,
-                goose_output,
+                bull_output,
                 "sleep_efficiency_fraction",
                 reference_output,
                 "sleep_efficiency_fraction",
             ),
             "wake_after_sleep_onset_minutes" => sleep_v1_benchmark_delta_values_match(
                 delta,
-                goose_output,
+                bull_output,
                 "wake_after_sleep_onset_minutes",
                 reference_output,
                 "wake_after_sleep_onset_minutes",
             ),
-            "disturbance_count" => sleep_v1_benchmark_delta_goose_input_values_match(
+            "disturbance_count" => sleep_v1_benchmark_delta_bull_input_values_match(
                 delta,
                 &report.provenance,
                 "disturbance_count",
                 reference_output,
                 "disturbance_count",
             ),
-            "fragmentation_index_per_hour" => sleep_v1_benchmark_delta_goose_input_values_match(
+            "fragmentation_index_per_hour" => sleep_v1_benchmark_delta_bull_input_values_match(
                 delta,
                 &report.provenance,
                 "fragmentation_index_per_hour",
@@ -4193,34 +4193,34 @@ fn sleep_v1_benchmark_delta_output_integrity_pass(report: &AlgorithmComparisonRe
 
 fn sleep_v1_benchmark_delta_values_match(
     delta: &AlgorithmComparisonDelta,
-    goose_output: &Value,
-    goose_key: &str,
+    bull_output: &Value,
+    bull_key: &str,
     reference_output: &Value,
     reference_key: &str,
 ) -> bool {
-    goose_output
-        .get(goose_key)
+    bull_output
+        .get(bull_key)
         .and_then(Value::as_f64)
-        .is_some_and(|value| approx_equal(value, delta.goose_value))
+        .is_some_and(|value| approx_equal(value, delta.bull_value))
         && reference_output
             .get(reference_key)
             .and_then(Value::as_f64)
             .is_some_and(|value| approx_equal(value, delta.reference_value))
 }
 
-fn sleep_v1_benchmark_delta_goose_input_values_match(
+fn sleep_v1_benchmark_delta_bull_input_values_match(
     delta: &AlgorithmComparisonDelta,
     provenance: &Value,
-    goose_key: &str,
+    bull_key: &str,
     reference_output: &Value,
     reference_key: &str,
 ) -> bool {
     provenance
-        .get("goose_comparable_inputs")
+        .get("bull_comparable_inputs")
         .and_then(Value::as_object)
-        .and_then(|inputs| inputs.get(goose_key))
+        .and_then(|inputs| inputs.get(bull_key))
         .and_then(Value::as_f64)
-        .is_some_and(|value| approx_equal(value, delta.goose_value))
+        .is_some_and(|value| approx_equal(value, delta.bull_value))
         && reference_output
             .get(reference_key)
             .and_then(Value::as_f64)
@@ -4235,17 +4235,17 @@ fn benchmark_delta_rows_integrity_pass(report: &AlgorithmComparisonReport) -> bo
         .collect::<Vec<_>>();
     report.comparable_fields == delta_fields
         && report.deltas.iter().all(|delta| {
-            delta.goose_value.is_finite()
+            delta.bull_value.is_finite()
                 && delta.reference_value.is_finite()
                 && delta.absolute_delta.is_finite()
                 && optional_finite(delta.relative_delta_fraction)
                 && approx_equal(
                     delta.absolute_delta,
-                    delta.goose_value - delta.reference_value,
+                    delta.bull_value - delta.reference_value,
                 )
                 && expected_relative_delta_matches(
                     delta.relative_delta_fraction,
-                    delta.goose_value,
+                    delta.bull_value,
                     delta.reference_value,
                 )
         })
@@ -4257,7 +4257,7 @@ fn optional_finite(value: Option<f64>) -> bool {
 
 fn expected_relative_delta_matches(
     observed: Option<f64>,
-    goose_value: f64,
+    bull_value: f64,
     reference_value: f64,
 ) -> bool {
     if reference_value.abs() < f64::EPSILON {
@@ -4266,7 +4266,7 @@ fn expected_relative_delta_matches(
         observed.is_some_and(|value| {
             approx_equal(
                 value,
-                (goose_value - reference_value) / reference_value.abs(),
+                (bull_value - reference_value) / reference_value.abs(),
             )
         })
     }
@@ -4477,7 +4477,7 @@ fn sleep_v1_explanation_stability_report_integrity_pass(
         && report.issues.is_empty();
 
     report.schema == SLEEP_V1_EXPLANATION_STABILITY_SCHEMA
-        && report.generated_by == "goose-sleep-v1-explanation-stability-validator"
+        && report.generated_by == "bull-sleep-v1-explanation-stability-validator"
         && provenance_v0_component_count == report.v0_component_count
         && provenance_v1_component_count == report.v1_component_count
         && provenance_component_names_match
@@ -4556,14 +4556,14 @@ pub fn validate_sleep_v1_explanation_and_stability(
     input: &SleepV1Input,
     options: SleepV1ExplanationStabilityOptions,
 ) -> SleepV1ExplanationStabilityReport {
-    let first_result = goose_sleep_v1(input);
-    let second_result = goose_sleep_v1(input);
-    let v0_result = goose_sleep_v0(&input.sleep);
+    let first_result = bull_sleep_v1(input);
+    let second_result = bull_sleep_v1(input);
+    let v0_result = bull_sleep_v0(&input.sleep);
     let mut perturbed = input.clone();
     perturbed.sleep.sleep_duration_minutes = (perturbed.sleep.sleep_duration_minutes
         + options.perturb_sleep_duration_minutes)
         .min(perturbed.sleep.time_in_bed_minutes);
-    let perturbed_result = goose_sleep_v1(&perturbed);
+    let perturbed_result = bull_sleep_v1(&perturbed);
 
     let mut issues = Vec::new();
     let mut quality_flags = Vec::new();
@@ -4812,7 +4812,7 @@ fn explanation_stability_report(
 
     SleepV1ExplanationStabilityReport {
         schema: SLEEP_V1_EXPLANATION_STABILITY_SCHEMA.to_string(),
-        generated_by: "goose-sleep-v1-explanation-stability-validator".to_string(),
+        generated_by: "bull-sleep-v1-explanation-stability-validator".to_string(),
         pass,
         explanation_pass,
         explanation_quality_pass,
@@ -5195,17 +5195,17 @@ fn sleep_v1_release_gate_issue_action(issue: &str) -> String {
             )
         }
         "sleep_v1_benchmark_report_integrity_failed" => {
-            "Regenerate benchmark comparison reports with goose.sleep.v1 output, valid reference output, shared deltas, and no errors before promotion.".to_string()
+            "Regenerate benchmark comparison reports with bull.sleep.v1 output, valid reference output, shared deltas, and no errors before promotion.".to_string()
         }
         _ => "Resolve the Sleep V1 release-gate issue before making V1 primary.".to_string(),
     }
 }
 
 pub fn validate_sleep_v1_stage_labels_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     input: &SleepV1Input,
     options: SleepStageLabelValidationOptions,
-) -> GooseResult<SleepStageLabelValidationReport> {
+) -> BullResult<SleepStageLabelValidationReport> {
     let sleep_id = input
         .sleep
         .input_ids
@@ -5213,18 +5213,18 @@ pub fn validate_sleep_v1_stage_labels_for_store(
         .cloned()
         .unwrap_or_else(|| "sleep-v1-input".to_string());
     let start_unix_ms = parse_rfc3339_utc_unix_ms(&input.sleep.start_time).ok_or_else(|| {
-        GooseError::message("sleep v1 stage label validation start_time is invalid")
+        BullError::message("sleep v1 stage label validation start_time is invalid")
     })?;
     let end_unix_ms = parse_rfc3339_utc_unix_ms(&input.sleep.end_time).ok_or_else(|| {
-        GooseError::message("sleep v1 stage label validation end_time is invalid")
+        BullError::message("sleep v1 stage label validation end_time is invalid")
     })?;
     if end_unix_ms <= start_unix_ms {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "sleep v1 stage label validation window is invalid",
         ));
     }
 
-    let result = goose_sleep_v1(input);
+    let result = bull_sleep_v1(input);
     let labels = store
         .sleep_correction_labels_between(start_unix_ms, end_unix_ms)?
         .into_iter()
@@ -5270,7 +5270,7 @@ fn sleep_stage_label_comparison(
     output: &SleepV1Output,
     options: &SleepStageLabelValidationOptions,
     issues: &mut Vec<String>,
-) -> GooseResult<Option<SleepStageLabelComparison>> {
+) -> BullResult<Option<SleepStageLabelComparison>> {
     let Some(confidence) = label.confidence else {
         issues.push(format!("{}:label_confidence_missing", label.label_id));
         return Ok(None);
@@ -5317,7 +5317,7 @@ fn sleep_stage_label_comparison(
         return Ok(None);
     }
     let value_json = serde_json::from_str::<Value>(&label.value_json).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "sleep stage label {} value_json invalid: {error}",
             label.label_id
         ))
@@ -5433,7 +5433,7 @@ fn sleep_stage_label_validation_report(
 
     SleepStageLabelValidationReport {
         schema: SLEEP_STAGE_LABEL_VALIDATION_SCHEMA.to_string(),
-        generated_by: "goose-sleep-stage-label-validator".to_string(),
+        generated_by: "bull-sleep-stage-label-validator".to_string(),
         pass,
         sleep_id: sleep_id.to_string(),
         start_time: start.to_string(),
@@ -5464,7 +5464,7 @@ fn sleep_stage_label_validation_report(
             "validation_policy": SLEEP_STAGE_LABEL_VALIDATION_POLICY,
             "min_label_confidence": options.min_label_confidence,
             "min_overlap_fraction": options.min_overlap_fraction,
-            "official_labels_policy": "official_or_platform_stage_values_are_labels_not_goose_outputs",
+            "official_labels_policy": "official_or_platform_stage_values_are_labels_not_bull_outputs",
             "report_integrity_policy": SLEEP_STAGE_LABEL_REPORT_INTEGRITY_POLICY,
         }),
     }
@@ -5639,7 +5639,7 @@ fn sleep_stage_label_validation_action(reason: &str) -> String {
             "Use sleep-stage labels with confidence at or above the validation threshold.".to_string()
         }
         "label_provenance_missing" => {
-            "Mark stage labels as user-owned labels, not Goose outputs, with review_policy=user_owned_sleep_stage_label or official_labels_are_labels=true.".to_string()
+            "Mark stage labels as user-owned labels, not Bull outputs, with review_policy=user_owned_sleep_stage_label or official_labels_are_labels=true.".to_string()
         }
         "label_provenance_source_missing" => {
             "Store the user-owned sleep-stage label source in provenance before validation.".to_string()
@@ -5676,12 +5676,12 @@ fn sleep_stage_label_validation_action(reason: &str) -> String {
 }
 
 pub fn run_sleep_window_label_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: SleepWindowLabelValidationOptions,
-) -> GooseResult<SleepWindowLabelValidationReport> {
+) -> BullResult<SleepWindowLabelValidationReport> {
     let sleep_feature_report = run_sleep_feature_score_report_for_store(
         store,
         database_path,
@@ -5824,9 +5824,9 @@ fn sleep_window_label_comparison(
     label_provenance: WindowLabelProvenance,
     options: &SleepWindowLabelValidationOptions,
     issues: &mut Vec<String>,
-) -> GooseResult<Option<SleepWindowLabelComparison>> {
+) -> BullResult<Option<SleepWindowLabelComparison>> {
     let value_json = serde_json::from_str::<Value>(&label.value_json).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "sleep correction label {} value_json invalid: {error}",
             label.label_id
         ))
@@ -5996,7 +5996,7 @@ fn validation_report(
 
     SleepWindowLabelValidationReport {
         schema: SLEEP_WINDOW_LABEL_VALIDATION_SCHEMA.to_string(),
-        generated_by: "goose-sleep-window-label-validator".to_string(),
+        generated_by: "bull-sleep-window-label-validator".to_string(),
         pass,
         start_time: start.to_string(),
         end_time: end.to_string(),

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{GooseError, GooseResult};
+use crate::{BullError, BullResult};
 
 pub const FRAME_START: u8 = 0xaa;
 pub const PACKET_TYPE_COMMAND: u8 = 35;
@@ -27,14 +27,14 @@ pub enum DeviceType {
     Gen4,
     Maverick,
     Puffin,
-    Goose,
+    Bull,
 }
 
 impl DeviceType {
     pub fn header_len(self) -> usize {
         match self {
             DeviceType::Gen4 => 4,
-            DeviceType::Maverick | DeviceType::Puffin | DeviceType::Goose => 8,
+            DeviceType::Maverick | DeviceType::Puffin | DeviceType::Bull => 8,
         }
     }
 
@@ -47,7 +47,7 @@ impl DeviceType {
                     Some(u16::from_le_bytes([buffer[1], buffer[2]]) as usize + 4)
                 }
             }
-            DeviceType::Maverick | DeviceType::Puffin | DeviceType::Goose => {
+            DeviceType::Maverick | DeviceType::Puffin | DeviceType::Bull => {
                 if buffer.len() < 8 {
                     None
                 } else {
@@ -229,38 +229,38 @@ impl FrameAccumulator {
     }
 }
 
-pub fn parse_frame_hex(device_type: DeviceType, hex_value: &str) -> GooseResult<ParsedFrame> {
+pub fn parse_frame_hex(device_type: DeviceType, hex_value: &str) -> BullResult<ParsedFrame> {
     let raw = decode_hex_with_whitespace(hex_value)?;
     parse_frame(device_type, &raw)
 }
 
-pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> GooseResult<ParsedFrame> {
+pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> BullResult<ParsedFrame> {
     if frame.first().copied() != Some(FRAME_START) {
-        return Err(GooseError::message("frame does not start with 0xaa"));
+        return Err(BullError::message("frame does not start with 0xaa"));
     }
 
     let header_len = device_type.header_len();
     if frame.len() < header_len {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "frame shorter than {header_len}-byte header"
         )));
     }
 
     let declared_len = match device_type {
         DeviceType::Gen4 => u16::from_le_bytes([frame[1], frame[2]]) as usize,
-        DeviceType::Maverick | DeviceType::Puffin | DeviceType::Goose => {
+        DeviceType::Maverick | DeviceType::Puffin | DeviceType::Bull => {
             u16::from_le_bytes([frame[2], frame[3]]) as usize
         }
     };
     if declared_len < 4 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "declared length must include at least the 4-byte payload CRC",
         ));
     }
 
     let header_crc_valid = match device_type {
         DeviceType::Gen4 => crc8(&frame[1..3]) == frame[3],
-        DeviceType::Maverick | DeviceType::Puffin | DeviceType::Goose => {
+        DeviceType::Maverick | DeviceType::Puffin | DeviceType::Bull => {
             let actual = u16::from_le_bytes([frame[6], frame[7]]);
             crc16_modbus(&frame[..6]) == actual
         }
@@ -268,7 +268,7 @@ pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> GooseResult<ParsedF
 
     let expected_len = header_len + declared_len;
     if frame.len() > expected_len {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "frame length {} does not match declared length {expected_len}",
             frame.len()
         )));
@@ -279,7 +279,7 @@ pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> GooseResult<ParsedF
         && (!header_crc_valid
             || !partial_packet_type.is_some_and(is_partial_data_packet_type_allowed))
     {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "frame length {} does not match declared length {expected_len}",
             frame.len()
         )));
@@ -382,7 +382,7 @@ pub fn packet_type_name(packet_type: u8) -> Option<&'static str> {
     })
 }
 
-pub fn decode_hex_with_whitespace(hex_value: &str) -> GooseResult<Vec<u8>> {
+pub fn decode_hex_with_whitespace(hex_value: &str) -> BullResult<Vec<u8>> {
     if !hex_value.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return Ok(hex::decode(hex_value)?);
     }

@@ -1,22 +1,22 @@
 use std::collections::BTreeMap;
 
-use goose_core::{
+use bull_core::{
     metrics::{
-        GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, GOOSE_RECOVERY_V0_ID, GOOSE_SLEEP_V0_ID,
-        GOOSE_SLEEP_V1_ID, GOOSE_STRAIN_V0_ID, GOOSE_STRESS_V0_ID, HrvInput, RecoveryInput,
+        BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, BULL_RECOVERY_V0_ID, BULL_SLEEP_V0_ID,
+        BULL_SLEEP_V1_ID, BULL_STRAIN_V0_ID, BULL_STRESS_V0_ID, HrvInput, RecoveryInput,
         SleepInput, SleepModelStatus, SleepModelStatusInput, SleepNightHistoryInput,
         SleepStageSegment, SleepV1Input, SleepV1Output, StrainInput, StressInput,
         algorithm_run_record, built_in_algorithm_definitions,
-        built_in_default_algorithm_preferences, evaluate_sleep_model_status, goose_hrv_v0,
-        goose_recovery_v0, goose_sleep_v0, goose_sleep_v1, goose_strain_v0, goose_stress_v0,
+        built_in_default_algorithm_preferences, evaluate_sleep_model_status, bull_hrv_v0,
+        bull_recovery_v0, bull_sleep_v0, bull_sleep_v1, bull_strain_v0, bull_stress_v0,
         hrv_run_record, sleep_baseline_from_history,
     },
-    store::GooseStore,
+    store::BullStore,
 };
 
 #[test]
-fn goose_hrv_v0_computes_hand_derived_time_domain_metrics() {
-    let result = goose_hrv_v0(&HrvInput {
+fn bull_hrv_v0_computes_hand_derived_time_domain_metrics() {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
@@ -24,8 +24,8 @@ fn goose_hrv_v0_computes_hand_derived_time_domain_metrics() {
     });
 
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_HRV_V0_ID);
-    assert_eq!(output.algorithm_version, GOOSE_HRV_V0_VERSION);
+    assert_eq!(output.algorithm_id, BULL_HRV_V0_ID);
+    assert_eq!(output.algorithm_version, BULL_HRV_V0_VERSION);
     assert_eq!(output.interval_count, 4);
     assert_eq!(output.valid_interval_count, 4);
     assert_close(output.mean_nn_ms, 800.0);
@@ -40,8 +40,8 @@ fn goose_hrv_v0_computes_hand_derived_time_domain_metrics() {
 }
 
 #[test]
-fn goose_hrv_v0_pnn50_uses_strictly_greater_than_50_ms() {
-    let result = goose_hrv_v0(&HrvInput {
+fn bull_hrv_v0_pnn50_uses_strictly_greater_than_50_ms() {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 850.0, 901.0],
@@ -53,8 +53,8 @@ fn goose_hrv_v0_pnn50_uses_strictly_greater_than_50_ms() {
 }
 
 #[test]
-fn goose_hrv_v0_drops_nonphysiological_intervals_and_flags_quality() {
-    let result = goose_hrv_v0(&HrvInput {
+fn bull_hrv_v0_drops_nonphysiological_intervals_and_flags_quality() {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 100.0, 810.0, 2500.0, 790.0],
@@ -74,8 +74,8 @@ fn goose_hrv_v0_drops_nonphysiological_intervals_and_flags_quality() {
 }
 
 #[test]
-fn goose_hrv_v0_reports_insufficient_data_without_output() {
-    let result = goose_hrv_v0(&HrvInput {
+fn bull_hrv_v0_reports_insufficient_data_without_output() {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0],
@@ -92,18 +92,18 @@ fn goose_hrv_v0_reports_insufficient_data_without_output() {
 
 #[test]
 fn hrv_definition_and_run_persist_to_sqlite() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let definition = built_in_algorithm_definitions().remove(0);
     store.upsert_algorithm_definition(&definition).unwrap();
 
     let saved = store
-        .algorithm_definition(GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION)
+        .algorithm_definition(BULL_HRV_V0_ID, BULL_HRV_V0_VERSION)
         .unwrap()
         .unwrap();
     assert_eq!(saved.metric_family, "hrv");
     assert_eq!(saved.status, "beta");
 
-    let result = goose_hrv_v0(&HrvInput {
+    let result = bull_hrv_v0(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
@@ -114,7 +114,7 @@ fn hrv_definition_and_run_persist_to_sqlite() {
     assert!(!store.insert_algorithm_run(&record).unwrap());
 
     let saved_run = store.algorithm_run("hrv-run-1").unwrap().unwrap();
-    assert_eq!(saved_run.algorithm_id, GOOSE_HRV_V0_ID);
+    assert_eq!(saved_run.algorithm_id, BULL_HRV_V0_ID);
     assert!(saved_run.output_json.contains("\"rmssd_ms\""));
     let metric_values = store.metric_values_for_run("hrv-run-1").unwrap();
     assert_eq!(metric_values.len(), 7);
@@ -149,19 +149,19 @@ fn hrv_definition_and_run_persist_to_sqlite() {
 }
 
 #[test]
-fn built_in_registry_includes_flagship_goose_score_family() {
+fn built_in_registry_includes_flagship_bull_score_family() {
     let definitions = built_in_algorithm_definitions();
     let ids = definitions
         .iter()
         .map(|definition| definition.algorithm_id.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(ids[0], GOOSE_HRV_V0_ID);
-    assert!(ids.contains(&GOOSE_SLEEP_V0_ID));
-    assert!(ids.contains(&GOOSE_SLEEP_V1_ID));
-    assert!(ids.contains(&GOOSE_STRAIN_V0_ID));
-    assert!(ids.contains(&GOOSE_RECOVERY_V0_ID));
-    assert!(ids.contains(&GOOSE_STRESS_V0_ID));
+    assert_eq!(ids[0], BULL_HRV_V0_ID);
+    assert!(ids.contains(&BULL_SLEEP_V0_ID));
+    assert!(ids.contains(&BULL_SLEEP_V1_ID));
+    assert!(ids.contains(&BULL_STRAIN_V0_ID));
+    assert!(ids.contains(&BULL_RECOVERY_V0_ID));
+    assert!(ids.contains(&BULL_STRESS_V0_ID));
     assert_eq!(definitions.len(), 6);
     assert!(
         definitions
@@ -175,11 +175,11 @@ fn built_in_sleep_v0_remains_stable_default_while_sleep_v1_is_experimental() {
     let definitions = built_in_algorithm_definitions();
     let sleep_v0 = definitions
         .iter()
-        .find(|definition| definition.algorithm_id == GOOSE_SLEEP_V0_ID)
+        .find(|definition| definition.algorithm_id == BULL_SLEEP_V0_ID)
         .unwrap();
     let sleep_v1 = definitions
         .iter()
-        .find(|definition| definition.algorithm_id == GOOSE_SLEEP_V1_ID)
+        .find(|definition| definition.algorithm_id == BULL_SLEEP_V1_ID)
         .unwrap();
     let sleep_preference = built_in_default_algorithm_preferences()
         .into_iter()
@@ -188,13 +188,13 @@ fn built_in_sleep_v0_remains_stable_default_while_sleep_v1_is_experimental() {
 
     assert_eq!(sleep_v0.status, "experimental");
     assert_eq!(sleep_v1.status, "experimental");
-    assert_eq!(sleep_preference.algorithm_id, GOOSE_SLEEP_V0_ID);
+    assert_eq!(sleep_preference.algorithm_id, BULL_SLEEP_V0_ID);
     assert_eq!(sleep_preference.version, sleep_v0.version);
 }
 
 #[test]
-fn goose_sleep_v0_computes_hand_derived_component_score() {
-    let result = goose_sleep_v0(&SleepInput {
+fn bull_sleep_v0_computes_hand_derived_component_score() {
+    let result = bull_sleep_v0(&SleepInput {
         start_time: "2026-05-27T22:30:00Z".to_string(),
         end_time: "2026-05-28T06:30:00Z".to_string(),
         sleep_duration_minutes: 420.0,
@@ -207,7 +207,7 @@ fn goose_sleep_v0_computes_hand_derived_component_score() {
     });
 
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_SLEEP_V0_ID);
+    assert_eq!(output.algorithm_id, BULL_SLEEP_V0_ID);
     assert_close(output.sleep_debt_minutes, 60.0);
     assert_close(output.efficiency_fraction, 0.875);
     assert_close(output.score_0_to_100, 84.875);
@@ -215,8 +215,8 @@ fn goose_sleep_v0_computes_hand_derived_component_score() {
 }
 
 #[test]
-fn goose_sleep_v0_reports_sleep_architecture_latency_and_hr_dip() {
-    let result = goose_sleep_v0(&SleepInput {
+fn bull_sleep_v0_reports_sleep_architecture_latency_and_hr_dip() {
+    let result = bull_sleep_v0(&SleepInput {
         start_time: "2026-05-27T22:30:00Z".to_string(),
         end_time: "2026-05-28T06:30:00Z".to_string(),
         sleep_duration_minutes: 420.0,
@@ -262,8 +262,8 @@ fn goose_sleep_v0_reports_sleep_architecture_latency_and_hr_dip() {
 }
 
 #[test]
-fn goose_sleep_v0_reports_invalid_inputs_without_output() {
-    let result = goose_sleep_v0(&SleepInput {
+fn bull_sleep_v0_reports_invalid_inputs_without_output() {
+    let result = bull_sleep_v0(&SleepInput {
         start_time: "2026-05-27T22:30:00Z".to_string(),
         end_time: "2026-05-28T06:30:00Z".to_string(),
         sleep_duration_minutes: 0.0,
@@ -330,7 +330,7 @@ fn sleep_model_status_keeps_permission_only_setup_pending() {
 fn sleep_model_status_reports_learning_for_first_packet_derived_night() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
-        trusted_goose_sleep_nights: 1,
+        trusted_bull_sleep_nights: 1,
         motion_coverage_fraction: Some(0.92),
         heart_rate_coverage_fraction: Some(0.80),
         ..Default::default()
@@ -340,7 +340,7 @@ fn sleep_model_status_reports_learning_for_first_packet_derived_night() {
     assert_eq!(report.report_state, "provisional");
     assert_eq!(report.valid_sleep_nights, 1);
     assert_eq!(report.nights_until_baseline, 6);
-    assert_eq!(report.nights_until_goose_training, 6);
+    assert_eq!(report.nights_until_bull_training, 6);
     assert!(report.can_show_provisional_score);
     assert!(!report.can_show_personal_baseline);
     assert!(report.status_reason.contains("6 more for baseline"));
@@ -350,7 +350,7 @@ fn sleep_model_status_reports_learning_for_first_packet_derived_night() {
 fn sleep_model_status_saturates_malformed_history_counts() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
-        trusted_goose_sleep_nights: u32::MAX,
+        trusted_bull_sleep_nights: u32::MAX,
         imported_platform_sleep_nights: 1,
         motion_coverage_fraction: Some(0.92),
         heart_rate_coverage_fraction: Some(0.80),
@@ -359,7 +359,7 @@ fn sleep_model_status_saturates_malformed_history_counts() {
 
     assert_eq!(report.valid_sleep_nights, u32::MAX);
     assert_eq!(report.nights_until_baseline, 0);
-    assert_eq!(report.nights_until_goose_training, 0);
+    assert_eq!(report.nights_until_bull_training, 0);
     assert_eq!(report.status, SleepModelStatus::BaselineReady);
 }
 
@@ -369,7 +369,7 @@ fn sleep_model_status_reports_importing_history_as_provisional() {
         sleep_permission_granted: true,
         history_import_in_progress: true,
         imported_platform_sleep_nights: 3,
-        trusted_goose_sleep_nights: 1,
+        trusted_bull_sleep_nights: 1,
         motion_coverage_fraction: Some(0.90),
         heart_rate_coverage_fraction: Some(0.80),
         ..Default::default()
@@ -391,7 +391,7 @@ fn sleep_model_status_uses_imported_sleep_history_for_baseline_readiness() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 12,
-        trusted_goose_sleep_nights: 1,
+        trusted_bull_sleep_nights: 1,
         excluded_sleep_nights: 2,
         motion_coverage_fraction: Some(0.90),
         heart_rate_coverage_fraction: Some(0.75),
@@ -408,11 +408,11 @@ fn sleep_model_status_uses_imported_sleep_history_for_baseline_readiness() {
 }
 
 #[test]
-fn sleep_model_status_requires_goose_night_for_final_score_visibility() {
+fn sleep_model_status_requires_bull_night_for_final_score_visibility() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 12,
-        trusted_goose_sleep_nights: 0,
+        trusted_bull_sleep_nights: 0,
         motion_coverage_fraction: Some(0.90),
         heart_rate_coverage_fraction: Some(0.75),
         ..Default::default()
@@ -426,18 +426,18 @@ fn sleep_model_status_requires_goose_night_for_final_score_visibility() {
     assert!(!report.can_show_trained_score);
     assert!(
         report.next_actions.contains(
-            &"Complete one Goose packet-derived sleep night before showing a final Sleep V1 score."
+            &"Complete one Bull packet-derived sleep night before showing a final Sleep V1 score."
                 .to_string()
         )
     );
 }
 
 #[test]
-fn sleep_model_status_requires_goose_nights_for_trained() {
+fn sleep_model_status_requires_bull_nights_for_trained() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 20,
@@ -448,7 +448,7 @@ fn sleep_model_status_requires_goose_nights_for_trained() {
     assert_eq!(report.status, SleepModelStatus::Trained);
     assert_eq!(report.report_state, "final");
     assert_eq!(report.calibration_label_count, 20);
-    assert_eq!(report.nights_until_goose_training, 0);
+    assert_eq!(report.nights_until_bull_training, 0);
     assert_eq!(report.nights_until_training, 0);
     assert!(report.can_show_trained_score);
 }
@@ -458,7 +458,7 @@ fn sleep_model_status_requires_calibration_labels_for_trained() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 0,
@@ -469,7 +469,7 @@ fn sleep_model_status_requires_calibration_labels_for_trained() {
     assert_eq!(report.status, SleepModelStatus::BaselineReady);
     assert_eq!(report.report_state, "final");
     assert_eq!(report.calibration_label_count, 0);
-    assert_eq!(report.nights_until_goose_training, 0);
+    assert_eq!(report.nights_until_bull_training, 0);
     assert_eq!(report.nights_until_training, 14);
     assert!(!report.can_show_trained_score);
     assert!(
@@ -484,7 +484,7 @@ fn sleep_model_status_names_packet_nights_before_training() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 12,
-        trusted_goose_sleep_nights: 3,
+        trusted_bull_sleep_nights: 3,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 20,
@@ -494,20 +494,20 @@ fn sleep_model_status_names_packet_nights_before_training() {
 
     assert_eq!(report.status, SleepModelStatus::BaselineReady);
     assert_eq!(report.report_state, "final");
-    assert_eq!(report.nights_until_goose_training, 4);
+    assert_eq!(report.nights_until_bull_training, 4);
     assert_eq!(report.nights_until_training, 0);
     assert!(!report.can_show_trained_score);
     assert!(report.next_actions.contains(
-        &"Collect 4 more Goose packet-derived sleep nights before training.".to_string()
+        &"Collect 4 more Bull packet-derived sleep nights before training.".to_string()
     ));
 }
 
 #[test]
-fn sleep_model_status_does_not_train_on_imported_history_without_goose_nights() {
+fn sleep_model_status_does_not_train_on_imported_history_without_bull_nights() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 0,
+        trusted_bull_sleep_nights: 0,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 20,
@@ -517,13 +517,13 @@ fn sleep_model_status_does_not_train_on_imported_history_without_goose_nights() 
 
     assert_eq!(report.status, SleepModelStatus::BaselineReady);
     assert_eq!(report.report_state, "provisional");
-    assert_eq!(report.nights_until_goose_training, 7);
+    assert_eq!(report.nights_until_bull_training, 7);
     assert_eq!(report.nights_until_training, 0);
     assert!(!report.can_show_final_score);
     assert!(!report.can_show_trained_score);
     assert!(
         report.next_actions.contains(
-            &"Complete one Goose packet-derived sleep night before showing a final Sleep V1 score."
+            &"Complete one Bull packet-derived sleep night before showing a final Sleep V1 score."
                 .to_string()
         )
     );
@@ -534,7 +534,7 @@ fn sleep_model_status_requires_heart_rate_coverage_for_trained() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.20),
         calibration_label_count: 20,
@@ -558,7 +558,7 @@ fn sleep_model_status_prioritizes_relearn_signals_over_trained() {
     let pattern_shift = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 20,
@@ -579,7 +579,7 @@ fn sleep_model_status_prioritizes_relearn_signals_over_trained() {
     let stale = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 30,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         motion_coverage_fraction: Some(0.88),
         heart_rate_coverage_fraction: Some(0.70),
         calibration_label_count: 20,
@@ -603,7 +603,7 @@ fn sleep_model_status_keeps_low_coverage_reports_provisional() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 10,
-        trusted_goose_sleep_nights: 1,
+        trusted_bull_sleep_nights: 1,
         motion_coverage_fraction: Some(0.68),
         heart_rate_coverage_fraction: Some(0.40),
         ..Default::default()
@@ -630,7 +630,7 @@ fn sleep_model_status_requires_explicit_coverage_for_final_or_trained() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
         imported_platform_sleep_nights: 10,
-        trusted_goose_sleep_nights: 7,
+        trusted_bull_sleep_nights: 7,
         calibration_label_count: 20,
         holdout_validation_passed: true,
         ..Default::default()
@@ -657,7 +657,7 @@ fn sleep_model_status_requires_explicit_coverage_for_final_or_trained() {
 fn sleep_model_status_blocks_when_timestamps_are_untrusted() {
     let report = evaluate_sleep_model_status(&SleepModelStatusInput {
         sleep_permission_granted: true,
-        trusted_goose_sleep_nights: 8,
+        trusted_bull_sleep_nights: 8,
         imported_platform_sleep_nights: 8,
         timestamp_sync_blocked: true,
         ..Default::default()
@@ -676,8 +676,8 @@ fn sleep_model_status_blocks_when_timestamps_are_untrusted() {
 }
 
 #[test]
-fn goose_sleep_v1_computes_hand_derived_component_score() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_computes_hand_derived_component_score() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -701,7 +701,7 @@ fn goose_sleep_v1_computes_hand_derived_component_score() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 10,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.82),
             ..Default::default()
@@ -721,9 +721,9 @@ fn goose_sleep_v1_computes_hand_derived_component_score() {
     });
 
     assert!(result.errors.is_empty(), "{:?}", result.errors);
-    assert_eq!(result.algorithm_id, GOOSE_SLEEP_V1_ID);
+    assert_eq!(result.algorithm_id, BULL_SLEEP_V1_ID);
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_SLEEP_V1_ID);
+    assert_eq!(output.algorithm_id, BULL_SLEEP_V1_ID);
     assert_eq!(output.model_status, SleepModelStatus::BaselineReady);
     assert_eq!(output.model_status_label, "Baseline ready");
     assert_close(output.score_0_to_100, 82.01361892264234);
@@ -818,7 +818,7 @@ fn goose_sleep_v1_computes_hand_derived_component_score() {
 }
 
 #[test]
-fn goose_sleep_v1_caps_confidence_when_heart_rate_coverage_is_low() {
+fn bull_sleep_v1_caps_confidence_when_heart_rate_coverage_is_low() {
     let mut input = SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -842,7 +842,7 @@ fn goose_sleep_v1_caps_confidence_when_heart_rate_coverage_is_low() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 14,
-            trusted_goose_sleep_nights: 7,
+            trusted_bull_sleep_nights: 7,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.90),
             calibration_label_count: 14,
@@ -857,9 +857,9 @@ fn goose_sleep_v1_caps_confidence_when_heart_rate_coverage_is_low() {
         ..Default::default()
     };
 
-    let high_coverage = goose_sleep_v1(&input).output.unwrap();
+    let high_coverage = bull_sleep_v1(&input).output.unwrap();
     input.model_status.heart_rate_coverage_fraction = Some(0.20);
-    let low_coverage_result = goose_sleep_v1(&input);
+    let low_coverage_result = bull_sleep_v1(&input);
 
     assert!(
         low_coverage_result
@@ -883,8 +883,8 @@ fn goose_sleep_v1_caps_confidence_when_heart_rate_coverage_is_low() {
 }
 
 #[test]
-fn goose_sleep_v1_derives_stage_minutes_from_confident_segments() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_derives_stage_minutes_from_confident_segments() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -903,7 +903,7 @@ fn goose_sleep_v1_derives_stage_minutes_from_confident_segments() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 8,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.90),
             heart_rate_coverage_fraction: Some(0.84),
             ..Default::default()
@@ -987,8 +987,8 @@ fn goose_sleep_v1_derives_stage_minutes_from_confident_segments() {
 }
 
 #[test]
-fn goose_sleep_v1_stage_confidence_is_duration_weighted() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_stage_confidence_is_duration_weighted() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1007,7 +1007,7 @@ fn goose_sleep_v1_stage_confidence_is_duration_weighted() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 8,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.92),
             heart_rate_coverage_fraction: Some(0.84),
             ..Default::default()
@@ -1053,7 +1053,7 @@ fn goose_sleep_v1_stage_confidence_is_duration_weighted() {
 }
 
 #[test]
-fn goose_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
+fn bull_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
     let mut input = SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -1072,7 +1072,7 @@ fn goose_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 8,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.92),
             heart_rate_coverage_fraction: Some(0.84),
             ..Default::default()
@@ -1093,7 +1093,7 @@ fn goose_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
         ..Default::default()
     };
 
-    let uncertain_output = goose_sleep_v1(&input).output.unwrap();
+    let uncertain_output = bull_sleep_v1(&input).output.unwrap();
     assert_close(
         uncertain_output.stage_segment_confidence_0_to_1.unwrap(),
         0.90,
@@ -1114,7 +1114,7 @@ fn goose_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
 
     input.stage_segments[0].stage_probabilities =
         BTreeMap::from([("rem".to_string(), 0.90), ("core".to_string(), 0.10)]);
-    let confident_output = goose_sleep_v1(&input).output.unwrap();
+    let confident_output = bull_sleep_v1(&input).output.unwrap();
     assert!(
         confident_output
             .sleep_architecture_confidence_0_to_1
@@ -1127,8 +1127,8 @@ fn goose_sleep_v1_architecture_confidence_uses_stage_probability_uncertainty() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_invalid_stage_segment_confidence_and_probabilities() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_invalid_stage_segment_confidence_and_probabilities() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1177,8 +1177,8 @@ fn goose_sleep_v1_rejects_invalid_stage_segment_confidence_and_probabilities() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_unrecognized_current_stage_minutes() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_unrecognized_current_stage_minutes() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1204,8 +1204,8 @@ fn goose_sleep_v1_rejects_unrecognized_current_stage_minutes() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_impossible_stage_segment_timeline() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_impossible_stage_segment_timeline() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1286,8 +1286,8 @@ fn goose_sleep_v1_rejects_impossible_stage_segment_timeline() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_impossible_sleep_window_math() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_impossible_sleep_window_math() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T02:30:00Z".to_string(),
@@ -1321,8 +1321,8 @@ fn goose_sleep_v1_rejects_impossible_sleep_window_math() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_invalid_sleep_window_timestamps() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_invalid_sleep_window_timestamps() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "not-a-time".to_string(),
             end_time: "2026-05-28T02:30:00Z".to_string(),
@@ -1344,8 +1344,8 @@ fn goose_sleep_v1_rejects_invalid_sleep_window_timestamps() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_nonexistent_calendar_dates() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_nonexistent_calendar_dates() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-02-30T22:30:00Z".to_string(),
             end_time: "2026-03-01T06:30:00Z".to_string(),
@@ -1464,8 +1464,8 @@ fn sleep_baseline_from_history_caps_rolling_sleep_debt_to_latest_28_nights() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_impossible_prior_night_duration_math() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_impossible_prior_night_duration_math() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1496,8 +1496,8 @@ fn goose_sleep_v1_rejects_impossible_prior_night_duration_math() {
 }
 
 #[test]
-fn goose_sleep_v1_rejects_impossible_prior_night_stage_math() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_rejects_impossible_prior_night_stage_math() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1536,11 +1536,11 @@ fn goose_sleep_v1_rejects_impossible_prior_night_stage_math() {
 }
 
 #[test]
-fn goose_sleep_v1_returns_baseline_from_prior_nights() {
+fn bull_sleep_v1_returns_baseline_from_prior_nights() {
     let prior_nights = (0..7)
         .map(|index| sleep_history_night(index, 420.0, 0.88))
         .collect::<Vec<_>>();
-    let result = goose_sleep_v1(&SleepV1Input {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1627,7 +1627,7 @@ fn goose_sleep_v1_returns_baseline_from_prior_nights() {
 }
 
 #[test]
-fn goose_sleep_v1_ignores_prior_nights_after_current_sleep_start() {
+fn bull_sleep_v1_ignores_prior_nights_after_current_sleep_start() {
     let mut prior_nights = (0..7)
         .map(|index| sleep_history_night(index, 420.0, 0.88))
         .collect::<Vec<_>>();
@@ -1639,7 +1639,7 @@ fn goose_sleep_v1_ignores_prior_nights_after_current_sleep_start() {
     future_night.stage_minutes = BTreeMap::new();
     prior_nights.push(future_night);
 
-    let result = goose_sleep_v1(&SleepV1Input {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1690,7 +1690,7 @@ fn goose_sleep_v1_ignores_prior_nights_after_current_sleep_start() {
 }
 
 #[test]
-fn goose_sleep_v1_uses_personal_baseline_for_architecture_and_hr_components() {
+fn bull_sleep_v1_uses_personal_baseline_for_architecture_and_hr_components() {
     let mut prior_nights = (0..14)
         .map(|index| sleep_history_night(index, 420.0, 0.90))
         .collect::<Vec<_>>();
@@ -1705,7 +1705,7 @@ fn goose_sleep_v1_uses_personal_baseline_for_architecture_and_hr_components() {
         night.heart_rate_dip_percent = Some(18.0);
     }
 
-    let result = goose_sleep_v1(&SleepV1Input {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1728,7 +1728,7 @@ fn goose_sleep_v1_uses_personal_baseline_for_architecture_and_hr_components() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 14,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.96),
             heart_rate_coverage_fraction: Some(0.92),
             ..Default::default()
@@ -1759,7 +1759,7 @@ fn goose_sleep_v1_uses_personal_baseline_for_architecture_and_hr_components() {
 }
 
 #[test]
-fn goose_sleep_v1_blends_stage_priors_by_baseline_maturity_and_confidence() {
+fn bull_sleep_v1_blends_stage_priors_by_baseline_maturity_and_confidence() {
     let mut prior_nights = (0..7)
         .map(|index| sleep_history_night(index, 420.0, 0.55))
         .collect::<Vec<_>>();
@@ -1771,7 +1771,7 @@ fn goose_sleep_v1_blends_stage_priors_by_baseline_maturity_and_confidence() {
         ]);
     }
 
-    let result = goose_sleep_v1(&SleepV1Input {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -1794,7 +1794,7 @@ fn goose_sleep_v1_blends_stage_priors_by_baseline_maturity_and_confidence() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 7,
-            trusted_goose_sleep_nights: 1,
+            trusted_bull_sleep_nights: 1,
             motion_coverage_fraction: Some(0.96),
             heart_rate_coverage_fraction: Some(0.92),
             ..Default::default()
@@ -1834,7 +1834,7 @@ fn goose_sleep_v1_blends_stage_priors_by_baseline_maturity_and_confidence() {
 }
 
 #[test]
-fn goose_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
+fn bull_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
     let mut prior_nights = (0..14)
         .map(|index| sleep_history_night(index, 420.0, 0.90))
         .collect::<Vec<_>>();
@@ -1864,7 +1864,7 @@ fn goose_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 14,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.96),
             heart_rate_coverage_fraction: Some(0.92),
             ..Default::default()
@@ -1876,7 +1876,7 @@ fn goose_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
         data_coverage_fraction: Some(0.96),
         ..Default::default()
     };
-    let rising = goose_sleep_v1(&input).output.unwrap();
+    let rising = bull_sleep_v1(&input).output.unwrap();
     let rising_cardio = rising
         .components
         .iter()
@@ -1885,7 +1885,7 @@ fn goose_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
         .score_0_to_100;
 
     input.sleep_hr_trend_bpm_per_hour = Some(-1.5);
-    let falling = goose_sleep_v1(&input).output.unwrap();
+    let falling = bull_sleep_v1(&input).output.unwrap();
     let falling_cardio = falling
         .components
         .iter()
@@ -1905,7 +1905,7 @@ fn goose_sleep_v1_scores_overnight_hr_trend_against_personal_baseline() {
 }
 
 #[test]
-fn goose_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
+fn bull_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
     let mut input = SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -1924,7 +1924,7 @@ fn goose_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: 1,
+            trusted_bull_sleep_nights: 1,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.90),
             ..Default::default()
@@ -1933,7 +1933,7 @@ fn goose_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
         data_coverage_fraction: Some(0.94),
         ..Default::default()
     };
-    let rising = goose_sleep_v1(&input).output.unwrap();
+    let rising = bull_sleep_v1(&input).output.unwrap();
     let rising_cardio = rising
         .components
         .iter()
@@ -1942,7 +1942,7 @@ fn goose_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
         .score_0_to_100;
 
     input.sleep_hr_trend_bpm_per_hour = Some(-1.5);
-    let falling = goose_sleep_v1(&input).output.unwrap();
+    let falling = bull_sleep_v1(&input).output.unwrap();
     let falling_cardio = falling
         .components
         .iter()
@@ -1965,7 +1965,7 @@ fn goose_sleep_v1_uses_overnight_hr_trend_before_personal_baseline() {
 }
 
 #[test]
-fn goose_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
+fn bull_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
     let mut input = SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -1984,7 +1984,7 @@ fn goose_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: 1,
+            trusted_bull_sleep_nights: 1,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.90),
             ..Default::default()
@@ -1994,7 +1994,7 @@ fn goose_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
         data_coverage_fraction: Some(0.94),
         ..Default::default()
     };
-    let elevated = goose_sleep_v1(&input).output.unwrap();
+    let elevated = bull_sleep_v1(&input).output.unwrap();
     let elevated_cardio = elevated
         .components
         .iter()
@@ -2003,7 +2003,7 @@ fn goose_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
         .score_0_to_100;
 
     input.pre_sleep_awake_hr_average_bpm = Some(72.0);
-    let recovered = goose_sleep_v1(&input).output.unwrap();
+    let recovered = bull_sleep_v1(&input).output.unwrap();
     let recovered_cardio = recovered
         .components
         .iter()
@@ -2027,8 +2027,8 @@ fn goose_sleep_v1_uses_pre_sleep_awake_hr_in_cardiovascular_recovery() {
 }
 
 #[test]
-fn goose_sleep_v1_guardrails_very_short_and_fragmented_sleep() {
-    let result = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_guardrails_very_short_and_fragmented_sleep() {
+    let result = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -2051,7 +2051,7 @@ fn goose_sleep_v1_guardrails_very_short_and_fragmented_sleep() {
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: 1,
+            trusted_bull_sleep_nights: 1,
             motion_coverage_fraction: Some(0.90),
             heart_rate_coverage_fraction: Some(0.85),
             ..Default::default()
@@ -2077,8 +2077,8 @@ fn goose_sleep_v1_guardrails_very_short_and_fragmented_sleep() {
 }
 
 #[test]
-fn goose_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocked() {
-    let all_awake = goose_sleep_v1(&SleepV1Input {
+fn bull_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocked() {
+    let all_awake = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -2096,7 +2096,7 @@ fn goose_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocke
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: 1,
+            trusted_bull_sleep_nights: 1,
             motion_coverage_fraction: Some(0.86),
             heart_rate_coverage_fraction: Some(0.0),
             timestamp_sync_blocked: true,
@@ -2118,7 +2118,7 @@ fn goose_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocke
     assert!(all_awake_output.sleep_hr_dip_percent.is_none());
     assert_close(all_awake_output.data_coverage_fraction.unwrap(), 0.86);
 
-    let missing_stages = goose_sleep_v1(&SleepV1Input {
+    let missing_stages = bull_sleep_v1(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -2135,7 +2135,7 @@ fn goose_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocke
         },
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.91),
             heart_rate_coverage_fraction: Some(0.0),
             ..Default::default()
@@ -2171,7 +2171,7 @@ fn goose_sleep_v1_edge_cases_all_awake_no_hr_missing_stages_and_timestamp_blocke
 }
 
 #[test]
-fn goose_sleep_v1_input_and_output_round_trip_json() {
+fn bull_sleep_v1_input_and_output_round_trip_json() {
     let input = SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -2195,7 +2195,7 @@ fn goose_sleep_v1_input_and_output_round_trip_json() {
         model_status: SleepModelStatusInput {
             sleep_permission_granted: true,
             imported_platform_sleep_nights: 7,
-            trusted_goose_sleep_nights: 2,
+            trusted_bull_sleep_nights: 2,
             motion_coverage_fraction: Some(0.94),
             heart_rate_coverage_fraction: Some(0.82),
             ..Default::default()
@@ -2229,7 +2229,7 @@ fn goose_sleep_v1_input_and_output_round_trip_json() {
     let input_round_trip: SleepV1Input = serde_json::from_value(serialized_input).unwrap();
     assert_eq!(input_round_trip, input);
 
-    let output = goose_sleep_v1(&input).output.unwrap();
+    let output = bull_sleep_v1(&input).output.unwrap();
     let serialized_output = serde_json::to_value(&output).unwrap();
     assert_eq!(
         serialized_output["component_provenance"]["sleep_need_fulfillment"]["policy"],
@@ -2248,8 +2248,8 @@ fn goose_sleep_v1_input_and_output_round_trip_json() {
 }
 
 #[test]
-fn goose_strain_v0_computes_hand_derived_zone_and_hr_reserve_score() {
-    let result = goose_strain_v0(&StrainInput {
+fn bull_strain_v0_computes_hand_derived_zone_and_hr_reserve_score() {
+    let result = bull_strain_v0(&StrainInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T13:00:00Z".to_string(),
         duration_minutes: 60.0,
@@ -2261,15 +2261,15 @@ fn goose_strain_v0_computes_hand_derived_zone_and_hr_reserve_score() {
     });
 
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_STRAIN_V0_ID);
+    assert_eq!(output.algorithm_id, BULL_STRAIN_V0_ID);
     assert_close(output.zone_load, 140.0);
     assert_close(output.average_hr_reserve_fraction, 0.5);
     assert_close(output.score_0_to_21, 8.05);
 }
 
 #[test]
-fn goose_strain_v0_is_monotonic_when_minutes_move_to_higher_zone() {
-    let easy = goose_strain_v0(&StrainInput {
+fn bull_strain_v0_is_monotonic_when_minutes_move_to_higher_zone() {
+    let easy = bull_strain_v0(&StrainInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T13:00:00Z".to_string(),
         duration_minutes: 60.0,
@@ -2281,7 +2281,7 @@ fn goose_strain_v0_is_monotonic_when_minutes_move_to_higher_zone() {
     })
     .output
     .unwrap();
-    let hard = goose_strain_v0(&StrainInput {
+    let hard = bull_strain_v0(&StrainInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T13:00:00Z".to_string(),
         duration_minutes: 60.0,
@@ -2298,8 +2298,8 @@ fn goose_strain_v0_is_monotonic_when_minutes_move_to_higher_zone() {
 }
 
 #[test]
-fn goose_recovery_v0_computes_hand_derived_interpretable_composite() {
-    let result = goose_recovery_v0(&RecoveryInput {
+fn bull_recovery_v0_computes_hand_derived_interpretable_composite() {
+    let result = bull_recovery_v0(&RecoveryInput {
         start_time: "2026-05-28T00:00:00Z".to_string(),
         end_time: "2026-05-28T08:00:00Z".to_string(),
         hrv_rmssd_ms: 50.0,
@@ -2315,14 +2315,14 @@ fn goose_recovery_v0_computes_hand_derived_interpretable_composite() {
     });
 
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_RECOVERY_V0_ID);
+    assert_eq!(output.algorithm_id, BULL_RECOVERY_V0_ID);
     assert_close(output.score_0_to_100, 77.5);
     assert_eq!(output.components.len(), 6);
 }
 
 #[test]
-fn goose_recovery_v0_flags_low_sleep_and_high_prior_strain() {
-    let result = goose_recovery_v0(&RecoveryInput {
+fn bull_recovery_v0_flags_low_sleep_and_high_prior_strain() {
+    let result = bull_recovery_v0(&RecoveryInput {
         start_time: "2026-05-28T00:00:00Z".to_string(),
         end_time: "2026-05-28T08:00:00Z".to_string(),
         hrv_rmssd_ms: 45.0,
@@ -2351,8 +2351,8 @@ fn goose_recovery_v0_flags_low_sleep_and_high_prior_strain() {
 }
 
 #[test]
-fn goose_stress_v0_computes_hand_derived_hr_and_hrv_score() {
-    let result = goose_stress_v0(&StressInput {
+fn bull_stress_v0_computes_hand_derived_hr_and_hrv_score() {
+    let result = bull_stress_v0(&StressInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T12:05:00Z".to_string(),
         heart_rate_bpm: 90.0,
@@ -2364,15 +2364,15 @@ fn goose_stress_v0_computes_hand_derived_hr_and_hrv_score() {
     });
 
     let output = result.output.unwrap();
-    assert_eq!(output.algorithm_id, GOOSE_STRESS_V0_ID);
+    assert_eq!(output.algorithm_id, BULL_STRESS_V0_ID);
     assert_close(output.heart_rate_elevation_score, 50.0);
     assert_close(output.hrv_suppression_score, 50.0);
     assert_close(output.score_0_to_100, 50.0);
 }
 
 #[test]
-fn goose_stress_v0_lowers_hr_contribution_when_motion_explains_elevation() {
-    let still = goose_stress_v0(&StressInput {
+fn bull_stress_v0_lowers_hr_contribution_when_motion_explains_elevation() {
+    let still = bull_stress_v0(&StressInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T12:05:00Z".to_string(),
         heart_rate_bpm: 90.0,
@@ -2384,7 +2384,7 @@ fn goose_stress_v0_lowers_hr_contribution_when_motion_explains_elevation() {
     })
     .output
     .unwrap();
-    let moving = goose_stress_v0(&StressInput {
+    let moving = bull_stress_v0(&StressInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T12:05:00Z".to_string(),
         heart_rate_bpm: 90.0,
@@ -2402,12 +2402,12 @@ fn goose_stress_v0_lowers_hr_contribution_when_motion_explains_elevation() {
 
 #[test]
 fn score_family_run_record_persists_to_sqlite() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
 
-    let result = goose_sleep_v0(&SleepInput {
+    let result = bull_sleep_v0(&SleepInput {
         start_time: "2026-05-27T22:30:00Z".to_string(),
         end_time: "2026-05-28T06:30:00Z".to_string(),
         sleep_duration_minutes: 420.0,
@@ -2422,7 +2422,7 @@ fn score_family_run_record_persists_to_sqlite() {
     assert!(store.insert_algorithm_run(&record).unwrap());
 
     let saved_run = store.algorithm_run("sleep-run-1").unwrap().unwrap();
-    assert_eq!(saved_run.algorithm_id, GOOSE_SLEEP_V0_ID);
+    assert_eq!(saved_run.algorithm_id, BULL_SLEEP_V0_ID);
     assert!(saved_run.output_json.contains("\"score_0_to_100\""));
     assert!(saved_run.provenance_json.contains("hand-derived-tests"));
 }
@@ -2430,35 +2430,35 @@ fn score_family_run_record_persists_to_sqlite() {
 #[test]
 fn flagship_score_fixtures_match_hand_derived_expected_outputs() {
     let sleep: SleepInput = serde_json::from_str(include_str!(
-        "../fixtures/synthetic/sleep_goose_v0_hand_derived.json"
+        "../fixtures/synthetic/sleep_bull_v0_hand_derived.json"
     ))
     .unwrap();
     assert_close(
-        goose_sleep_v0(&sleep).output.unwrap().score_0_to_100,
+        bull_sleep_v0(&sleep).output.unwrap().score_0_to_100,
         84.875,
     );
 
     let strain: StrainInput = serde_json::from_str(include_str!(
-        "../fixtures/synthetic/strain_goose_v0_hand_derived.json"
+        "../fixtures/synthetic/strain_bull_v0_hand_derived.json"
     ))
     .unwrap();
-    assert_close(goose_strain_v0(&strain).output.unwrap().score_0_to_21, 8.05);
+    assert_close(bull_strain_v0(&strain).output.unwrap().score_0_to_21, 8.05);
 
     let recovery: RecoveryInput = serde_json::from_str(include_str!(
-        "../fixtures/synthetic/recovery_goose_v0_hand_derived.json"
+        "../fixtures/synthetic/recovery_bull_v0_hand_derived.json"
     ))
     .unwrap();
     assert_close(
-        goose_recovery_v0(&recovery).output.unwrap().score_0_to_100,
+        bull_recovery_v0(&recovery).output.unwrap().score_0_to_100,
         77.5,
     );
 
     let stress: StressInput = serde_json::from_str(include_str!(
-        "../fixtures/synthetic/stress_goose_v0_hand_derived.json"
+        "../fixtures/synthetic/stress_bull_v0_hand_derived.json"
     ))
     .unwrap();
     assert_close(
-        goose_stress_v0(&stress).output.unwrap().score_0_to_100,
+        bull_stress_v0(&stress).output.unwrap().score_0_to_100,
         50.0,
     );
 }

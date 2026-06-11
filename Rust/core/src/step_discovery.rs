@@ -4,16 +4,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    GooseError, GooseResult,
-    store::{DecodedFrameRow, GooseStore},
+    BullError, BullResult,
+    store::{DecodedFrameRow, BullStore},
     validation_labels::{
         OFFICIAL_WHOOP_LABEL_POLICY, official_label_policy_issue_action,
         official_label_policy_issues,
     },
 };
 
-pub const STEP_PACKET_DISCOVERY_REPORT_SCHEMA: &str = "goose.step-packet-discovery-report.v1";
-pub const STEP_CAPTURE_VALIDATION_REPORT_SCHEMA: &str = "goose.step-capture-validation-report.v1";
+pub const STEP_PACKET_DISCOVERY_REPORT_SCHEMA: &str = "bull.step-packet-discovery-report.v1";
+pub const STEP_CAPTURE_VALIDATION_REPORT_SCHEMA: &str = "bull.step-capture-validation-report.v1";
 
 #[derive(Debug, Clone, Copy)]
 pub struct StepPacketDiscoveryOptions {
@@ -176,12 +176,12 @@ struct FieldMatch {
 }
 
 pub fn run_step_packet_discovery_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: StepPacketDiscoveryOptions,
-) -> GooseResult<StepPacketDiscoveryReport> {
+) -> BullResult<StepPacketDiscoveryReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     run_step_packet_discovery(&decoded_rows, database_path, start, end, options)
 }
@@ -192,7 +192,7 @@ pub fn run_step_packet_discovery(
     start: &str,
     end: &str,
     options: StepPacketDiscoveryOptions,
-) -> GooseResult<StepPacketDiscoveryReport> {
+) -> BullResult<StepPacketDiscoveryReport> {
     let mut packet_family_counts = BTreeMap::new();
     let mut inspected_packet_family_counts = BTreeMap::new();
     let mut inspected_frame_count = 0;
@@ -265,7 +265,7 @@ pub fn run_step_packet_discovery(
 
     Ok(StepPacketDiscoveryReport {
         schema: STEP_PACKET_DISCOVERY_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-step-packet-discovery".to_string(),
+        generated_by: "bull-step-packet-discovery".to_string(),
         pass: explicit_step_counter_found
             && !issues
                 .iter()
@@ -294,12 +294,12 @@ pub fn run_step_packet_discovery(
 }
 
 pub fn run_step_capture_validation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     start: &str,
     end: &str,
     options: StepCaptureValidationOptions,
-) -> GooseResult<StepCaptureValidationReport> {
+) -> BullResult<StepCaptureValidationReport> {
     let decoded_rows = store.decoded_frames_between(start, end)?;
     run_step_capture_validation(&decoded_rows, database_path, start, end, options)
 }
@@ -310,7 +310,7 @@ pub fn run_step_capture_validation(
     start: &str,
     end: &str,
     options: StepCaptureValidationOptions,
-) -> GooseResult<StepCaptureValidationReport> {
+) -> BullResult<StepCaptureValidationReport> {
     let discovery = run_step_packet_discovery(
         decoded_rows,
         database_path,
@@ -375,7 +375,7 @@ pub fn run_step_capture_validation(
 
     Ok(StepCaptureValidationReport {
         schema: STEP_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-step-capture-validator".to_string(),
+        generated_by: "bull-step-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         start: start.to_string(),
@@ -402,9 +402,9 @@ pub fn run_step_capture_validation(
     })
 }
 
-fn parsed_payload_json(row: &DecodedFrameRow) -> GooseResult<Value> {
+fn parsed_payload_json(row: &DecodedFrameRow) -> BullResult<Value> {
     serde_json::from_str(&row.parsed_payload_json).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "frame {} has invalid parsed_payload_json: {error}",
             row.frame_id
         ))
@@ -1063,7 +1063,7 @@ fn step_capture_validation_next_actions(
             ),
             "no_step_discovery_frames" => (
                 "No K10/K11/K21/history/debug decoded frames were available",
-                "Import the controlled capture into a Goose SQLite store before validating step deltas.".to_string(),
+                "Import the controlled capture into a Bull SQLite store before validating step deltas.".to_string(),
             ),
             "no_step_or_pedometer_fields_in_decoded_frames" => (
                 "Decoded frames did not expose step, cadence, activity, or pedometer fields",

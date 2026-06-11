@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     capture_correlation::DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY,
     metric_features::{
         MetricWindowFeatureOptions, MetricWindowFeatureReport,
         run_metric_window_feature_report_for_store,
     },
     store::{
-        DailyActivityMetricInput, DailyActivityMetricRow, GooseStore, HourlyActivityMetricInput,
+        DailyActivityMetricInput, DailyActivityMetricRow, BullStore, HourlyActivityMetricInput,
         HourlyActivityMetricRow, MetricProvenanceInput,
     },
     validation_labels::{
@@ -20,16 +20,16 @@ use crate::{
     },
 };
 
-pub const ENERGY_DAILY_ROLLUP_REPORT_SCHEMA: &str = "goose.energy-daily-rollup-report.v1";
-pub const ENERGY_HOURLY_ROLLUP_REPORT_SCHEMA: &str = "goose.energy-hourly-rollup-report.v1";
+pub const ENERGY_DAILY_ROLLUP_REPORT_SCHEMA: &str = "bull.energy-daily-rollup-report.v1";
+pub const ENERGY_HOURLY_ROLLUP_REPORT_SCHEMA: &str = "bull.energy-hourly-rollup-report.v1";
 pub const ENERGY_CAPTURE_VALIDATION_REPORT_SCHEMA: &str =
-    "goose.energy-capture-validation-report.v1";
+    "bull.energy-capture-validation-report.v1";
 pub const ENERGY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA: &str =
-    "goose.energy-unavailable-daily-status-report.v1";
-pub const GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID: &str = "goose.energy.local_estimate.v0";
-pub const GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID: &str = "goose.energy.unavailable_status.v0";
-pub const GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
+    "bull.energy-unavailable-daily-status-report.v1";
+pub const BULL_ENERGY_LOCAL_ESTIMATE_V0_ID: &str = "bull.energy.local_estimate.v0";
+pub const BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION: &str = "0.1.0";
+pub const BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID: &str = "bull.energy.unavailable_status.v0";
+pub const BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION: &str = "0.1.0";
 const STEP_CADENCE_SUPPORT_SOURCE_KIND: &str = "device_counter";
 
 #[derive(Debug, Clone)]
@@ -313,17 +313,17 @@ pub struct EnergyCaptureValidationReport {
 }
 
 pub fn rollup_energy_day_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: EnergyDailyRollupOptions<'_>,
-) -> GooseResult<EnergyDailyRollupReport> {
+) -> BullResult<EnergyDailyRollupReport> {
     validate_options(&options)?;
     let start_time_unix_ms = parse_rfc3339_utc_unix_ms(options.start)
-        .ok_or_else(|| GooseError::message("start must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("start must be an RFC3339 UTC timestamp"))?;
     let end_time_unix_ms = parse_rfc3339_utc_unix_ms(options.end)
-        .ok_or_else(|| GooseError::message("end must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("end must be an RFC3339 UTC timestamp"))?;
     if end_time_unix_ms <= start_time_unix_ms {
-        return Err(GooseError::message("end must be after start"));
+        return Err(BullError::message("end must be after start"));
     }
     let requested_minutes = (end_time_unix_ms - start_time_unix_ms) as f64 / 60_000.0;
 
@@ -475,11 +475,11 @@ pub fn rollup_energy_day_for_store(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!("cannot serialize energy quality flags: {error}"))
+            BullError::message(format!("cannot serialize energy quality flags: {error}"))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID,
-            "algorithm_version": GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
+            "algorithm": BULL_ENERGY_LOCAL_ESTIMATE_V0_ID,
+            "algorithm_version": BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
             "source_kind": "local_estimate",
             "date_key": options.date_key,
             "timezone": options.timezone,
@@ -532,7 +532,7 @@ pub fn rollup_energy_day_for_store(
 
     Ok(EnergyDailyRollupReport {
         schema: ENERGY_DAILY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-energy-daily-rollup".to_string(),
+        generated_by: "bull-energy-daily-rollup".to_string(),
         pass,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -573,10 +573,10 @@ pub fn rollup_energy_day_for_store(
 }
 
 pub fn rollup_energy_unavailable_daily_status_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     mut options: EnergyDailyRollupOptions<'_>,
-) -> GooseResult<EnergyUnavailableDailyStatusReport> {
+) -> BullResult<EnergyUnavailableDailyStatusReport> {
     let requested_write_metric = options.write_metric;
     let min_heart_rate_samples = options.min_heart_rate_samples;
     options.write_metric = false;
@@ -622,7 +622,7 @@ pub fn rollup_energy_unavailable_daily_status_for_store(
 
     Ok(EnergyUnavailableDailyStatusReport {
         schema: ENERGY_UNAVAILABLE_DAILY_STATUS_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-energy-unavailable-daily-status".to_string(),
+        generated_by: "bull-energy-unavailable-daily-status".to_string(),
         pass: true,
         date_key: energy_daily_rollup.date_key.clone(),
         timezone: energy_daily_rollup.timezone.clone(),
@@ -643,13 +643,13 @@ pub fn rollup_energy_unavailable_daily_status_for_store(
 }
 
 fn energy_unavailable_metric_status_for_rollup(
-    store: &GooseStore,
+    store: &BullStore,
     rollup: &EnergyDailyRollupReport,
     metric_id: &str,
     available_metric_count: usize,
     write_metric: bool,
     min_heart_rate_samples: usize,
-) -> GooseResult<EnergyUnavailableMetricStatus> {
+) -> BullResult<EnergyUnavailableMetricStatus> {
     let metric_name = energy_metric_name(metric_id);
     let daily_metric_id =
         energy_unavailable_metric_id(metric_id, &rollup.date_key, &rollup.timezone);
@@ -689,13 +689,13 @@ fn energy_unavailable_metric_status_for_rollup(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot serialize energy unavailable quality flags: {error}"
             ))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID,
-            "algorithm_version": GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
+            "algorithm": BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID,
+            "algorithm_version": BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
             "source_kind": "unavailable",
             "metric_id": metric_id,
             "metric_name": metric_name,
@@ -766,17 +766,17 @@ fn energy_unavailable_metric_status_for_rollup(
 }
 
 pub fn rollup_energy_hour_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: EnergyHourlyRollupOptions<'_>,
-) -> GooseResult<EnergyHourlyRollupReport> {
+) -> BullResult<EnergyHourlyRollupReport> {
     validate_hourly_options(&options)?;
     let start_time_unix_ms = parse_rfc3339_utc_unix_ms(options.start)
-        .ok_or_else(|| GooseError::message("start must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("start must be an RFC3339 UTC timestamp"))?;
     let end_time_unix_ms = parse_rfc3339_utc_unix_ms(options.end)
-        .ok_or_else(|| GooseError::message("end must be an RFC3339 UTC timestamp"))?;
+        .ok_or_else(|| BullError::message("end must be an RFC3339 UTC timestamp"))?;
     if end_time_unix_ms <= start_time_unix_ms {
-        return Err(GooseError::message("end must be after start"));
+        return Err(BullError::message("end must be after start"));
     }
     let requested_minutes = (end_time_unix_ms - start_time_unix_ms) as f64 / 60_000.0;
 
@@ -934,11 +934,11 @@ pub fn rollup_energy_hour_for_store(
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
-            GooseError::message(format!("cannot serialize energy quality flags: {error}"))
+            BullError::message(format!("cannot serialize energy quality flags: {error}"))
         })?;
         let provenance_json = json!({
-            "algorithm": GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID,
-            "algorithm_version": GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
+            "algorithm": BULL_ENERGY_LOCAL_ESTIMATE_V0_ID,
+            "algorithm_version": BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
             "source_kind": "local_estimate",
             "date_key": options.date_key,
             "timezone": options.timezone,
@@ -992,7 +992,7 @@ pub fn rollup_energy_hour_for_store(
 
     Ok(EnergyHourlyRollupReport {
         schema: ENERGY_HOURLY_ROLLUP_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-energy-hourly-rollup".to_string(),
+        generated_by: "bull-energy-hourly-rollup".to_string(),
         pass,
         date_key: options.date_key.to_string(),
         timezone: options.timezone.to_string(),
@@ -1033,10 +1033,10 @@ pub fn rollup_energy_hour_for_store(
 }
 
 pub fn validate_energy_capture_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     database_path: &str,
     options: EnergyCaptureValidationOptions<'_>,
-) -> GooseResult<EnergyCaptureValidationReport> {
+) -> BullResult<EnergyCaptureValidationReport> {
     validate_energy_validation_options(&options)?;
     let mut rollup_options = options.rollup_options.clone();
     rollup_options.write_metric = false;
@@ -1119,7 +1119,7 @@ pub fn validate_energy_capture_for_store(
 
     Ok(EnergyCaptureValidationReport {
         schema: ENERGY_CAPTURE_VALIDATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-energy-capture-validator".to_string(),
+        generated_by: "bull-energy-capture-validator".to_string(),
         pass: issues.is_empty(),
         database_path: database_path.to_string(),
         date_key: energy_rollup.date_key.clone(),
@@ -1148,8 +1148,8 @@ pub fn validate_energy_capture_for_store(
         confidence: energy_rollup.confidence,
         heart_rate_sample_count: energy_rollup.heart_rate_sample_count,
         motion_sample_count: energy_rollup.motion_sample_count,
-        algorithm_id: GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID.to_string(),
-        algorithm_version: GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION.to_string(),
+        algorithm_id: BULL_ENERGY_LOCAL_ESTIMATE_V0_ID.to_string(),
+        algorithm_version: BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION.to_string(),
         energy_rollup,
         next_actions: energy_validation_next_actions(&issues),
         issues,
@@ -1234,12 +1234,12 @@ fn energy_confidence(
 }
 
 fn daily_step_cadence_support(
-    store: &GooseStore,
+    store: &BullStore,
     date_key: &str,
     timezone: &str,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
-) -> GooseResult<StepCadenceSupport> {
+) -> BullResult<StepCadenceSupport> {
     let rows = store.daily_activity_metrics_between(start_time_unix_ms, end_time_unix_ms)?;
     Ok(step_cadence_support_from_daily_rows(
         rows.iter()
@@ -1250,12 +1250,12 @@ fn daily_step_cadence_support(
 }
 
 fn hourly_step_cadence_support(
-    store: &GooseStore,
+    store: &BullStore,
     date_key: &str,
     timezone: &str,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
-) -> GooseResult<StepCadenceSupport> {
+) -> BullResult<StepCadenceSupport> {
     let rows = store.hourly_activity_metrics_between(start_time_unix_ms, end_time_unix_ms)?;
     Ok(step_cadence_support_from_hourly_rows(
         rows.iter()
@@ -1364,13 +1364,13 @@ fn energy_unavailable_metric_id(metric_id: &str, date_key: &str, timezone: &str)
 }
 
 fn available_energy_metric_count_for_metric(
-    store: &GooseStore,
+    store: &BullStore,
     date_key: &str,
     timezone: &str,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
     metric_id: &str,
-) -> GooseResult<usize> {
+) -> BullResult<usize> {
     Ok(store
         .daily_activity_metrics_between(start_time_unix_ms, end_time_unix_ms)?
         .into_iter()
@@ -1452,64 +1452,64 @@ fn round_1(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
 }
 
-fn validate_options(options: &EnergyDailyRollupOptions<'_>) -> GooseResult<()> {
+fn validate_options(options: &EnergyDailyRollupOptions<'_>) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if let Some(weight) = options.profile_weight_kg {
         if !weight.is_finite() || !(25.0..=300.0).contains(&weight) {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "profile_weight_kg must be between 25 and 300",
             ));
         }
     }
     if let Some(resting_hr_bpm) = options.resting_hr_bpm {
         if !resting_hr_bpm.is_finite() || resting_hr_bpm <= 0.0 {
-            return Err(GooseError::message("resting_hr_bpm must be positive"));
+            return Err(BullError::message("resting_hr_bpm must be positive"));
         }
     }
     if let Some(max_hr_bpm) = options.max_hr_bpm {
         if !max_hr_bpm.is_finite() || max_hr_bpm <= 0.0 {
-            return Err(GooseError::message("max_hr_bpm must be positive"));
+            return Err(BullError::message("max_hr_bpm must be positive"));
         }
     }
     if options.min_heart_rate_samples == 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "min_heart_rate_samples must be at least 1",
         ));
     }
     Ok(())
 }
 
-fn validate_hourly_options(options: &EnergyHourlyRollupOptions<'_>) -> GooseResult<()> {
+fn validate_hourly_options(options: &EnergyHourlyRollupOptions<'_>) -> BullResult<()> {
     if options.date_key.trim().is_empty() {
-        return Err(GooseError::message("date_key is required"));
+        return Err(BullError::message("date_key is required"));
     }
     if options.timezone.trim().is_empty() {
-        return Err(GooseError::message("timezone is required"));
+        return Err(BullError::message("timezone is required"));
     }
     if let Some(weight) = options.profile_weight_kg {
         if !weight.is_finite() || !(25.0..=300.0).contains(&weight) {
-            return Err(GooseError::message(
+            return Err(BullError::message(
                 "profile_weight_kg must be between 25 and 300",
             ));
         }
     }
     if let Some(resting_hr_bpm) = options.resting_hr_bpm {
         if !resting_hr_bpm.is_finite() || resting_hr_bpm <= 0.0 {
-            return Err(GooseError::message("resting_hr_bpm must be positive"));
+            return Err(BullError::message("resting_hr_bpm must be positive"));
         }
     }
     if let Some(max_hr_bpm) = options.max_hr_bpm {
         if !max_hr_bpm.is_finite() || max_hr_bpm <= 0.0 {
-            return Err(GooseError::message("max_hr_bpm must be positive"));
+            return Err(BullError::message("max_hr_bpm must be positive"));
         }
     }
     if options.min_heart_rate_samples == 0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "min_heart_rate_samples must be at least 1",
         ));
     }
@@ -1518,14 +1518,14 @@ fn validate_hourly_options(options: &EnergyHourlyRollupOptions<'_>) -> GooseResu
 
 fn validate_energy_validation_options(
     options: &EnergyCaptureValidationOptions<'_>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if !options.tolerance_kcal.is_finite() || options.tolerance_kcal < 0.0 {
-        return Err(GooseError::message("tolerance_kcal must be nonnegative"));
+        return Err(BullError::message("tolerance_kcal must be nonnegative"));
     }
     if !options.relative_tolerance_fraction.is_finite()
         || !(0.0..=1.0).contains(&options.relative_tolerance_fraction)
     {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "relative_tolerance_fraction must be between 0 and 1",
         ));
     }
@@ -1545,7 +1545,7 @@ fn validate_energy_validation_options(
     ] {
         if let Some(value) = value {
             if !value.is_finite() || value < 0.0 {
-                return Err(GooseError::message(format!("{name} must be nonnegative")));
+                return Err(BullError::message(format!("{name} must be nonnegative")));
             }
         }
     }

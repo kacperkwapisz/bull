@@ -1,17 +1,17 @@
-use goose_core::{
+use bull_core::{
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     protocol::{DeviceType, PACKET_TYPE_REALTIME_RAW_DATA, build_v5_payload_frame},
     step_motion_estimator::{
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_ID, GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION,
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_ID, BULL_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION,
         RawMotionStepEstimateOptions, run_raw_motion_step_estimate_for_store,
     },
-    store::GooseStore,
+    store::BullStore,
 };
 use serde_json::json;
 
 #[test]
 fn raw_motion_step_estimator_matches_counted_steps_without_writing_metrics() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_raw_motion_step_frame(
         &store,
         "user-owned-capture",
@@ -45,11 +45,11 @@ fn raw_motion_step_estimator_matches_counted_steps_without_writing_metrics() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(report.schema, "goose.raw-motion-step-estimate-report.v1");
-    assert_eq!(report.algorithm_id, GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_ID);
+    assert_eq!(report.schema, "bull.raw-motion-step-estimate-report.v1");
+    assert_eq!(report.algorithm_id, BULL_STEPS_RAW_MOTION_ESTIMATE_V0_ID);
     assert_eq!(
         report.algorithm_version,
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
     );
     assert_eq!(report.source_kind_if_promoted, "local_estimate");
     assert_eq!(report.promotion_status, "validated_candidate");
@@ -77,7 +77,7 @@ fn raw_motion_step_estimator_matches_counted_steps_without_writing_metrics() {
 
 #[test]
 fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_requested() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_raw_motion_step_frame(
         &store,
         "user-owned-capture",
@@ -139,11 +139,11 @@ fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_request
     let provenance: serde_json::Value = serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         provenance["algorithm"],
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_ID
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_ID
     );
     assert_eq!(
         provenance["algorithm_version"],
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
     );
     assert_eq!(provenance["source_kind"], "local_estimate");
     assert_eq!(
@@ -158,7 +158,7 @@ fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_request
 
 #[test]
 fn raw_motion_step_estimator_blocks_official_label_without_provenance_marker() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_raw_motion_step_frame(
         &store,
         "user-owned-capture",
@@ -199,7 +199,7 @@ fn raw_motion_step_estimator_blocks_official_label_without_provenance_marker() {
 
 #[test]
 fn raw_motion_step_estimator_requires_validation_labels_before_writing_metric() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_raw_motion_step_frame(
         &store,
         "user-owned-capture",
@@ -242,7 +242,7 @@ fn raw_motion_step_estimator_requires_validation_labels_before_writing_metric() 
 
 #[test]
 fn raw_motion_step_estimator_surfaces_truncated_single_axis_candidates_without_promotion() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     import_partial_axis_raw_motion_step_frame(
         &store,
         "user-owned-capture",
@@ -302,7 +302,7 @@ fn raw_motion_step_estimator_surfaces_truncated_single_axis_candidates_without_p
 }
 
 fn import_raw_motion_step_frame(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     peak_indices: &[usize],
@@ -314,17 +314,17 @@ fn import_raw_motion_step_frame(
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: k10_motion_step_frame_hex(peak_indices),
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/raw-motion-step-estimator-test",
+            parser_version: "bull-core/raw-motion-step-estimator-test",
         },
     )
     .unwrap();
@@ -332,7 +332,7 @@ fn import_raw_motion_step_frame(
 }
 
 fn import_partial_axis_raw_motion_step_frame(
-    store: &GooseStore,
+    store: &BullStore,
     sensitivity: &str,
     captured_at: &str,
     peak_indices: &[usize],
@@ -344,17 +344,17 @@ fn import_partial_axis_raw_motion_step_frame(
         )),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: partial_axis_k10_motion_step_frame_hex(peak_indices),
         sensitivity: sensitivity.to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }];
     let report = import_captured_frame_batch(
         store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/raw-motion-step-estimator-test",
+            parser_version: "bull-core/raw-motion-step-estimator-test",
         },
     )
     .unwrap();

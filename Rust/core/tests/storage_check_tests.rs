@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use goose_core::{
+use bull_core::{
     storage_check::{StorageCheckOptions, check_storage_database},
     store::known_tables,
 };
@@ -8,7 +8,7 @@ use goose_core::{
 #[test]
 fn storage_check_passes_fresh_database_with_self_test() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
     let report = check_storage_database(StorageCheckOptions {
         database_path: &db,
@@ -76,7 +76,7 @@ fn storage_check_passes_fresh_database_with_self_test() {
 #[test]
 fn storage_check_can_run_without_mutating_self_test_rows() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
     let report = check_storage_database(StorageCheckOptions {
         database_path: &db,
@@ -100,7 +100,7 @@ fn storage_check_can_run_without_mutating_self_test_rows() {
 #[test]
 fn storage_check_reports_missing_required_columns_after_partial_migration() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let conn = Connection::open(&db).unwrap();
     conn.execute(
         "CREATE TABLE raw_evidence (evidence_id TEXT PRIMARY KEY)",

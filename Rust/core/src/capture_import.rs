@@ -4,12 +4,12 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     fixtures::{CAPTURED_FRAME_BATCH_SCHEMA, FRAME_HEX_SCHEMA, FixtureIndexReport, IndexedFixture},
     protocol::{DeviceType, decode_hex_with_whitespace, parse_frame},
     store::{
         CaptureSessionInput, DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES, DecodedFrameInput,
-        GooseStore, RawEvidenceInput, RawEvidencePayloadRetentionReport,
+        BullStore, RawEvidenceInput, RawEvidencePayloadRetentionReport,
     },
     timeline::{PacketTimelineRow, packet_timeline_from_decoded_frames},
 };
@@ -220,10 +220,10 @@ pub struct CapturedFrameImportResult {
 }
 
 pub fn import_captured_frame_batch(
-    store: &GooseStore,
+    store: &BullStore,
     frames: &[CapturedFrameInput],
     options: CapturedFrameBatchOptions<'_>,
-) -> GooseResult<CapturedFrameBatchImportReport> {
+) -> BullResult<CapturedFrameBatchImportReport> {
     import_captured_frame_batch_with_output_options(
         store,
         frames,
@@ -233,11 +233,11 @@ pub fn import_captured_frame_batch(
 }
 
 pub fn import_captured_frame_batch_with_output_options(
-    store: &GooseStore,
+    store: &BullStore,
     frames: &[CapturedFrameInput],
     options: CapturedFrameBatchOptions<'_>,
     output_options: CapturedFrameBatchOutputOptions,
-) -> GooseResult<CapturedFrameBatchImportReport> {
+) -> BullResult<CapturedFrameBatchImportReport> {
     store.immediate_transaction(|store| {
         import_captured_frame_batch_with_output_options_in_transaction(
             store,
@@ -249,11 +249,11 @@ pub fn import_captured_frame_batch_with_output_options(
 }
 
 fn import_captured_frame_batch_with_output_options_in_transaction(
-    store: &GooseStore,
+    store: &BullStore,
     frames: &[CapturedFrameInput],
     options: CapturedFrameBatchOptions<'_>,
     output_options: CapturedFrameBatchOutputOptions,
-) -> GooseResult<CapturedFrameBatchImportReport> {
+) -> BullResult<CapturedFrameBatchImportReport> {
     let batch_started = Instant::now();
     let mut timing = CapturedFrameBatchTimingAccumulator::default();
     let mut results = Vec::new();
@@ -334,8 +334,8 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
     let timing = timing.report(batch_started);
 
     Ok(CapturedFrameBatchImportReport {
-        schema: "goose.captured-frame-batch-import-report.v1".to_string(),
-        generated_by: "goose-capture-import".to_string(),
+        schema: "bull.captured-frame-batch-import-report.v1".to_string(),
+        generated_by: "bull-capture-import".to_string(),
         pass: issues.is_empty(),
         frame_count: frames.len(),
         raw_inserted,
@@ -352,9 +352,9 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
 }
 
 pub fn import_capture_sqlite(
-    store: &GooseStore,
+    store: &BullStore,
     options: CaptureSqliteImportOptions<'_>,
-) -> GooseResult<CaptureSqliteImportReport> {
+) -> BullResult<CaptureSqliteImportReport> {
     let mut issues = Vec::new();
     validate_capture_sqlite_options(&options, &mut issues);
 
@@ -451,8 +451,8 @@ pub fn import_capture_sqlite(
     let next_actions = capture_sqlite_import_next_actions(&issues, &frame_batch_import);
 
     Ok(CaptureSqliteImportReport {
-        schema: "goose.capture-sqlite-import-report.v1".to_string(),
-        generated_by: "goose-capture-sqlite-import".to_string(),
+        schema: "bull.capture-sqlite-import-report.v1".to_string(),
+        generated_by: "bull-capture-sqlite-import".to_string(),
         source_database_path: options.source_database_path.display().to_string(),
         target_database_path: options.target_database_path.display().to_string(),
         session_id: options.session_id.to_string(),
@@ -474,7 +474,7 @@ pub fn import_capture_sqlite(
 }
 
 pub fn import_fixture_index(
-    store: &GooseStore,
+    store: &BullStore,
     index: &FixtureIndexReport,
     options: CaptureImportOptions<'_>,
 ) -> CaptureImportReport {
@@ -519,8 +519,8 @@ pub fn import_fixture_index(
     let next_actions = capture_import_report_next_actions(&issues, &fixtures);
 
     CaptureImportReport {
-        schema: "goose.capture-import-report.v1".to_string(),
-        generated_by: "goose-capture-import".to_string(),
+        schema: "bull.capture-import-report.v1".to_string(),
+        generated_by: "bull-capture-import".to_string(),
         fixture_root: options.fixture_root.display().to_string(),
         database_path: options.database_path.display().to_string(),
         pass: issues.is_empty(),
@@ -535,20 +535,20 @@ pub fn import_fixture_index(
 }
 
 fn import_captured_frame(
-    store: &GooseStore,
+    store: &BullStore,
     frame: &CapturedFrameInput,
     parser_version: &str,
-) -> GooseResult<CapturedFrameImportResult> {
+) -> BullResult<CapturedFrameImportResult> {
     let mut timing = CapturedFrameBatchTimingAccumulator::default();
     import_captured_frame_timed(store, frame, parser_version, &mut timing)
 }
 
 fn import_captured_frame_timed(
-    store: &GooseStore,
+    store: &BullStore,
     frame: &CapturedFrameInput,
     parser_version: &str,
     timing: &mut CapturedFrameBatchTimingAccumulator,
-) -> GooseResult<CapturedFrameImportResult> {
+) -> BullResult<CapturedFrameImportResult> {
     let mut issues = Vec::new();
     let frame_id = frame
         .frame_id
@@ -690,7 +690,7 @@ fn import_captured_frame_timed(
 }
 
 fn import_frame_fixture(
-    store: &GooseStore,
+    store: &BullStore,
     fixture: &IndexedFixture,
     options: &CaptureImportOptions<'_>,
 ) -> CaptureImportFixtureResult {
@@ -758,7 +758,7 @@ fn import_frame_fixture(
         .expected
         .as_ref()
         .and_then(expected_device_type)
-        .unwrap_or(DeviceType::Goose);
+        .unwrap_or(DeviceType::Bull);
     let parsed = match parse_frame(device_type, &raw_bytes) {
         Ok(parsed) => parsed,
         Err(error) => {
@@ -809,7 +809,7 @@ fn import_frame_fixture(
 }
 
 fn import_captured_frame_batch_fixture(
-    store: &GooseStore,
+    store: &BullStore,
     fixture: &IndexedFixture,
     options: &CaptureImportOptions<'_>,
 ) -> Vec<CaptureImportFixtureResult> {
@@ -1011,9 +1011,9 @@ fn validate_capture_sqlite_options(
     }
 }
 
-fn load_capture_sqlite_frame_rows(path: &Path) -> GooseResult<Vec<CaptureSqliteFrameRow>> {
+fn load_capture_sqlite_frame_rows(path: &Path) -> BullResult<Vec<CaptureSqliteFrameRow>> {
     let connection = Connection::open(path).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot open capture sqlite {}: {error}",
             path.display()
         ))
@@ -1021,7 +1021,7 @@ fn load_capture_sqlite_frame_rows(path: &Path) -> GooseResult<Vec<CaptureSqliteF
     if !capture_sqlite_table_exists(&connection, "records")?
         || !capture_sqlite_table_exists(&connection, "packets")?
     {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "capture sqlite must contain records and packets tables",
         ));
     }
@@ -1044,7 +1044,7 @@ fn load_capture_sqlite_frame_rows(path: &Path) -> GooseResult<Vec<CaptureSqliteF
             ORDER BY records.line_no, decode_index
             "#,
         )
-        .map_err(|error| GooseError::message(format!("cannot query capture sqlite: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot query capture sqlite: {error}")))?;
     let rows = statement
         .query_map([], |row| {
             Ok(CaptureSqliteFrameRow {
@@ -1055,20 +1055,20 @@ fn load_capture_sqlite_frame_rows(path: &Path) -> GooseResult<Vec<CaptureSqliteF
                 value_hex: row.get(4)?,
             })
         })
-        .map_err(|error| GooseError::message(format!("cannot scan capture sqlite: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot scan capture sqlite: {error}")))?;
 
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(GooseError::from)
+        .map_err(BullError::from)
 }
 
-fn capture_sqlite_table_exists(connection: &Connection, table: &str) -> GooseResult<bool> {
+fn capture_sqlite_table_exists(connection: &Connection, table: &str) -> BullResult<bool> {
     let count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?1",
             params![table],
             |row| row.get(0),
         )
-        .map_err(|error| GooseError::message(format!("cannot inspect capture sqlite: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot inspect capture sqlite: {error}")))?;
     Ok(count > 0)
 }
 
@@ -1108,7 +1108,7 @@ fn capture_sqlite_frame_input(
         frame_hex: row.value_hex.clone(),
         sensitivity: options.sensitivity.to_string(),
         capture_session_id: Some(options.session_id.to_string()),
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     }
 }
 
@@ -1325,7 +1325,7 @@ fn capture_import_issue_action(issue: &str) -> (&'static str, &'static str) {
     } else if issue.starts_with("captured frame batch schema must be") {
         (
             "captured_frame_batch_schema_invalid",
-            "Regenerate the captured-frame batch with the supported goose.captured-frame-batch schema before importing it.",
+            "Regenerate the captured-frame batch with the supported bull.captured-frame-batch schema before importing it.",
         )
     } else if lower.contains("hex") || lower.contains("invalid character") {
         (
@@ -1377,7 +1377,7 @@ fn dedupe_capture_import_next_actions(
 }
 
 fn default_device_type() -> DeviceType {
-    DeviceType::Goose
+    DeviceType::Bull
 }
 
 fn parsed_payload_kind(payload: &crate::protocol::ParsedPayload) -> String {
@@ -1397,16 +1397,16 @@ fn expected_device_type(expected: &serde_json::Value) -> Option<DeviceType> {
         "GEN_4" => Some(DeviceType::Gen4),
         "MAVERICK" => Some(DeviceType::Maverick),
         "PUFFIN" => Some(DeviceType::Puffin),
-        "GOOSE" => Some(DeviceType::Goose),
+        "BULL" => Some(DeviceType::Bull),
         _ => None,
     }
 }
 
-pub fn ensure_database_parent(path: &Path) -> GooseResult<()> {
+pub fn ensure_database_parent(path: &Path) -> BullResult<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
-        fs::create_dir_all(parent).map_err(|source| GooseError::io(parent, source))?;
+        fs::create_dir_all(parent).map_err(|source| BullError::io(parent, source))?;
     }
     Ok(())
 }

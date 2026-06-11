@@ -3,17 +3,17 @@ use std::{collections::BTreeMap, fs, path::Path};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     capture_import::CapturedFrameInput,
     fixtures::{CAPTURED_FRAME_BATCH_SCHEMA, FRAME_HEX_SCHEMA, FixtureIndexReport, IndexedFixture},
     protocol::{
         DataPacketBodySummary, DeviceType, ParsedFrame, ParsedPayload, build_v5_payload_frame,
         decode_hex_with_whitespace, parse_frame,
     },
-    store::{DecodedFrameRow, GooseStore, RawEvidenceRow},
+    store::{DecodedFrameRow, BullStore, RawEvidenceRow},
 };
 
-pub const CAPTURE_CORRELATION_REPORT_SCHEMA: &str = "goose.capture-correlation-report.v1";
+pub const CAPTURE_CORRELATION_REPORT_SCHEMA: &str = "bull.capture-correlation-report.v1";
 pub const DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY: usize = 2;
 
 #[derive(Debug, Clone, Copy)]
@@ -141,7 +141,7 @@ pub fn run_capture_correlation(
 
     CaptureCorrelationReport {
         schema: CAPTURE_CORRELATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-capture-correlation".to_string(),
+        generated_by: "bull-capture-correlation".to_string(),
         fixture_root: root.display().to_string(),
         pass: issues.is_empty(),
         min_owned_captures_per_summary: options.min_owned_captures_per_summary,
@@ -154,20 +154,20 @@ pub fn run_capture_correlation(
 }
 
 pub fn run_capture_correlation_for_store(
-    store: &GooseStore,
+    store: &BullStore,
     evidence_scope: &str,
     start: &str,
     end: &str,
     options: CaptureCorrelationOptions,
-) -> GooseResult<CaptureCorrelationReport> {
+) -> BullResult<CaptureCorrelationReport> {
     if start.trim().is_empty() {
-        return Err(GooseError::message("start is required"));
+        return Err(BullError::message("start is required"));
     }
     if end.trim().is_empty() {
-        return Err(GooseError::message("end is required"));
+        return Err(BullError::message("end is required"));
     }
     if start >= end {
-        return Err(GooseError::message("start must be earlier than end"));
+        return Err(BullError::message("start must be earlier than end"));
     }
     let raw_rows = store.raw_evidence_between(start, end)?;
     let decoded_rows = store.decoded_frames_between(start, end)?;
@@ -233,7 +233,7 @@ pub fn run_capture_correlation_for_rows(
 
     CaptureCorrelationReport {
         schema: CAPTURE_CORRELATION_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-capture-correlation".to_string(),
+        generated_by: "bull-capture-correlation".to_string(),
         fixture_root: evidence_scope.to_string(),
         pass: issues.is_empty(),
         min_owned_captures_per_summary: options.min_owned_captures_per_summary,
@@ -263,7 +263,7 @@ fn observe_frame_fixture(
         .expected
         .as_ref()
         .and_then(expected_device_type)
-        .unwrap_or(DeviceType::Goose);
+        .unwrap_or(DeviceType::Bull);
     let parsed =
         match decode_hex_with_whitespace(&raw).and_then(|bytes| parse_frame(device_type, &bytes)) {
             Ok(parsed) => parsed,
@@ -294,7 +294,7 @@ fn observe_payload_fixture(
         .expected
         .as_ref()
         .and_then(expected_device_type)
-        .unwrap_or(DeviceType::Goose);
+        .unwrap_or(DeviceType::Bull);
     let parsed = match decode_hex_with_whitespace(&raw)
         .map(|payload| build_v5_payload_frame(&payload))
         .and_then(|frame| parse_frame(device_type, &frame))
@@ -620,7 +620,7 @@ fn expected_device_type(expected: &serde_json::Value) -> Option<DeviceType> {
         "GEN_4" => Some(DeviceType::Gen4),
         "MAVERICK" => Some(DeviceType::Maverick),
         "PUFFIN" => Some(DeviceType::Puffin),
-        "GOOSE" => Some(DeviceType::Goose),
+        "BULL" => Some(DeviceType::Bull),
         _ => None,
     }
 }

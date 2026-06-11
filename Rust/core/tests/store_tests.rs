@@ -3,7 +3,7 @@ use std::path::Path;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
-use goose_core::{
+use bull_core::{
     activity_sessions::{
         ActivitySessionCorrectionKind, activity_session_correction_plans,
         append_activity_session_correction_history,
@@ -16,7 +16,7 @@ use goose_core::{
         AlgorithmPreferenceRecord, CURRENT_SCHEMA_VERSION, CalibrationLabelInput,
         CaptureSessionInput, CommandValidationRecord, DailyActivityMetricInput,
         DailyRecoveryMetricInput, DebugCommandRow, DebugEventRow, DebugSessionRow,
-        DecodedFrameInput, ExternalSleepSessionInput, ExternalSleepStageInput, GooseStore,
+        DecodedFrameInput, ExternalSleepSessionInput, ExternalSleepStageInput, BullStore,
         HourlyActivityMetricInput, MetricDebugFeatureInput, MetricProvenanceInput,
         RawEvidenceInput, StepCounterSampleInput,
     },
@@ -41,16 +41,16 @@ fn seed_legacy_capture_metric_database(db_path: &Path) {
         r#"
         PRAGMA foreign_keys = OFF;
 
-        CREATE TABLE goose_schema_migrations (
+        CREATE TABLE bull_schema_migrations (
             version INTEGER PRIMARY KEY,
             applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
-        INSERT INTO goose_schema_migrations(version) VALUES (1);
-        INSERT INTO goose_schema_migrations(version) VALUES (2);
-        INSERT INTO goose_schema_migrations(version) VALUES (3);
-        INSERT INTO goose_schema_migrations(version) VALUES (4);
-        INSERT INTO goose_schema_migrations(version) VALUES (5);
-        INSERT INTO goose_schema_migrations(version) VALUES (6);
+        INSERT INTO bull_schema_migrations(version) VALUES (1);
+        INSERT INTO bull_schema_migrations(version) VALUES (2);
+        INSERT INTO bull_schema_migrations(version) VALUES (3);
+        INSERT INTO bull_schema_migrations(version) VALUES (4);
+        INSERT INTO bull_schema_migrations(version) VALUES (5);
+        INSERT INTO bull_schema_migrations(version) VALUES (6);
         PRAGMA user_version = 6;
 
         CREATE TABLE raw_evidence (
@@ -140,7 +140,7 @@ fn seed_legacy_capture_metric_database(db_path: &Path) {
             "legacy.raw.1",
             "legacy.capture.source",
             "2026-05-27T12:00:00Z",
-            "WHOOP 5.0 Goose",
+            "WHOOP 5.0 Bull",
             GET_HELLO_FRAME,
             checksum,
             "public-test-fixture",
@@ -167,7 +167,7 @@ fn seed_legacy_capture_metric_database(db_path: &Path) {
             "legacy.capture.source",
             1_770_000_000_000_i64,
             1_770_000_120_000_i64,
-            "WHOOP 5.0 Goose",
+            "WHOOP 5.0 Bull",
             Option::<&str>::None,
             "finished",
             1_i64,
@@ -275,7 +275,7 @@ fn seed_legacy_capture_metric_database(db_path: &Path) {
 
 #[test]
 fn migrates_fresh_database_to_current_schema() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert_eq!(store.table_count("raw_evidence").unwrap(), 0);
@@ -298,14 +298,14 @@ fn migrates_fresh_database_to_current_schema() {
 #[test]
 fn migrates_legacy_capture_metric_database_and_keeps_activity_tables_empty() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     seed_legacy_capture_metric_database(&db_path);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
 
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert_eq!(
-        store.table_count("goose_schema_migrations").unwrap(),
+        store.table_count("bull_schema_migrations").unwrap(),
         CURRENT_SCHEMA_VERSION
     );
     assert_eq!(store.table_count("raw_evidence").unwrap(), 1);
@@ -367,15 +367,15 @@ fn migrates_legacy_capture_metric_database_and_keeps_activity_tables_empty() {
 
 #[test]
 fn stores_raw_evidence_and_decoded_frame_with_provenance_link() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap();
-    let parsed = parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME).unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "capture-test-session",
             source: "synthetic.fixture",
             started_at_unix_ms: 1770000000000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: "{}",
         })
@@ -386,7 +386,7 @@ fn stores_raw_evidence_and_decoded_frame_with_provenance_link() {
             evidence_id: "synthetic-frame-1",
             source: "synthetic.fixture",
             captured_at: "2026-05-27T00:00:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &raw,
             sensitivity: "public-test-fixture",
             capture_session_id: Some("capture-test-session"),
@@ -399,7 +399,7 @@ fn stores_raw_evidence_and_decoded_frame_with_provenance_link() {
             frame_id: "frame-1",
             evidence_id: "synthetic-frame-1",
             parsed: &parsed,
-            parser_version: "goose-core/0.1.0",
+            parser_version: "bull-core/0.1.0",
         })
         .unwrap();
     assert!(frame_inserted);
@@ -424,13 +424,13 @@ fn stores_raw_evidence_and_decoded_frame_with_provenance_link() {
 
 #[test]
 fn raw_evidence_insert_is_idempotent_for_same_checksum() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap();
     let input = RawEvidenceInput {
         evidence_id: "synthetic-frame-1",
         source: "synthetic.fixture",
         captured_at: "2026-05-27T00:00:00Z",
-        device_model: "WHOOP 5.0 Goose",
+        device_model: "WHOOP 5.0 Bull",
         payload: &raw,
         sensitivity: "public-test-fixture",
         capture_session_id: None,
@@ -443,7 +443,7 @@ fn raw_evidence_insert_is_idempotent_for_same_checksum() {
 
 #[test]
 fn raw_evidence_rejects_same_id_with_different_payload() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap();
 
     store
@@ -451,7 +451,7 @@ fn raw_evidence_rejects_same_id_with_different_payload() {
             evidence_id: "synthetic-frame-1",
             source: "synthetic.fixture",
             captured_at: "2026-05-27T00:00:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &raw,
             sensitivity: "public-test-fixture",
             capture_session_id: None,
@@ -463,7 +463,7 @@ fn raw_evidence_rejects_same_id_with_different_payload() {
             evidence_id: "synthetic-frame-1",
             source: "synthetic.fixture",
             captured_at: "2026-05-27T00:00:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: b"different",
             sensitivity: "public-test-fixture",
             capture_session_id: None,
@@ -475,9 +475,9 @@ fn raw_evidence_rejects_same_id_with_different_payload() {
 
 #[test]
 fn raw_evidence_payload_compaction_keeps_decoded_rows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap();
-    let parsed = parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME).unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
     let payload_bytes = raw.len() as i64;
 
     for (evidence_id, captured_at) in [
@@ -489,7 +489,7 @@ fn raw_evidence_payload_compaction_keeps_decoded_rows() {
                 evidence_id,
                 source: "synthetic.fixture",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &raw,
                 sensitivity: "public-test-fixture",
                 capture_session_id: None,
@@ -500,7 +500,7 @@ fn raw_evidence_payload_compaction_keeps_decoded_rows() {
                 frame_id: &format!("{evidence_id}.frame.0"),
                 evidence_id,
                 parsed: &parsed,
-                parser_version: "goose-core/0.1.0",
+                parser_version: "bull-core/0.1.0",
             })
             .unwrap();
     }
@@ -697,15 +697,15 @@ fn raw_evidence_payload_compaction_keeps_decoded_rows() {
 
 #[test]
 fn decoded_frame_requires_existing_raw_evidence() {
-    let store = GooseStore::open_in_memory().unwrap();
-    let parsed = parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME).unwrap();
+    let store = BullStore::open_in_memory().unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
 
     let error = store
         .insert_decoded_frame(DecodedFrameInput {
             frame_id: "frame-1",
             evidence_id: "missing-evidence",
             parsed: &parsed,
-            parser_version: "goose-core/0.1.0",
+            parser_version: "bull-core/0.1.0",
         })
         .unwrap_err();
 
@@ -714,12 +714,12 @@ fn decoded_frame_requires_existing_raw_evidence() {
 
 #[test]
 fn capture_sessions_persist_start_finish_and_window_query() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let input = CaptureSessionInput {
         session_id: "capture-live-1",
         source: "ios_core_bluetooth.live_notifications",
         started_at_unix_ms: 1770000000000,
-        device_model: "WHOOP 5.0 Goose",
+        device_model: "WHOOP 5.0 Bull",
         active_device_id: Some("test-device"),
         provenance_json: r#"{"owner":"user","capture_kind":"live_ble_notification"}"#,
     };
@@ -753,7 +753,7 @@ fn capture_sessions_persist_start_finish_and_window_query() {
 
 #[test]
 fn activity_storage_round_trips_generic_sessions_metrics_intervals_and_labels() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let session = ActivitySessionInput {
         session_id: "activity-session-1",
         source: "synthetic.activity",
@@ -920,7 +920,7 @@ fn activity_storage_round_trips_generic_sessions_metrics_intervals_and_labels() 
 
 #[test]
 fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let activity = DailyActivityMetricInput {
         daily_metric_id: "daily-activity-2026-06-02-device",
@@ -937,7 +937,7 @@ fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
         confidence: 0.91,
         inputs_json: r#"{"packet_families":["K11","K21"],"hr_samples":120}"#,
         quality_flags_json: r#"["counter_delta","hr_motion_gated"]"#,
-        provenance_json: r#"{"owner":"user","algorithm":"goose.activity_totals.v0"}"#,
+        provenance_json: r#"{"owner":"user","algorithm":"bull.activity_totals.v0"}"#,
     };
     assert!(
         store
@@ -975,7 +975,7 @@ fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
         confidence: 0.90,
         inputs_json: r#"{"packet_families":["K11"],"sample_count":3}"#,
         quality_flags_json: r#"["counter_delta"]"#,
-        provenance_json: r#"{"owner":"user","algorithm":"goose.activity_hourly.v0"}"#,
+        provenance_json: r#"{"owner":"user","algorithm":"bull.activity_hourly.v0"}"#,
     };
     assert!(
         store
@@ -1017,7 +1017,7 @@ fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
         confidence: 0.72,
         inputs_json: r#"{"hr_windows":42,"rr_interval_chunks":8}"#,
         quality_flags_json: r#"["sleep_window_inferred"]"#,
-        provenance_json: r#"{"owner":"user","algorithm":"goose.recovery_daily.v0"}"#,
+        provenance_json: r#"{"owner":"user","algorithm":"bull.recovery_daily.v0"}"#,
     };
     assert!(
         store
@@ -1102,7 +1102,7 @@ fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
                 confidence: 0.0,
                 inputs_json: r#"{"reason":"device_counter_not_decoded"}"#,
                 quality_flags_json: r#"["activity_steps_unavailable"]"#,
-                provenance_json: r#"{"owner":"user","algorithm":"goose.activity.unavailable_status.v0"}"#,
+                provenance_json: r#"{"owner":"user","algorithm":"bull.activity.unavailable_status.v0"}"#,
             })
             .unwrap()
     );
@@ -1196,7 +1196,7 @@ fn daily_metric_rollups_round_trip_with_source_kind_provenance() {
 
 #[test]
 fn formatted_metrics_reject_empty_available_rows_and_valued_unavailable_rows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let empty_available_activity = store
         .insert_daily_activity_metric(DailyActivityMetricInput {
@@ -1351,7 +1351,7 @@ fn formatted_metrics_reject_empty_available_rows_and_valued_unavailable_rows() {
 
 #[test]
 fn formatted_metrics_reject_official_whoop_labels_as_metric_sources() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let label_sourced_activity = store
         .insert_daily_activity_metric(DailyActivityMetricInput {
@@ -1491,7 +1491,7 @@ fn formatted_metrics_reject_official_whoop_labels_as_metric_sources() {
 
 #[test]
 fn formatted_metrics_reject_platform_imports_as_metric_sources() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let platform_sourced_activity = store
         .insert_daily_activity_metric(DailyActivityMetricInput {
@@ -1632,7 +1632,7 @@ fn formatted_metrics_reject_platform_imports_as_metric_sources() {
 #[test]
 fn migrates_v12_daily_activity_source_unique_table_for_separate_local_metrics() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     let conn = Connection::open(&db_path).unwrap();
     conn.execute_batch(
         r#"
@@ -1688,14 +1688,14 @@ fn migrates_v12_daily_activity_source_unique_table_for_separate_local_metrics() 
             0.66,
             '{"heart_rate_sample_count":8}',
             '["local_energy_estimate"]',
-            '{"algorithm":"goose.energy.local_estimate.v0"}'
+            '{"algorithm":"bull.energy.local_estimate.v0"}'
         );
         "#,
     )
     .unwrap();
     drop(conn);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert!(
         store
@@ -1714,7 +1714,7 @@ fn migrates_v12_daily_activity_source_unique_table_for_separate_local_metrics() 
                 confidence: 0.55,
                 inputs_json: r#"{"raw_motion_frames":120}"#,
                 quality_flags_json: r#"["raw_motion_step_estimate"]"#,
-                provenance_json: r#"{"algorithm":"goose.steps.raw_motion_estimate.v0"}"#,
+                provenance_json: r#"{"algorithm":"bull.steps.raw_motion_estimate.v0"}"#,
             })
             .unwrap()
     );
@@ -1732,7 +1732,7 @@ fn migrates_v12_daily_activity_source_unique_table_for_separate_local_metrics() 
 #[test]
 fn migrates_v12_daily_recovery_source_unique_table_for_separate_device_metrics() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite");
+    let db_path = tempdir.path().join("bull.sqlite");
     let conn = Connection::open(&db_path).unwrap();
     conn.execute_batch(
         r#"
@@ -1788,14 +1788,14 @@ fn migrates_v12_daily_recovery_source_unique_table_for_separate_device_metrics()
             0.82,
             '{"heart_rate_sample_count":8}',
             '["daily_rhr_lowest_quartile_hr"]',
-            '{"algorithm":"goose.resting_heart_rate.device_sensor.v0"}'
+            '{"algorithm":"bull.resting_heart_rate.device_sensor.v0"}'
         );
         "#,
     )
     .unwrap();
     drop(conn);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert!(
         store
@@ -1814,7 +1814,7 @@ fn migrates_v12_daily_recovery_source_unique_table_for_separate_device_metrics()
                 confidence: 0.61,
                 inputs_json: r#"{"rr_interval_chunks":8}"#,
                 quality_flags_json: r#"["rr_interval_scale_unvalidated"]"#,
-                provenance_json: r#"{"algorithm":"goose.hrv.device_sensor.v0"}"#,
+                provenance_json: r#"{"algorithm":"bull.hrv.device_sensor.v0"}"#,
             })
             .unwrap()
     );
@@ -1835,7 +1835,7 @@ fn migrates_v12_daily_recovery_source_unique_table_for_separate_device_metrics()
 
 #[test]
 fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let first = DailyRecoveryMetricInput {
         daily_metric_id: "daily-recovery-rhr-2026-06-02-device",
@@ -1852,7 +1852,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
         confidence: 0.74,
         inputs_json: r#"{"heart_rate_sample_count":2}"#,
         quality_flags_json: r#"["daily_rhr_lowest_quartile_hr"]"#,
-        provenance_json: r#"{"algorithm":"goose.resting_heart_rate.device_sensor.v0"}"#,
+        provenance_json: r#"{"algorithm":"bull.resting_heart_rate.device_sensor.v0"}"#,
     };
     assert!(store.upsert_daily_recovery_metric(first.clone()).unwrap());
     assert!(!store.upsert_daily_recovery_metric(first).unwrap());
@@ -1872,7 +1872,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
         confidence: 0.82,
         inputs_json: r#"{"heart_rate_sample_count":8}"#,
         quality_flags_json: r#"["daily_rhr_lowest_quartile_hr"]"#,
-        provenance_json: r#"{"algorithm":"goose.resting_heart_rate.device_sensor.v0","refreshed":true}"#,
+        provenance_json: r#"{"algorithm":"bull.resting_heart_rate.device_sensor.v0","refreshed":true}"#,
     };
     assert!(store.upsert_daily_recovery_metric(refreshed).unwrap());
 
@@ -1901,7 +1901,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
                 confidence: 0.61,
                 inputs_json: r#"{"rr_interval_chunks":8}"#,
                 quality_flags_json: r#"["rr_interval_scale_unvalidated"]"#,
-                provenance_json: r#"{"algorithm":"goose.hrv.device_sensor.v0"}"#,
+                provenance_json: r#"{"algorithm":"bull.hrv.device_sensor.v0"}"#,
             })
             .unwrap()
     );
@@ -1928,7 +1928,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
         confidence: Some(0.74),
         inputs_json: r#"{"heart_rate_sample_count":2}"#,
         quality_flags_json: "[]",
-        provenance_json: r#"{"algorithm":"goose.resting_heart_rate.device_sensor.v0"}"#,
+        provenance_json: r#"{"algorithm":"bull.resting_heart_rate.device_sensor.v0"}"#,
     };
     assert!(store.upsert_metric_provenance(provenance).unwrap());
     let refreshed_provenance = MetricProvenanceInput {
@@ -1940,7 +1940,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
         confidence: Some(0.82),
         inputs_json: r#"{"heart_rate_sample_count":8}"#,
         quality_flags_json: "[]",
-        provenance_json: r#"{"algorithm":"goose.resting_heart_rate.device_sensor.v0","refreshed":true}"#,
+        provenance_json: r#"{"algorithm":"bull.resting_heart_rate.device_sensor.v0","refreshed":true}"#,
     };
     assert!(
         store
@@ -1979,7 +1979,7 @@ fn daily_recovery_metric_upsert_refreshes_same_day_rollup() {
 
 #[test]
 fn daily_activity_metric_upsert_refreshes_same_day_energy_rollup() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let first = DailyActivityMetricInput {
         daily_metric_id: "daily-activity-energy-2026-06-02-local",
@@ -1996,7 +1996,7 @@ fn daily_activity_metric_upsert_refreshes_same_day_energy_rollup() {
         confidence: 0.52,
         inputs_json: r#"{"heart_rate_sample_count":2}"#,
         quality_flags_json: r#"["local_energy_estimate"]"#,
-        provenance_json: r#"{"algorithm":"goose.energy.local_estimate.v0"}"#,
+        provenance_json: r#"{"algorithm":"bull.energy.local_estimate.v0"}"#,
     };
     assert!(store.upsert_daily_activity_metric(first.clone()).unwrap());
     assert!(!store.upsert_daily_activity_metric(first).unwrap());
@@ -2016,7 +2016,7 @@ fn daily_activity_metric_upsert_refreshes_same_day_energy_rollup() {
         confidence: 0.66,
         inputs_json: r#"{"heart_rate_sample_count":8}"#,
         quality_flags_json: r#"["local_energy_estimate"]"#,
-        provenance_json: r#"{"algorithm":"goose.energy.local_estimate.v0","refreshed":true}"#,
+        provenance_json: r#"{"algorithm":"bull.energy.local_estimate.v0","refreshed":true}"#,
     };
     assert!(store.upsert_daily_activity_metric(refreshed).unwrap());
 
@@ -2047,7 +2047,7 @@ fn daily_activity_metric_upsert_refreshes_same_day_energy_rollup() {
                 confidence: 0.55,
                 inputs_json: r#"{"raw_motion_frames":120}"#,
                 quality_flags_json: r#"["raw_motion_step_estimate"]"#,
-                provenance_json: r#"{"algorithm":"goose.steps.raw_motion_estimate.v0"}"#,
+                provenance_json: r#"{"algorithm":"bull.steps.raw_motion_estimate.v0"}"#,
             })
             .unwrap()
     );
@@ -2064,7 +2064,7 @@ fn daily_activity_metric_upsert_refreshes_same_day_energy_rollup() {
 
 #[test]
 fn metric_debug_features_round_trip_with_source_kind_and_confidence() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let feature = MetricDebugFeatureInput {
         feature_id: "debug-step-discovery-2026-06-02-k11",
@@ -2077,7 +2077,7 @@ fn metric_debug_features_round_trip_with_source_kind_and_confidence() {
         feature_json: r#"{"json_path":"$.body_summary.step_count","delta":100,"monotonic":true}"#,
         inputs_json: r#"{"packet_families":["K11/raw_stream_counted"],"frame_count":2}"#,
         quality_flags_json: r#"["controlled_capture_label_match"]"#,
-        provenance_json: r#"{"owner":"user","report":"goose.step-capture-validation-report.v1"}"#,
+        provenance_json: r#"{"owner":"user","report":"bull.step-capture-validation-report.v1"}"#,
     };
     assert!(store.insert_metric_debug_feature(feature.clone()).unwrap());
     assert!(!store.insert_metric_debug_feature(feature).unwrap());
@@ -2142,7 +2142,7 @@ fn metric_debug_features_round_trip_with_source_kind_and_confidence() {
 
 #[test]
 fn step_counter_samples_round_trip_and_reject_non_device_counter_sources() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let sample = StepCounterSampleInput {
         sample_id: "step-counter-k11-2026-06-02-001",
@@ -2226,7 +2226,7 @@ fn step_counter_samples_round_trip_and_reject_non_device_counter_sources() {
 
 #[test]
 fn activity_corrections_round_trip_generic_sessions_and_provenance_history() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let plans = activity_session_correction_plans();
 
     let change_plan = plans
@@ -2523,7 +2523,7 @@ fn activity_corrections_round_trip_generic_sessions_and_provenance_history() {
 
 #[test]
 fn activity_storage_rejects_inverted_windows_and_orphans() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let inverted_session = store
         .insert_activity_session(ActivitySessionInput {
@@ -2646,7 +2646,7 @@ fn activity_storage_rejects_inverted_windows_and_orphans() {
 
 #[test]
 fn algorithm_preferences_select_primary_algorithms_by_scope_and_family() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
@@ -2658,7 +2658,7 @@ fn algorithm_preferences_select_primary_algorithms_by_scope_and_family() {
         .algorithm_preference("global", "recovery")
         .unwrap()
         .unwrap();
-    assert_eq!(recovery.algorithm_id, "goose.recovery.v0");
+    assert_eq!(recovery.algorithm_id, "bull.recovery.v0");
     assert_eq!(recovery.version, "0.1.0");
 
     let preferences = store.algorithm_preferences(Some("global")).unwrap();
@@ -2670,7 +2670,7 @@ fn algorithm_preferences_select_primary_algorithms_by_scope_and_family() {
     let override_preference = AlgorithmPreferenceRecord {
         scope: "debug-comparison".to_string(),
         metric_family: "sleep".to_string(),
-        algorithm_id: "goose.sleep.v0".to_string(),
+        algorithm_id: "bull.sleep.v0".to_string(),
         version: "0.1.0".to_string(),
     };
     store
@@ -2689,12 +2689,12 @@ fn algorithm_preferences_select_primary_algorithms_by_scope_and_family() {
 
 #[test]
 fn algorithm_preference_rejects_missing_or_wrong_family_algorithm() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let missing = store
         .set_algorithm_preference(&AlgorithmPreferenceRecord {
             scope: "global".to_string(),
             metric_family: "sleep".to_string(),
-            algorithm_id: "goose.sleep.v0".to_string(),
+            algorithm_id: "bull.sleep.v0".to_string(),
             version: "0.1.0".to_string(),
         })
         .unwrap_err();
@@ -2707,7 +2707,7 @@ fn algorithm_preference_rejects_missing_or_wrong_family_algorithm() {
         .set_algorithm_preference(&AlgorithmPreferenceRecord {
             scope: "global".to_string(),
             metric_family: "recovery".to_string(),
-            algorithm_id: "goose.sleep.v0".to_string(),
+            algorithm_id: "bull.sleep.v0".to_string(),
             version: "0.1.0".to_string(),
         })
         .unwrap_err();
@@ -2720,7 +2720,7 @@ fn algorithm_preference_rejects_missing_or_wrong_family_algorithm() {
 
 #[test]
 fn external_sleep_history_round_trips_platform_sessions_and_stages() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let sleep = ExternalSleepSessionInput {
         sleep_id: "external-sleep-1",
         source: "healthkit.sleep_analysis",
@@ -2780,7 +2780,7 @@ fn external_sleep_history_round_trips_platform_sessions_and_stages() {
 
 #[test]
 fn external_sleep_history_rejects_invalid_platform_and_orphan_stages() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let error = store
         .insert_external_sleep_session(ExternalSleepSessionInput {
             sleep_id: "external-sleep-bad-platform",
@@ -2908,7 +2908,7 @@ fn external_sleep_history_rejects_invalid_platform_and_orphan_stages() {
 
 #[test]
 fn calibration_labels_persist_user_owned_labels_with_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let label = CalibrationLabelInput {
         label_id: "manual.recovery.2026-05-28",
         metric_family: "recovery",
@@ -2940,7 +2940,7 @@ fn calibration_labels_persist_user_owned_labels_with_provenance() {
 
 #[test]
 fn calibration_labels_reject_private_api_sources_and_empty_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let rejected_source = store
         .insert_calibration_label(CalibrationLabelInput {
             label_id: "bad.recovery.private-api",
@@ -2974,7 +2974,7 @@ fn calibration_labels_reject_private_api_sources_and_empty_provenance() {
 
 #[test]
 fn command_validation_records_upsert_query_and_list_direct_send_status() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let report = validate_commands(&[CommandEvidence {
         command: "get_hello".to_string(),
         official_capture_count: 1,
@@ -3097,11 +3097,11 @@ fn command_validation_records_upsert_query_and_list_direct_send_status() {
 
 #[test]
 fn debug_stream_rows_persist_with_session_command_and_event_ordering() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let session = DebugSessionRow {
         session_id: "debug-session-store".to_string(),
         started_at_unix_ms: 1779840000000,
-        bridge_url: "ws://127.0.0.1:49152/goose-debug/stream?token=test".to_string(),
+        bridge_url: "ws://127.0.0.1:49152/bull-debug/stream?token=test".to_string(),
         bind_host: "127.0.0.1".to_string(),
         token_required: true,
         token_present: true,
@@ -3119,7 +3119,7 @@ fn debug_stream_rows_persist_with_session_command_and_event_ordering() {
     let command = DebugCommandRow {
         command_id: "cmd-debug-store".to_string(),
         session_id: "debug-session-store".to_string(),
-        schema: "goose.debug.command.v1".to_string(),
+        schema: "bull.debug.command.v1".to_string(),
         command: "storage.check".to_string(),
         args_json: r#"{"self_test":true}"#.to_string(),
         dry_run: true,
@@ -3142,7 +3142,7 @@ fn debug_stream_rows_persist_with_session_command_and_event_ordering() {
     let first_event = DebugEventRow {
         session_id: "debug-session-store".to_string(),
         sequence: 1,
-        schema: "goose.debug.event.v1".to_string(),
+        schema: "bull.debug.event.v1".to_string(),
         time_unix_ms: 1779840000100,
         source: "command".to_string(),
         level: "info".to_string(),
@@ -3168,7 +3168,7 @@ fn debug_stream_rows_persist_with_session_command_and_event_ordering() {
     let mut backwards_time = DebugEventRow {
         session_id: "debug-session-store".to_string(),
         sequence: 2,
-        schema: "goose.debug.event.v1".to_string(),
+        schema: "bull.debug.event.v1".to_string(),
         time_unix_ms: 1779840000099,
         source: "app".to_string(),
         level: "info".to_string(),

@@ -1,4 +1,4 @@
-use goose_core::commands::{
+use bull_core::commands::{
     COMMAND_DEFINITIONS, CommandDefinition, CommandDirectSendPreflightInput,
     CommandEmulatorLogEvidenceOptions, CommandEvidence, CommandLocalFrameCandidate,
     CommandRiskGate, command_capture_plan_from_results, command_evidence_from_emulator_log,
@@ -7,7 +7,7 @@ use goose_core::commands::{
     direct_send_preflight_from_gate, load_command_evidence, load_command_local_frame_candidates,
     validate_commands,
 };
-use goose_core::protocol::{
+use bull_core::protocol::{
     COMMAND_GET_HELLO, DeviceType, PACKET_TYPE_COMMAND_RESPONSE, ParsedPayload,
     build_v5_command_frame, build_v5_payload_frame, parse_frame_hex,
 };
@@ -161,11 +161,11 @@ fn command_definitions_cover_generated_protocol_command_map_ids() {
         "generated protocol command map parsed no command ids"
     );
 
-    let goose_ids: std::collections::BTreeSet<u16> = COMMAND_DEFINITIONS
+    let bull_ids: std::collections::BTreeSet<u16> = COMMAND_DEFINITIONS
         .iter()
         .filter_map(|definition| definition.command_number)
         .collect();
-    let missing: Vec<_> = generated_ids.difference(&goose_ids).copied().collect();
+    let missing: Vec<_> = generated_ids.difference(&bull_ids).copied().collect();
     assert!(
         missing.is_empty(),
         "missing generated protocol command ids: {missing:?}"
@@ -175,10 +175,10 @@ fn command_definitions_cover_generated_protocol_command_map_ids() {
 #[test]
 fn load_command_evidence_accepts_exported_top_level_json_report() {
     let tempdir = tempfile::tempdir().unwrap();
-    let path = tempdir.path().join("goose-command-evidence.json");
+    let path = tempdir.path().join("bull-command-evidence.json");
     let payload = serde_json::json!({
-        "schema": "goose.command-evidence.v1",
-        "generated_by": "whoop-reversing.goose_command_evidence",
+        "schema": "bull.command-evidence.v1",
+        "generated_by": "whoop-reversing.bull_command_evidence",
         "source_capture": "captures/android/whoop-ble.jsonl",
         "evidence_count": 1,
         "evidence": [ready_get_hello_evidence()],
@@ -337,7 +337,7 @@ fn official_app_emulator_fixture_promotes_validated_shortcut_commands() {
         Some(historical_data_result_frame.as_str())
     );
     let parsed_failure_ack = parse_frame_hex(
-        DeviceType::Goose,
+        DeviceType::Bull,
         historical_data_result
             .official_response_frame_hex
             .as_deref()
@@ -416,7 +416,7 @@ fn command_capture_plan_summarizes_emulator_evidence_promotion_work() {
 
     let plan = command_capture_plan_from_results(&report.commands, &requested);
 
-    assert_eq!(plan.schema, "goose.command-capture-plan-report.v1");
+    assert_eq!(plan.schema, "bull.command-capture-plan-report.v1");
     assert!(!plan.pass);
     assert!(plan.requested_commands_valid);
     assert!(plan.validation_records_valid);
@@ -456,7 +456,7 @@ fn command_capture_plan_summarizes_emulator_evidence_promotion_work() {
 fn command_validator_cli_can_emit_capture_plan_for_selected_commands() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures/command-evidence/whoop-emulator-command-evidence.json");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-validator"))
         .arg("--evidence")
         .arg(path)
         .arg("--capture-plan")
@@ -467,7 +467,7 @@ fn command_validator_cli_can_emit_capture_plan_for_selected_commands() {
 
     assert!(!output.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(plan["schema"], "goose.command-capture-plan-report.v1");
+    assert_eq!(plan["schema"], "bull.command-capture-plan-report.v1");
     assert_eq!(plan["command_count"], 2);
     assert_eq!(plan["requested_commands_valid"], true);
     assert_eq!(plan["validation_records_valid"], true);
@@ -494,7 +494,7 @@ fn command_validator_cli_can_emit_capture_plan_for_selected_commands() {
 #[test]
 fn load_command_evidence_accepts_jsonl_rows_from_file_pickers() {
     let tempdir = tempfile::tempdir().unwrap();
-    let path = tempdir.path().join("goose-command-evidence.jsonl");
+    let path = tempdir.path().join("bull-command-evidence.jsonl");
     let select_wrist_frame = hex::encode(build_v5_command_frame(1, 123, &[1]));
     let rows = [
         serde_json::to_string(&ready_get_hello_evidence()).unwrap(),
@@ -531,10 +531,10 @@ fn load_command_local_frame_candidates_accepts_wrapper_and_jsonl_aliases() {
     let tempdir = tempfile::tempdir().unwrap();
     let wrapper_path = tempdir
         .path()
-        .join("goose-command-local-frame-candidates.json");
+        .join("bull-command-local-frame-candidates.json");
     let jsonl_path = tempdir
         .path()
-        .join("goose-command-local-frame-candidates.jsonl");
+        .join("bull-command-local-frame-candidates.jsonl");
     let whoop_rev_path = tempdir.path().join("whoop-rev-build-command.json");
     let numeric_id_path = tempdir.path().join("numeric-command-id-candidate.json");
     let frame = hex::encode(build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]));
@@ -542,7 +542,7 @@ fn load_command_local_frame_candidates_accepts_wrapper_and_jsonl_aliases() {
         &wrapper_path,
         format!(
             r#"{{
-              "schema":"goose.command-local-frame-candidates.v1",
+              "schema":"bull.command-local-frame-candidates.v1",
               "candidates":[{{
                 "command_id":"get_hello",
                 "dryRunFrameHex":"{frame}",
@@ -566,7 +566,7 @@ fn load_command_local_frame_candidates_accepts_wrapper_and_jsonl_aliases() {
     std::fs::write(
         &whoop_rev_path,
         format!(
-            r#"{{"command":"GET_HELLO","command_id":145,"sequence":1,"payload_hex":"23019101","frame_hex":"{frame}","device_type":"GOOSE","send_allowed":false}}"#
+            r#"{{"command":"GET_HELLO","command_id":145,"sequence":1,"payload_hex":"23019101","frame_hex":"{frame}","device_type":"BULL","send_allowed":false}}"#
         ),
     )
     .unwrap();
@@ -632,7 +632,7 @@ fn emulator_log_evidence_conversion_keeps_local_frame_match_explicit() {
         command_evidence_from_emulator_log(&path, &CommandEmulatorLogEvidenceOptions::default())
             .unwrap();
 
-    assert_eq!(evidence_report.schema, "goose.command-evidence.v1");
+    assert_eq!(evidence_report.schema, "bull.command-evidence.v1");
     assert!(evidence_report.pass, "{:?}", evidence_report.issues);
     assert!(evidence_report.input_valid);
     assert!(evidence_report.log_lines_ready);
@@ -853,7 +853,7 @@ fn command_validator_cli_can_ingest_emulator_log_and_write_evidence_artifact() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-validator"))
         .arg("--emulator-log")
         .arg(&path)
         .arg("--emulator-evidence-output")
@@ -888,7 +888,7 @@ fn command_validator_cli_fails_when_unrequested_command_gates_remain_locked() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-validator"))
         .arg("--evidence")
         .arg(&path)
         .output()
@@ -928,14 +928,14 @@ fn command_validator_cli_promotes_emulator_log_with_local_frame_candidates() {
               "sequence":1,
               "payload_hex":"23019101",
               "frame_hex":"{get_hello_frame}",
-              "device_type":"GOOSE",
+              "device_type":"BULL",
               "send_allowed":false
             }}"#
         ),
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-validator"))
         .arg("--emulator-log")
         .arg(&log_path)
         .arg("--local-frame-candidates")
@@ -990,20 +990,20 @@ fn command_validator_cli_accepts_builder_directory_for_local_frame_candidates() 
     std::fs::write(
         candidates_dir.join("001-get-hello.json"),
         format!(
-            r#"{{"command":"GET_HELLO","command_id":145,"sequence":1,"frame_hex":"{get_hello_frame}","device_type":"GOOSE","send_allowed":false}}"#
+            r#"{{"command":"GET_HELLO","command_id":145,"sequence":1,"frame_hex":"{get_hello_frame}","device_type":"BULL","send_allowed":false}}"#
         ),
     )
     .unwrap();
     std::fs::write(
         candidates_dir.join("002-get-battery-level.json"),
         format!(
-            r#"{{"command":"GET_BATTERY_LEVEL","command_id":26,"sequence":2,"frame_hex":"{get_battery_level_frame}","device_type":"GOOSE","send_allowed":false}}"#
+            r#"{{"command":"GET_BATTERY_LEVEL","command_id":26,"sequence":2,"frame_hex":"{get_battery_level_frame}","device_type":"BULL","send_allowed":false}}"#
         ),
     )
     .unwrap();
     std::fs::write(candidates_dir.join("README.txt"), "ignored").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_goose-command-validator"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-command-validator"))
         .arg("--emulator-log")
         .arg(&log_path)
         .arg("--local-frame-candidates")
@@ -1031,7 +1031,7 @@ fn command_validator_cli_accepts_builder_directory_for_local_frame_candidates() 
 }
 
 #[test]
-fn local_frame_match_promotion_unlocks_exact_goose_dry_run_bytes() {
+fn local_frame_match_promotion_unlocks_exact_bull_dry_run_bytes() {
     let frame = hex::encode(build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]));
     let response = command_response_frame_hex(COMMAND_GET_HELLO);
     let official = CommandEvidence {
@@ -2274,7 +2274,7 @@ fn ready_command_evidence_for_definition(definition: &CommandDefinition) -> Comm
         .command_number
         .expect("command definitions used for direct-send gates need command numbers");
     let command =
-        u8::try_from(command_number).expect("Goose command frame builder expects u8 command ids");
+        u8::try_from(command_number).expect("Bull command frame builder expects u8 command ids");
     let frame = hex::encode(build_v5_command_frame(1, command, &[1]));
     let critical = definition.risk_gate == CommandRiskGate::CriticalStateChange;
     with_trusted_capture(CommandEvidence {
@@ -2297,7 +2297,7 @@ fn ready_command_evidence_for_definition(definition: &CommandDefinition) -> Comm
     })
 }
 
-fn ready_get_hello_gate() -> goose_core::commands::CommandDirectSendGate {
+fn ready_get_hello_gate() -> bull_core::commands::CommandDirectSendGate {
     let report = validate_commands(&[ready_get_hello_evidence()]);
     let ready = report
         .commands
@@ -2309,7 +2309,7 @@ fn ready_get_hello_gate() -> goose_core::commands::CommandDirectSendGate {
 
 fn ready_select_wrist_gate(
     select_wrist_frame: &str,
-) -> goose_core::commands::CommandDirectSendGate {
+) -> bull_core::commands::CommandDirectSendGate {
     let report = validate_commands(&[with_trusted_capture(CommandEvidence {
         command: "select_wrist".to_string(),
         official_capture_count: 1,
@@ -2330,7 +2330,7 @@ fn ready_select_wrist_gate(
     direct_send_gate_from_result("select_wrist", Some(ready))
 }
 
-fn ready_start_firmware_gate(critical_frame: &str) -> goose_core::commands::CommandDirectSendGate {
+fn ready_start_firmware_gate(critical_frame: &str) -> bull_core::commands::CommandDirectSendGate {
     let report = validate_commands(&[critical_command_evidence(
         critical_frame,
         command_failure_response_frame_hex(142),

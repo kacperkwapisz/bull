@@ -1,4 +1,4 @@
-use goose_core::{
+use bull_core::{
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     local_health_validation::{
         local_health_validation_manifest_runbook_markdown, review_local_health_validation_manifest,
@@ -7,7 +7,7 @@ use goose_core::{
         DeviceType, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
         build_v5_payload_frame,
     },
-    store::{CaptureSessionInput, GooseStore, RawEvidenceInput},
+    store::{CaptureSessionInput, BullStore, RawEvidenceInput},
 };
 use rusqlite::{Connection, params};
 use serde_json::json;
@@ -24,16 +24,16 @@ use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 fn local_health_validation_suite_accepts_raw_export_directory_bundle() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("bundle-validation.json");
     let markdown_output_path = tempdir.path().join("bundle-validation.md");
     let review_output_path = tempdir.path().join("bundle-validation-review.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     let sqlite_sha256 = write_raw_export_manifest(&bundle_dir, &db);
     write_steps_unavailable_manifest(&manifest_path);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -66,7 +66,7 @@ fn local_health_validation_suite_accepts_raw_export_directory_bundle() {
     assert!(markdown.contains("unavailable"));
     assert_eq!(
         review["schema"],
-        "goose.local-health-validation-manifest-review.v1"
+        "bull.local-health-validation-manifest-review.v1"
     );
     assert_eq!(review["manifest_id"], "raw-export-bundle-validation-smoke");
     assert_eq!(review["status"], "ready_to_run_validation_suite");
@@ -100,7 +100,7 @@ fn local_health_validation_suite_accepts_raw_export_directory_bundle() {
     assert_eq!(report["database_source"]["raw_export_manifest"]["ok"], true);
     assert_eq!(
         report["database_source"]["raw_export_manifest"]["schema_version"],
-        "goose.export.v1"
+        "bull.export.v1"
     );
     assert_eq!(
         report["database_source"]["raw_export_manifest"]["official_labels_are_labels"],
@@ -168,19 +168,19 @@ fn local_health_validation_suite_accepts_raw_export_directory_bundle() {
 #[test]
 fn local_health_validation_suite_accepts_raw_export_zip_bundle() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("source/data/goose.sqlite");
+    let db = tempdir.path().join("source/data/bull.sqlite");
     let zip_path = tempdir.path().join("raw-export.zip");
     let manifest_path = tempdir.path().join("zip-bundle-validation.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     write_steps_unavailable_manifest(&manifest_path);
-    let sqlite_sha256 = zip_goose_database(
+    let sqlite_sha256 = zip_bull_database(
         &zip_path,
         &db,
-        "Goose Raw Export 2026-06-02/data/goose.sqlite",
+        "Bull Raw Export 2026-06-02/data/bull.sqlite",
     );
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--bundle")
             .arg(&zip_path)
             .arg("--manifest")
@@ -196,7 +196,7 @@ fn local_health_validation_suite_accepts_raw_export_zip_bundle() {
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let extracted_database_path = report["database_path"].as_str().unwrap();
-    assert!(extracted_database_path.contains("goose-local-health-validation"));
+    assert!(extracted_database_path.contains("bull-local-health-validation"));
     assert_ne!(extracted_database_path, zip_path.display().to_string());
     assert!(!Path::new(extracted_database_path).exists());
     assert_eq!(report["database_source"]["kind"], "raw_export_zip");
@@ -210,7 +210,7 @@ fn local_health_validation_suite_accepts_raw_export_zip_bundle() {
     );
     assert_eq!(
         report["database_source"]["archive_entry"],
-        "Goose Raw Export 2026-06-02/data/goose.sqlite"
+        "Bull Raw Export 2026-06-02/data/bull.sqlite"
     );
     assert_eq!(
         report["database_source"]["temporary_extracted_database"],
@@ -223,7 +223,7 @@ fn local_health_validation_suite_accepts_raw_export_zip_bundle() {
     assert_eq!(report["database_source"]["raw_export_manifest"]["ok"], true);
     assert_eq!(
         report["database_source"]["raw_export_manifest"]["archive_entry"],
-        "Goose Raw Export 2026-06-02/manifest.json"
+        "Bull Raw Export 2026-06-02/manifest.json"
     );
     assert_eq!(
         report["database_source"]["raw_export_manifest"]["official_labels_are_labels"],
@@ -272,18 +272,18 @@ fn local_health_validation_suite_accepts_raw_export_zip_bundle() {
 fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let output_path = tempdir.path().join("generated-validation-manifest.json");
     let review_output_path = tempdir.path().join("generated-validation-review.json");
     let runbook_output_path = tempdir.path().join("generated-validation-runbook.md");
-    seed_goose_database(&db);
-    let store = GooseStore::open(&db).unwrap();
+    seed_bull_database(&db);
+    let store = BullStore::open(&db).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "walk-capture-session",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true}"#,
         })
@@ -309,7 +309,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &[packet_k as u8, sequence as u8],
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some("walk-capture-session"),
@@ -337,7 +337,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -360,7 +360,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
     write_raw_export_manifest(&bundle_dir, &db);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--scaffold-manifest")
@@ -391,7 +391,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
         serde_json::from_slice(&std::fs::read(&review_output_path).unwrap()).unwrap();
     assert_eq!(
         review["schema"],
-        "goose.local-health-validation-manifest-review.v1"
+        "bull.local-health-validation-manifest-review.v1"
     );
     assert_eq!(review["manifest_id"], "walk-capture-scaffold");
     assert_eq!(review["status"], "operator_edits_required");
@@ -457,7 +457,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
     let runbook = std::fs::read_to_string(&runbook_output_path).unwrap();
     assert!(runbook.contains("# Local Health Validation Runbook"));
     assert!(runbook.contains("walk-capture-scaffold"));
-    assert!(runbook.contains("goose-local-health-validation-suite"));
+    assert!(runbook.contains("bull-local-health-validation-suite"));
     assert!(runbook.contains("--markdown-output local-health-validation-report.md"));
     assert!(runbook.contains("--review-output local-health-validation-review.json"));
     assert!(runbook.contains("- Manifest review: `local-health-validation-review.json`"));
@@ -475,7 +475,7 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
     assert!(runbook.contains("validation labels only"));
     assert_eq!(
         report["schema"],
-        "goose.local-health-validation-manifest.v1"
+        "bull.local-health-validation-manifest.v1"
     );
     assert_eq!(report["manifest_id"], "walk-capture-scaffold");
     assert_eq!(report["start"], "2026-06-02T00:00:00Z");
@@ -614,9 +614,9 @@ fn local_health_validation_suite_scaffolds_manifest_from_raw_export_bundle() {
 #[test]
 fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    seed_goose_database(&db);
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    seed_bull_database(&db);
+    let store = BullStore::open(&db).unwrap();
     for (session_id, started_at_unix_ms) in [
         ("still-capture-session", 1_780_392_000_000),
         ("walk-capture-session", 1_780_395_600_000),
@@ -626,7 +626,7 @@ fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
                 session_id,
                 source: "synthetic.validation",
                 started_at_unix_ms,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 active_device_id: None,
                 provenance_json: r#"{"owned_capture":true}"#,
             })
@@ -655,7 +655,7 @@ fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &[packet_k as u8, sequence as u8],
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some(capture_session_id),
@@ -683,7 +683,7 @@ fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -705,7 +705,7 @@ fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
     drop(store);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--scaffold-manifest")
@@ -834,7 +834,7 @@ fn local_health_validation_scaffold_leaves_multi_session_cases_unbound() {
 #[test]
 fn local_health_validation_manifest_review_flags_missing_required_labels() {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "hand-authored-missing-labels",
         "label_provenance": {
             "source": "official_app_manual_entry",
@@ -921,7 +921,7 @@ fn local_health_validation_manifest_review_flags_missing_required_labels() {
 #[test]
 fn local_health_validation_manifest_review_flags_invalid_capture_sqlite_imports() {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "invalid-capture-sqlite-imports",
         "capture_sqlite_imports": [
             {
@@ -1000,7 +1000,7 @@ fn local_health_validation_manifest_review_flags_invalid_capture_sqlite_imports(
 #[test]
 fn local_health_validation_manifest_review_flags_unresolved_capture_session_ids() {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "unresolved-capture-session",
         "capture_sqlite_imports": [
             {
@@ -1060,7 +1060,7 @@ fn local_health_validation_manifest_review_flags_unresolved_capture_session_ids(
 fn local_health_validation_manifest_review_marks_declared_sessions_unverified_without_known_sessions()
  {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "direct-db-session-unverified",
         "cases": [
             {
@@ -1111,7 +1111,7 @@ fn local_health_validation_manifest_review_marks_declared_sessions_unverified_wi
 #[test]
 fn local_health_validation_manifest_review_flags_case_windows_outside_generated_evidence() {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "case-window-outside-evidence",
         "generated_evidence": {
             "capture_session_default": "single_session_defaulted",
@@ -1176,7 +1176,7 @@ fn local_health_validation_manifest_review_flags_case_windows_outside_generated_
 #[test]
 fn local_health_validation_manifest_review_flags_bound_session_with_unrelated_packet_families() {
     let manifest = json!({
-        "schema": "goose.local-health-validation-manifest.v1",
+        "schema": "bull.local-health-validation-manifest.v1",
         "manifest_id": "wrong-family-capture-session",
         "generated_evidence": {
             "capture_session_default": "multiple_sessions_observed_case_binding_required",
@@ -1254,14 +1254,14 @@ fn local_health_validation_manifest_review_flags_bound_session_with_unrelated_pa
 fn local_health_validation_suite_flags_raw_export_capture_case_without_packet_window_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("step-discovery-validation.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     write_raw_export_manifest(&bundle_dir, &db);
     fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "raw-export-empty-step-discovery",
             "cases": [
                 {
@@ -1278,7 +1278,7 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_packet_wi
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -1347,16 +1347,16 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_packet_wi
 fn local_health_validation_suite_flags_raw_export_capture_case_without_case_window_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("step-discovery-validation.json");
-    seed_goose_database(&db);
-    let store = GooseStore::open(&db).unwrap();
+    seed_bull_database(&db);
+    let store = BullStore::open(&db).unwrap();
     store
         .insert_raw_evidence(RawEvidenceInput {
             evidence_id: "raw-outside-case-window",
             source: "synthetic.validation",
             captured_at: "2026-06-02T08:00:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &[0x10, 0x01],
             sensitivity: "public-test-fixture",
             capture_session_id: None,
@@ -1388,7 +1388,7 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_case_wind
             ) VALUES (
                 'frame-outside-case-window',
                 'raw-outside-case-window',
-                'Goose',
+                'Bull',
                 2,
                 0,
                 2,
@@ -1423,7 +1423,7 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_case_wind
     fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "raw-export-wrong-case-window",
             "cases": [
                 {
@@ -1440,7 +1440,7 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_case_wind
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -1499,16 +1499,16 @@ fn local_health_validation_suite_flags_raw_export_capture_case_without_case_wind
 fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatch() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("step-discovery-validation.json");
-    seed_goose_database(&db);
-    let store = GooseStore::open(&db).unwrap();
+    seed_bull_database(&db);
+    let store = BullStore::open(&db).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "actual-session",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true}"#,
         })
@@ -1518,7 +1518,7 @@ fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatc
             evidence_id: "raw-wrong-session-window",
             source: "synthetic.validation",
             captured_at: "2026-06-02T10:01:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &[0x10, 0x01],
             sensitivity: "public-test-fixture",
             capture_session_id: Some("actual-session"),
@@ -1550,7 +1550,7 @@ fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatc
             ) VALUES (
                 'frame-wrong-session-window',
                 'raw-wrong-session-window',
-                'Goose',
+                'Bull',
                 2,
                 0,
                 2,
@@ -1585,7 +1585,7 @@ fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatc
     fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "raw-export-session-mismatch",
             "cases": [
                 {
@@ -1611,7 +1611,7 @@ fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatc
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -1898,16 +1898,16 @@ fn local_health_validation_suite_reports_raw_export_case_capture_session_mismatc
 fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_families() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("wrong-family-validation.json");
-    seed_goose_database(&db);
-    let store = GooseStore::open(&db).unwrap();
+    seed_bull_database(&db);
+    let store = BullStore::open(&db).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "history-only-session",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true,"note":"history packets in step case"}"#,
         })
@@ -1921,7 +1921,7 @@ fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_fam
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &[0x18, sequence],
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some("history-only-session"),
@@ -1952,7 +1952,7 @@ fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_fam
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, 18, 'DATA', ?3, NULL, ?4, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, 18, 'DATA', ?3, NULL, ?4, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -1976,7 +1976,7 @@ fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_fam
     fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "raw-export-wrong-family",
             "cases": [
                 {
@@ -1994,7 +1994,7 @@ fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_fam
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -2081,14 +2081,14 @@ fn local_health_validation_suite_flags_raw_export_case_with_unrelated_packet_fam
 fn local_health_validation_suite_rejects_case_window_outside_raw_export_time_window() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("bundle-validation.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     write_raw_export_manifest(&bundle_dir, &db);
     write_steps_unavailable_manifest_for_day(&manifest_path, "2026-06-04");
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -2127,7 +2127,7 @@ fn local_health_validation_suite_rejects_case_window_outside_raw_export_time_win
 fn local_health_validation_suite_rejects_raw_export_bundle_with_malformed_sqlite() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("bundle-validation.json");
     fs::create_dir_all(db.parent().unwrap()).unwrap();
     let malformed_bytes = b"not a sqlite database";
@@ -2140,7 +2140,7 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_malformed_sqlite
     write_steps_unavailable_manifest(&manifest_path);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -2167,7 +2167,7 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_malformed_sqlite
                     && action["scope"] == "database_source"
                     && action["action"]
                         .as_str()
-                        .is_some_and(|action| action.contains("data/goose.sqlite"))
+                        .is_some_and(|action| action.contains("data/bull.sqlite"))
             })
     );
 }
@@ -2176,9 +2176,9 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_malformed_sqlite
 fn local_health_validation_suite_rejects_raw_export_bundle_with_unmarked_official_label_family() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("bundle-validation.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     let sqlite_sha256 = sha256_hex(&fs::read(&db).unwrap());
     fs::write(
         bundle_dir.join("manifest.json"),
@@ -2192,7 +2192,7 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_unmarked_officia
     write_steps_unavailable_manifest(&manifest_path);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -2229,9 +2229,9 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_unmarked_officia
 fn local_health_validation_suite_rejects_raw_export_bundle_with_sqlite_sha_mismatch() {
     let tempdir = tempfile::tempdir().unwrap();
     let bundle_dir = tempdir.path().join("raw-export");
-    let db = bundle_dir.join("data/goose.sqlite");
+    let db = bundle_dir.join("data/bull.sqlite");
     let manifest_path = tempdir.path().join("bundle-validation.json");
-    seed_goose_database(&db);
+    seed_bull_database(&db);
     fs::write(
         bundle_dir.join("manifest.json"),
         raw_export_manifest_bytes(
@@ -2242,7 +2242,7 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_sqlite_sha_misma
     write_steps_unavailable_manifest(&manifest_path);
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--raw-export-bundle")
             .arg(&bundle_dir)
             .arg("--manifest")
@@ -2279,19 +2279,19 @@ fn local_health_validation_suite_rejects_raw_export_bundle_with_sqlite_sha_misma
         .expect("missing database_source checksum next action");
     assert_eq!(
         action["action"],
-        "Regenerate the Raw Export bundle; manifest.json and data/goose.sqlite do not describe the same SQLite snapshot."
+        "Regenerate the Raw Export bundle; manifest.json and data/bull.sqlite do not describe the same SQLite snapshot."
     );
 }
 
 #[test]
 fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let manifest_path = tempdir.path().join("local-health-validation.json");
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "empty-db-validation-smoke",
             "notes": "Smoke test for reproducible local health validation manifests.",
             "cases": [
@@ -2504,7 +2504,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -2516,7 +2516,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.local-health-validation-suite-report.v1"
+        "bull.local-health-validation-suite-report.v1"
     );
     assert_eq!(report["manifest_id"], "empty-db-validation-smoke");
     assert_eq!(report["database_source"]["kind"], "direct_database");
@@ -2606,7 +2606,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(step["readiness"]["acceptance_ready"], false);
     assert_eq!(
         step["result"]["schema"],
-        "goose.step-capture-validation-report.v1"
+        "bull.step-capture-validation-report.v1"
     );
     assert_eq!(step["result"]["official_whoop_step_delta"], 97);
 
@@ -2617,11 +2617,11 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(raw_motion["method"], "metrics.raw_motion_step_estimate");
     assert_eq!(
         raw_motion["result"]["schema"],
-        "goose.raw-motion-step-estimate-report.v1"
+        "bull.raw-motion-step-estimate-report.v1"
     );
     assert_eq!(
         raw_motion["result"]["algorithm_id"],
-        "goose.steps.raw_motion_estimate.v0"
+        "bull.steps.raw_motion_estimate.v0"
     );
 
     let step_daily_rollup = cases
@@ -2634,7 +2634,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         step_daily_rollup["result"]["schema"],
-        "goose.step-counter-daily-rollup-report.v1"
+        "bull.step-counter-daily-rollup-report.v1"
     );
     assert_eq!(step_daily_rollup["result"]["daily_metric_written"], false);
 
@@ -2648,7 +2648,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         step_hourly_rollup["result"]["schema"],
-        "goose.step-counter-hourly-rollup-report.v1"
+        "bull.step-counter-hourly-rollup-report.v1"
     );
     assert_eq!(step_hourly_rollup["result"]["hourly_metric_written"], false);
 
@@ -2662,7 +2662,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         step_unavailable["result"]["schema"],
-        "goose.activity-unavailable-daily-status-report.v1"
+        "bull.activity-unavailable-daily-status-report.v1"
     );
     assert_eq!(step_unavailable["pass"], true);
     assert_eq!(step_unavailable["result"]["unavailable_metric_count"], 1);
@@ -2693,7 +2693,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(hourly_energy["method"], "metrics.energy_hourly_rollup");
     assert_eq!(
         hourly_energy["result"]["schema"],
-        "goose.energy-hourly-rollup-report.v1"
+        "bull.energy-hourly-rollup-report.v1"
     );
     assert_eq!(hourly_energy["result"]["hourly_metric_written"], false);
 
@@ -2707,7 +2707,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         energy_unavailable["result"]["schema"],
-        "goose.energy-unavailable-daily-status-report.v1"
+        "bull.energy-unavailable-daily-status-report.v1"
     );
     assert_eq!(energy_unavailable["pass"], true);
     assert_eq!(energy_unavailable["result"]["unavailable_metric_count"], 3);
@@ -2735,7 +2735,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(hrv["method"], "metrics.hrv_capture_validation");
     assert_eq!(
         hrv["result"]["schema"],
-        "goose.hrv-capture-validation-report.v1"
+        "bull.hrv-capture-validation-report.v1"
     );
     assert_eq!(
         hrv["result"]["label_policy"],
@@ -2757,7 +2757,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         respiratory["result"]["schema"],
-        "goose.respiratory-rate-capture-validation-report.v1"
+        "bull.respiratory-rate-capture-validation-report.v1"
     );
     assert_eq!(
         respiratory["result"]["label_policy"],
@@ -2782,7 +2782,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         oxygen_saturation["result"]["schema"],
-        "goose.oxygen-saturation-capture-validation-report.v1"
+        "bull.oxygen-saturation-capture-validation-report.v1"
     );
     assert_eq!(
         oxygen_saturation["result"]["label_policy"],
@@ -2807,7 +2807,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         temperature["result"]["schema"],
-        "goose.temperature-capture-validation-report.v1"
+        "bull.temperature-capture-validation-report.v1"
     );
     assert_eq!(
         temperature["result"]["label_policy"],
@@ -2855,7 +2855,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(sensors["method"], "metrics.recovery_sensor_discovery");
     assert_eq!(
         sensors["result"]["schema"],
-        "goose.recovery-sensor-discovery-report.v1"
+        "bull.recovery-sensor-discovery-report.v1"
     );
     assert_eq!(sensors["result"]["widgets"].as_array().unwrap().len(), 4);
     assert!(
@@ -2877,7 +2877,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         recovery_sensor_rollup["result"]["schema"],
-        "goose.recovery-sensor-daily-rollup-report.v1"
+        "bull.recovery-sensor-daily-rollup-report.v1"
     );
     assert_eq!(recovery_sensor_rollup["pass"], false);
     assert_eq!(recovery_sensor_rollup["result"]["metric_count"], 4);
@@ -2894,7 +2894,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(step_record["official_label_value"], 97);
     assert_eq!(step_record["manual_label_value"], 100);
     assert_eq!(step_record["input_packet_count"], 0);
-    assert_eq!(step_record["algorithm_id"], "goose.steps.device_counter.v0");
+    assert_eq!(step_record["algorithm_id"], "bull.steps.device_counter.v0");
     assert_eq!(step["metric_records"][0]["metric_name"], "steps");
 
     let daily_step_rollup_record = metric_record(metric_records, "walk-step-daily-rollup", "steps");
@@ -2902,7 +2902,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(daily_step_rollup_record["source_kind"], "unavailable");
     assert_eq!(
         daily_step_rollup_record["algorithm_id"],
-        "goose.steps.device_counter.v0"
+        "bull.steps.device_counter.v0"
     );
     assert_eq!(daily_step_rollup_record["promotion_status"], "daily_rollup");
     assert_eq!(daily_step_rollup_record["input_counts"]["sample_count"], 0);
@@ -2913,7 +2913,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(hourly_step_rollup_record["source_kind"], "unavailable");
     assert_eq!(
         hourly_step_rollup_record["algorithm_id"],
-        "goose.steps.device_counter.v0"
+        "bull.steps.device_counter.v0"
     );
     assert_eq!(
         hourly_step_rollup_record["promotion_status"],
@@ -2927,7 +2927,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(step_unavailable_record["source_kind"], "unavailable");
     assert_eq!(
         step_unavailable_record["algorithm_id"],
-        "goose.activity.unavailable_status.v0"
+        "bull.activity.unavailable_status.v0"
     );
     assert_eq!(step_unavailable_record["promotion_status"], "blocked");
     assert_eq!(step_unavailable_record["input_counts"]["sample_count"], 0);
@@ -2945,7 +2945,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(total_energy_record["official_label_value"], 2100.0);
     assert_eq!(
         total_energy_record["algorithm_id"],
-        "goose.energy.local_estimate.v0"
+        "bull.energy.local_estimate.v0"
     );
     assert_eq!(
         total_energy_record["label_policy"],
@@ -2966,7 +2966,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(hourly_total_energy_record["source_kind"], "unavailable");
     assert_eq!(
         hourly_total_energy_record["algorithm_id"],
-        "goose.energy.local_estimate.v0"
+        "bull.energy.local_estimate.v0"
     );
     assert_eq!(
         hourly_total_energy_record["promotion_status"],
@@ -2990,7 +2990,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(energy_unavailable_record["source_kind"], "unavailable");
     assert_eq!(
         energy_unavailable_record["algorithm_id"],
-        "goose.energy.unavailable_status.v0"
+        "bull.energy.unavailable_status.v0"
     );
     assert_eq!(energy_unavailable_record["promotion_status"], "blocked");
     assert_eq!(
@@ -3011,7 +3011,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(rhr_record["official_label_value"], 56.0);
     assert_eq!(
         rhr_record["algorithm_id"],
-        "goose.resting_heart_rate.device_sensor.v0"
+        "bull.resting_heart_rate.device_sensor.v0"
     );
 
     let hrv_record = metric_record(metric_records, "overnight-hrv", "hrv_rmssd");
@@ -3047,7 +3047,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         oxygen_validation_record["algorithm_id"],
-        "goose.oxygen_saturation.packet_candidate.v0"
+        "bull.oxygen_saturation.packet_candidate.v0"
     );
 
     let temperature_validation_record = metric_record(
@@ -3063,7 +3063,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     );
     assert_eq!(
         temperature_validation_record["algorithm_id"],
-        "goose.skin_temperature.history_candidate.v0"
+        "bull.skin_temperature.history_candidate.v0"
     );
 
     let oxygen_record = metric_record(metric_records, "overnight-sensors", "oxygen_saturation");
@@ -3086,7 +3086,7 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
     assert_eq!(recovery_rollup_oxygen_record["source_kind"], "unavailable");
     assert_eq!(
         recovery_rollup_oxygen_record["algorithm_id"],
-        "goose.recovery_sensor.device_sensor.v0"
+        "bull.recovery_sensor.device_sensor.v0"
     );
     assert_eq!(recovery_rollup_oxygen_record["confidence"], 0.0);
     assert!(
@@ -3101,14 +3101,14 @@ fn local_health_validation_suite_runs_step_energy_and_recovery_sensor_cases() {
 #[test]
 fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "capture-session-1",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true}"#,
         })
@@ -3118,7 +3118,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
             session_id: "unrelated-session",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true,"note":"same-window unrelated"}"#,
         })
@@ -3128,7 +3128,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
             session_id: "wrong-family-session",
             source: "synthetic.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true,"note":"history packets in step case"}"#,
         })
@@ -3138,7 +3138,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
             evidence_id: "raw-capture-session-1",
             source: "synthetic.validation",
             captured_at: "2026-06-02T10:01:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &[0x01, 0x02, 0x03],
             sensitivity: "public-test-fixture",
             capture_session_id: Some("capture-session-1"),
@@ -3163,7 +3163,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &payload,
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some("unrelated-session"),
@@ -3191,7 +3191,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, 11, 'DATA', ?3, NULL, ?4, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, 11, 'DATA', ?3, NULL, ?4, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -3216,7 +3216,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &[0x18, sequence],
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some("wrong-family-session"),
@@ -3244,7 +3244,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, 18, 'DATA', ?3, NULL, ?4, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, 18, 'DATA', ?3, NULL, ?4, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -3269,7 +3269,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "cases": [
                 {
                     "id": "session-bound-step",
@@ -3323,7 +3323,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -3483,7 +3483,7 @@ fn local_health_validation_suite_reports_capture_session_evidence_readiness() {
 #[test]
 fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let capture_sqlite_path = tempdir.path().join("capture.sqlite");
     let manifest_path = tempdir.path().join("capture-sqlite-validation.json");
     let output_path = tempdir.path().join("capture-sqlite-validation-report.json");
@@ -3495,16 +3495,16 @@ fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "capture-sqlite-validation-smoke",
             "capture_sqlite_imports": [
                 {
                     "id": "walk-hci",
                     "path": "capture.sqlite",
                     "session_id": "capture-sqlite-session",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "sensitivity": "user-owned-capture",
-                    "parser_version": "goose-core/test"
+                    "parser_version": "bull-core/test"
                 }
             ],
             "cases": [
@@ -3537,7 +3537,7 @@ fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -3559,7 +3559,7 @@ fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
         serde_json::from_str(&std::fs::read_to_string(&output_path).unwrap()).unwrap();
     assert_eq!(
         report["schema"],
-        "goose.local-health-validation-suite-report.v1"
+        "bull.local-health-validation-suite-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["manifest_id"], "capture-sqlite-validation-smoke");
@@ -3694,7 +3694,7 @@ fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
     assert_eq!(step_record["official_label_value"], 5);
     assert_eq!(step_record["promotion_status"], "validated_candidate");
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let daily_metric_id = case["result"]["daily_metric_id"]
         .as_str()
         .expect("raw-motion daily metric id");
@@ -3716,7 +3716,7 @@ fn local_health_validation_suite_imports_capture_sqlite_before_running_cases() {
 #[test]
 fn local_health_validation_suite_applies_manifest_case_defaults() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let capture_sqlite_path = tempdir.path().join("capture.sqlite");
     let manifest_path = tempdir.path().join("defaulted-capture-validation.json");
 
@@ -3732,7 +3732,7 @@ fn local_health_validation_suite_applies_manifest_case_defaults() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "defaulted-capture-validation-smoke",
             "start": "2026-06-02T10:00:00Z",
             "end": "2026-06-02T10:05:00Z",
@@ -3749,9 +3749,9 @@ fn local_health_validation_suite_applies_manifest_case_defaults() {
                     "id": "defaulted-walk-hci",
                     "path": "capture.sqlite",
                     "session_id": "defaulted-capture-session",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "sensitivity": "user-owned-capture",
-                    "parser_version": "goose-core/test"
+                    "parser_version": "bull-core/test"
                 }
             ],
             "cases": [
@@ -3774,7 +3774,7 @@ fn local_health_validation_suite_applies_manifest_case_defaults() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -3851,7 +3851,7 @@ fn local_health_validation_suite_applies_manifest_case_defaults() {
 #[test]
 fn local_health_validation_suite_requires_capture_session_binding_for_labeled_acceptance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let capture_sqlite_path = tempdir.path().join("capture.sqlite");
     let manifest_path = tempdir.path().join("unbound-labeled-validation.json");
 
@@ -3861,16 +3861,16 @@ fn local_health_validation_suite_requires_capture_session_binding_for_labeled_ac
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "unbound-labeled-validation-smoke",
             "capture_sqlite_imports": [
                 {
                     "id": "walk-hci",
                     "path": "capture.sqlite",
                     "session_id": "capture-sqlite-session",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "sensitivity": "user-owned-capture",
-                    "parser_version": "goose-core/test"
+                    "parser_version": "bull-core/test"
                 }
             ],
             "cases": [
@@ -3902,7 +3902,7 @@ fn local_health_validation_suite_requires_capture_session_binding_for_labeled_ac
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -3999,7 +3999,7 @@ fn local_health_validation_suite_requires_capture_session_binding_for_labeled_ac
                 && action["reason"] == "capture_session_required_for_metric_write")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 0);
     assert_eq!(store.table_count("metric_provenance").unwrap(), 0);
 }
@@ -4007,7 +4007,7 @@ fn local_health_validation_suite_requires_capture_session_binding_for_labeled_ac
 #[test]
 fn local_health_validation_suite_blocks_raw_motion_writes_for_partial_capture_session_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let capture_sqlite_path = tempdir.path().join("capture.sqlite");
     let manifest_path = tempdir.path().join("partial-session-write-validation.json");
 
@@ -4017,16 +4017,16 @@ fn local_health_validation_suite_blocks_raw_motion_writes_for_partial_capture_se
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "partial-session-write-validation-smoke",
             "capture_sqlite_imports": [
                 {
                     "id": "walk-hci",
                     "path": "capture.sqlite",
                     "session_id": "capture-sqlite-session",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "sensitivity": "user-owned-capture",
-                    "parser_version": "goose-core/test"
+                    "parser_version": "bull-core/test"
                 }
             ],
             "cases": [
@@ -4059,7 +4059,7 @@ fn local_health_validation_suite_blocks_raw_motion_writes_for_partial_capture_se
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4089,7 +4089,7 @@ fn local_health_validation_suite_blocks_raw_motion_writes_for_partial_capture_se
             .any(|issue| issue == "capture_session_evidence_missing")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 0);
     assert_eq!(store.table_count("metric_provenance").unwrap(), 0);
 }
@@ -4097,12 +4097,12 @@ fn local_health_validation_suite_blocks_raw_motion_writes_for_partial_capture_se
 #[test]
 fn local_health_validation_suite_rejects_metric_writes_for_label_only_validation_reports() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let manifest_path = tempdir.path().join("write-metric-validation.json");
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "cases": [
                 {
                     "id": "bad-energy-write",
@@ -4130,7 +4130,7 @@ fn local_health_validation_suite_rejects_metric_writes_for_label_only_validation
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4171,14 +4171,14 @@ fn local_health_validation_suite_rejects_metric_writes_for_label_only_validation
 #[test]
 fn local_health_validation_suite_reports_step_discovery_without_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     store
         .insert_raw_evidence(RawEvidenceInput {
             evidence_id: "raw-step-discovery-1",
             source: "synthetic.validation",
             captured_at: "2026-06-02T10:01:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &[0x10, 0x01],
             sensitivity: "public-test-fixture",
             capture_session_id: None,
@@ -4189,7 +4189,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
             evidence_id: "raw-step-discovery-2",
             source: "synthetic.validation",
             captured_at: "2026-06-02T10:03:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &[0x10, 0x02],
             sensitivity: "public-test-fixture",
             capture_session_id: None,
@@ -4220,7 +4220,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
             ) VALUES (
                 'frame-step-discovery-1',
                 'raw-step-discovery-1',
-                'Goose',
+                'Bull',
                 2,
                 0,
                 2,
@@ -4276,7 +4276,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
             ) VALUES (
                 'frame-step-discovery-2',
                 'raw-step-discovery-2',
-                'Goose',
+                'Bull',
                 2,
                 0,
                 2,
@@ -4315,7 +4315,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "step-discovery-smoke",
             "cases": [
                 {
@@ -4332,7 +4332,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4354,7 +4354,7 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
     assert_eq!(case["method"], "metrics.step_packet_discovery");
     assert_eq!(
         case["result"]["schema"],
-        "goose.step-packet-discovery-report.v1"
+        "bull.step-packet-discovery-report.v1"
     );
     assert_eq!(case["result"]["explicit_step_counter_found"], true);
     assert_eq!(case["result"]["counter_delta_candidate_count"], 1);
@@ -4415,8 +4415,8 @@ fn local_health_validation_suite_reports_step_discovery_without_labels() {
 fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable_until_parser_mapping()
  {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     for (evidence_id, captured_at, payload) in [
         (
             "raw-hidden-step-1",
@@ -4434,7 +4434,7 @@ fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable
                 evidence_id,
                 source: "synthetic.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload,
                 sensitivity: "public-test-fixture",
                 capture_session_id: None,
@@ -4470,7 +4470,7 @@ fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable
                 ) VALUES (
                     ?1,
                     ?2,
-                    'Goose',
+                    'Bull',
                     2,
                     0,
                     2,
@@ -4514,7 +4514,7 @@ fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "hidden-step-validation",
             "cases": [
                 {
@@ -4539,7 +4539,7 @@ fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4607,8 +4607,8 @@ fn local_health_validation_suite_keeps_hidden_step_counter_candidate_unavailable
 #[test]
 fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     let frames = [
         (
             "rhr-rollup-history-1",
@@ -4627,18 +4627,18 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
         frame_id: Some(format!("{id}.frame.0")),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     })
     .collect::<Vec<_>>();
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -4649,7 +4649,7 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "rhr-rollup-smoke",
             "cases": [
                 {
@@ -4671,7 +4671,7 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4693,7 +4693,7 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
     assert_eq!(case["method"], "metrics.resting_hr_daily_rollup");
     assert_eq!(
         case["result"]["schema"],
-        "goose.resting-heart-rate-daily-rollup-report.v1"
+        "bull.resting-heart-rate-daily-rollup-report.v1"
     );
     assert_eq!(case["result"]["resting_hr_bpm"], 58.0);
     assert_eq!(case["result"]["sample_count"], 2);
@@ -4725,7 +4725,7 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
         2
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let recovery_metric = store
         .daily_recovery_metric(
             case["result"]["daily_metric_id"]
@@ -4741,8 +4741,8 @@ fn local_health_validation_suite_reports_rhr_rollup_without_labels() {
 #[test]
 fn local_health_validation_suite_reports_energy_rollup_without_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     let frames = [
         (
             "energy-rollup-history-1",
@@ -4766,18 +4766,18 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
         frame_id: Some(format!("{id}.frame.0")),
         source: "ios.corebluetooth.notification".to_string(),
         captured_at: captured_at.to_string(),
-        device_model: "WHOOP 5.0 Goose".to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
         sensitivity: "user-owned-capture".to_string(),
         capture_session_id: None,
-        device_type: DeviceType::Goose,
+        device_type: DeviceType::Bull,
     })
     .collect::<Vec<_>>();
     let import_report = import_captured_frame_batch(
         &store,
         &frames,
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -4788,7 +4788,7 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "energy-rollup-smoke",
             "profile_weight_kg": 80.0,
             "profile_age_years": 35,
@@ -4816,7 +4816,7 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4838,7 +4838,7 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
     assert_eq!(case["method"], "metrics.energy_daily_rollup");
     assert_eq!(
         case["result"]["schema"],
-        "goose.energy-daily-rollup-report.v1"
+        "bull.energy-daily-rollup-report.v1"
     );
     assert_eq!(case["result"]["active_kcal"], 17.9);
     assert_eq!(case["result"]["resting_kcal"], 12.2);
@@ -4875,7 +4875,7 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
         assert_eq!(record["confidence"], 0.77);
     }
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let activity_metric = store
         .daily_activity_metric(
             case["result"]["daily_metric_id"]
@@ -4894,14 +4894,14 @@ fn local_health_validation_suite_reports_energy_rollup_without_labels() {
 #[test]
 fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let review_output_path = tempdir.path().join("example-manifest-review.json");
     let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .join("docs/local-health-validation-manifest.example.json");
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -4957,7 +4957,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert!(runbook.contains("| overnight-temperature | temperature-validation | temperature-validation | -- | K18, K24, EVENT | Add `capture_session_id` or `capture_session_ids` |"));
     assert_eq!(
         report["schema"],
-        "goose.local-health-validation-suite-report.v1"
+        "bull.local-health-validation-suite-report.v1"
     );
     assert_eq!(
         report["manifest_id"],
@@ -5047,7 +5047,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     );
     assert_eq!(
         step_discovery_case["result"]["schema"],
-        "goose.step-packet-discovery-report.v1"
+        "bull.step-packet-discovery-report.v1"
     );
     assert_eq!(
         step_discovery_case["readiness"]["official_label_status"],
@@ -5081,7 +5081,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert_eq!(activity_unavailable_case["pass"], true);
     assert_eq!(
         activity_unavailable_case["result"]["schema"],
-        "goose.activity-unavailable-daily-status-report.v1"
+        "bull.activity-unavailable-daily-status-report.v1"
     );
     assert_eq!(
         activity_unavailable_case["result"]["unavailable_metric_count"],
@@ -5109,7 +5109,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert_eq!(energy_unavailable_case["pass"], true);
     assert_eq!(
         energy_unavailable_case["result"]["schema"],
-        "goose.energy-unavailable-daily-status-report.v1"
+        "bull.energy-unavailable-daily-status-report.v1"
     );
     assert_eq!(
         energy_unavailable_case["result"]["unavailable_metric_count"],
@@ -5131,7 +5131,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert_eq!(energy_rollup_case["pass"], false);
     assert_eq!(
         energy_rollup_case["result"]["schema"],
-        "goose.energy-daily-rollup-report.v1"
+        "bull.energy-daily-rollup-report.v1"
     );
     assert_eq!(
         energy_rollup_case["readiness"]["official_label_status"],
@@ -5162,7 +5162,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert_eq!(rhr_rollup_case["method"], "metrics.resting_hr_daily_rollup");
     assert_eq!(
         rhr_rollup_case["result"]["schema"],
-        "goose.resting-heart-rate-daily-rollup-report.v1"
+        "bull.resting-heart-rate-daily-rollup-report.v1"
     );
     assert_eq!(
         rhr_rollup_case["readiness"]["official_label_status"],
@@ -5190,7 +5190,7 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
     assert_eq!(unavailable_case["pass"], true);
     assert_eq!(
         unavailable_case["result"]["schema"],
-        "goose.recovery-unavailable-daily-status-report.v1"
+        "bull.recovery-unavailable-daily-status-report.v1"
     );
     assert_eq!(unavailable_case["result"]["unavailable_metric_count"], 4);
     assert_eq!(unavailable_case["result"]["written_metric_count"], 4);
@@ -5207,13 +5207,13 @@ fn local_health_validation_example_manifest_covers_controlled_step_matrix() {
 #[test]
 fn local_health_validation_suite_rejects_unmarked_official_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let manifest_path = tempdir.path().join("bad-label-policy.json");
     let review_output_path = tempdir.path().join("bad-label-policy-review.json");
     std::fs::write(
         &manifest_path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "cases": [
                 {
                     "id": "bad-energy-label",
@@ -5234,7 +5234,7 @@ fn local_health_validation_suite_rejects_unmarked_official_labels() {
     .unwrap();
 
     let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-local-health-validation-suite"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-local-health-validation-suite"))
             .arg("--database")
             .arg(&db)
             .arg("--manifest")
@@ -5301,9 +5301,9 @@ fn metric_record<'a>(
         .unwrap_or_else(|| panic!("missing metric record {case_id}:{metric_name}"))
 }
 
-fn seed_goose_database(path: &Path) {
+fn seed_bull_database(path: &Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let store = GooseStore::open(path).unwrap();
+    let store = BullStore::open(path).unwrap();
     assert!(store.schema_version().unwrap() > 0);
 }
 
@@ -5330,7 +5330,7 @@ fn write_steps_unavailable_manifest_for_day(path: &Path, date_key: &str) {
     fs::write(
         path,
         serde_json::to_string_pretty(&json!({
-            "schema": "goose.local-health-validation-manifest.v1",
+            "schema": "bull.local-health-validation-manifest.v1",
             "manifest_id": "raw-export-bundle-validation-smoke",
             "cases": [
                 {
@@ -5349,7 +5349,7 @@ fn write_steps_unavailable_manifest_for_day(path: &Path, date_key: &str) {
     .unwrap();
 }
 
-fn zip_goose_database(zip_path: &Path, database_path: &Path, archive_path: &str) -> String {
+fn zip_bull_database(zip_path: &Path, database_path: &Path, archive_path: &str) -> String {
     let zip_file = File::create(zip_path).unwrap();
     let mut writer = ZipWriter::new(zip_file);
     let options = FileOptions::default()
@@ -5357,7 +5357,7 @@ fn zip_goose_database(zip_path: &Path, database_path: &Path, archive_path: &str)
         .unix_permissions(0o644);
     let bytes = fs::read(database_path).unwrap();
     let sqlite_sha256 = sha256_hex(&bytes);
-    let prefix = archive_path.strip_suffix("data/goose.sqlite").unwrap_or("");
+    let prefix = archive_path.strip_suffix("data/bull.sqlite").unwrap_or("");
     writer
         .start_file(format!("{prefix}manifest.json"), options)
         .unwrap();
@@ -5380,7 +5380,7 @@ fn raw_export_manifest_bytes_with_options(
     official_labels_are_labels: bool,
 ) -> Vec<u8> {
     serde_json::to_vec_pretty(&json!({
-        "schema_version": "goose.export.v1",
+        "schema_version": "bull.export.v1",
         "app_version": "test",
         "core_version": "test",
         "time_window": {
@@ -5390,7 +5390,7 @@ fn raw_export_manifest_bytes_with_options(
         "data_families": data_families,
         "files": [
             {
-                "path": "data/goose.sqlite",
+                "path": "data/bull.sqlite",
                 "sha256": sqlite_sha256,
                 "kind": "sqlite"
             }

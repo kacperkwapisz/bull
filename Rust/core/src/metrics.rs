@@ -4,22 +4,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     store::{AlgorithmDefinitionRecord, AlgorithmPreferenceRecord, AlgorithmRunRecord},
 };
 
-pub const GOOSE_HRV_V0_ID: &str = "goose.hrv.v0";
-pub const GOOSE_HRV_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_SLEEP_V0_ID: &str = "goose.sleep.v0";
-pub const GOOSE_SLEEP_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_SLEEP_V1_ID: &str = "goose.sleep.v1";
-pub const GOOSE_SLEEP_V1_VERSION: &str = "0.1.0";
-pub const GOOSE_STRAIN_V0_ID: &str = "goose.strain.v0";
-pub const GOOSE_STRAIN_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_RECOVERY_V0_ID: &str = "goose.recovery.v0";
-pub const GOOSE_RECOVERY_V0_VERSION: &str = "0.1.0";
-pub const GOOSE_STRESS_V0_ID: &str = "goose.stress.v0";
-pub const GOOSE_STRESS_V0_VERSION: &str = "0.1.0";
+pub const BULL_HRV_V0_ID: &str = "bull.hrv.v0";
+pub const BULL_HRV_V0_VERSION: &str = "0.1.0";
+pub const BULL_SLEEP_V0_ID: &str = "bull.sleep.v0";
+pub const BULL_SLEEP_V0_VERSION: &str = "0.1.0";
+pub const BULL_SLEEP_V1_ID: &str = "bull.sleep.v1";
+pub const BULL_SLEEP_V1_VERSION: &str = "0.1.0";
+pub const BULL_STRAIN_V0_ID: &str = "bull.strain.v0";
+pub const BULL_STRAIN_V0_VERSION: &str = "0.1.0";
+pub const BULL_RECOVERY_V0_ID: &str = "bull.recovery.v0";
+pub const BULL_RECOVERY_V0_VERSION: &str = "0.1.0";
+pub const BULL_STRESS_V0_ID: &str = "bull.stress.v0";
+pub const BULL_STRESS_V0_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HrvInput {
@@ -323,7 +323,7 @@ pub struct SleepModelStatusInput {
     #[serde(default)]
     pub timestamp_sync_blocked: bool,
     #[serde(default)]
-    pub trusted_goose_sleep_nights: u32,
+    pub trusted_bull_sleep_nights: u32,
     #[serde(default)]
     pub imported_platform_sleep_nights: u32,
     #[serde(default)]
@@ -351,13 +351,13 @@ pub struct SleepModelStatusReport {
     pub status_reason: String,
     pub report_state: String,
     pub valid_sleep_nights: u32,
-    pub trusted_goose_sleep_nights: u32,
+    pub trusted_bull_sleep_nights: u32,
     pub imported_platform_sleep_nights: u32,
     pub excluded_sleep_nights: u32,
     pub calibration_label_count: u32,
     pub nights_until_baseline: u32,
     #[serde(default)]
-    pub nights_until_goose_training: u32,
+    pub nights_until_bull_training: u32,
     pub nights_until_training: u32,
     pub can_show_provisional_score: bool,
     pub can_show_final_score: bool,
@@ -502,11 +502,11 @@ pub fn built_in_algorithm_definitions() -> Vec<AlgorithmDefinitionRecord> {
 
 pub fn built_in_default_algorithm_preferences() -> Vec<AlgorithmPreferenceRecord> {
     vec![
-        default_algorithm_preference("hrv", GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION),
-        default_algorithm_preference("sleep", GOOSE_SLEEP_V0_ID, GOOSE_SLEEP_V0_VERSION),
-        default_algorithm_preference("strain", GOOSE_STRAIN_V0_ID, GOOSE_STRAIN_V0_VERSION),
-        default_algorithm_preference("recovery", GOOSE_RECOVERY_V0_ID, GOOSE_RECOVERY_V0_VERSION),
-        default_algorithm_preference("stress", GOOSE_STRESS_V0_ID, GOOSE_STRESS_V0_VERSION),
+        default_algorithm_preference("hrv", BULL_HRV_V0_ID, BULL_HRV_V0_VERSION),
+        default_algorithm_preference("sleep", BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION),
+        default_algorithm_preference("strain", BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION),
+        default_algorithm_preference("recovery", BULL_RECOVERY_V0_ID, BULL_RECOVERY_V0_VERSION),
+        default_algorithm_preference("stress", BULL_STRESS_V0_ID, BULL_STRESS_V0_VERSION),
     ]
 }
 
@@ -535,14 +535,14 @@ fn default_algorithm_preference(
 
 fn hrv_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_HRV_V0_ID.to_string(),
-        version: GOOSE_HRV_V0_VERSION.to_string(),
+        algorithm_id: BULL_HRV_V0_ID.to_string(),
+        version: BULL_HRV_V0_VERSION.to_string(),
         metric_family: "hrv".to_string(),
-        display_name: "Goose HRV v0".to_string(),
+        display_name: "Bull HRV v0".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.hrv-input.v1".to_string(),
-        output_schema: "goose.hrv-output.v1".to_string(),
+        input_schema: "bull.hrv-input.v1".to_string(),
+        output_schema: "bull.hrv-output.v1".to_string(),
         input_requirements_json: json!({
             "rr_intervals_ms": {
                 "unit": "ms",
@@ -571,14 +571,14 @@ fn hrv_definition() -> AlgorithmDefinitionRecord {
 
 fn sleep_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_SLEEP_V0_ID.to_string(),
-        version: GOOSE_SLEEP_V0_VERSION.to_string(),
+        algorithm_id: BULL_SLEEP_V0_ID.to_string(),
+        version: BULL_SLEEP_V0_VERSION.to_string(),
         metric_family: "sleep".to_string(),
-        display_name: "Goose Sleep v0".to_string(),
+        display_name: "Bull Sleep v0".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.sleep-input.v1".to_string(),
-        output_schema: "goose.sleep-output.v1".to_string(),
+        input_schema: "bull.sleep-input.v1".to_string(),
+        output_schema: "bull.sleep-output.v1".to_string(),
         input_requirements_json: json!({
             "sleep_duration_minutes": {"unit": "minutes", "minimum_to_compute": 1.0},
             "sleep_need_minutes": {"unit": "minutes", "minimum_to_compute": 1.0},
@@ -611,14 +611,14 @@ fn sleep_definition() -> AlgorithmDefinitionRecord {
 
 fn sleep_v1_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_SLEEP_V1_ID.to_string(),
-        version: GOOSE_SLEEP_V1_VERSION.to_string(),
+        algorithm_id: BULL_SLEEP_V1_ID.to_string(),
+        version: BULL_SLEEP_V1_VERSION.to_string(),
         metric_family: "sleep".to_string(),
-        display_name: "Goose Sleep v1".to_string(),
+        display_name: "Bull Sleep v1".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.sleep-v1-input.v1".to_string(),
-        output_schema: "goose.sleep-v1-output.v1".to_string(),
+        input_schema: "bull.sleep-v1-input.v1".to_string(),
+        output_schema: "bull.sleep-v1-output.v1".to_string(),
         input_requirements_json: json!({
             "sleep_window": ["start_time", "end_time", "time_in_bed_minutes", "sleep_duration_minutes"],
             "continuity": ["awake_minutes", "sleep_latency_minutes", "wake_after_sleep_onset_minutes", "wake_episode_count"],
@@ -648,7 +648,7 @@ fn sleep_v1_definition() -> AlgorithmDefinitionRecord {
             "status_report_required",
             "timestamp_sync_must_not_be_blocked_for_final_personalized_sleep",
             "baseline_requires_at_least_7_valid_sleep_nights",
-            "trained_requires_holdout_validation_and_goose_packet_derived_nights"
+            "trained_requires_holdout_validation_and_bull_packet_derived_nights"
         ])
         .to_string(),
         status: "experimental".to_string(),
@@ -657,14 +657,14 @@ fn sleep_v1_definition() -> AlgorithmDefinitionRecord {
 
 fn strain_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_STRAIN_V0_ID.to_string(),
-        version: GOOSE_STRAIN_V0_VERSION.to_string(),
+        algorithm_id: BULL_STRAIN_V0_ID.to_string(),
+        version: BULL_STRAIN_V0_VERSION.to_string(),
         metric_family: "strain".to_string(),
-        display_name: "Goose Strain v0".to_string(),
+        display_name: "Bull Strain v0".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.strain-input.v1".to_string(),
-        output_schema: "goose.strain-output.v1".to_string(),
+        input_schema: "bull.strain-input.v1".to_string(),
+        output_schema: "bull.strain-output.v1".to_string(),
         input_requirements_json: json!({
             "hr_zone_minutes": {"unit": "minutes", "required_count": 5},
             "duration_minutes": {"unit": "minutes", "minimum_to_compute": 1.0},
@@ -692,14 +692,14 @@ fn strain_definition() -> AlgorithmDefinitionRecord {
 
 fn recovery_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_RECOVERY_V0_ID.to_string(),
-        version: GOOSE_RECOVERY_V0_VERSION.to_string(),
+        algorithm_id: BULL_RECOVERY_V0_ID.to_string(),
+        version: BULL_RECOVERY_V0_VERSION.to_string(),
         metric_family: "recovery".to_string(),
-        display_name: "Goose Recovery v0".to_string(),
+        display_name: "Bull Recovery v0".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.recovery-input.v1".to_string(),
-        output_schema: "goose.recovery-output.v1".to_string(),
+        input_schema: "bull.recovery-input.v1".to_string(),
+        output_schema: "bull.recovery-output.v1".to_string(),
         input_requirements_json: json!({
             "hrv_rmssd_ms": {"unit": "ms"},
             "hrv_baseline_rmssd_ms": {"unit": "ms", "minimum_to_compute": 1.0},
@@ -741,14 +741,14 @@ fn recovery_definition() -> AlgorithmDefinitionRecord {
 
 fn stress_definition() -> AlgorithmDefinitionRecord {
     AlgorithmDefinitionRecord {
-        algorithm_id: GOOSE_STRESS_V0_ID.to_string(),
-        version: GOOSE_STRESS_V0_VERSION.to_string(),
+        algorithm_id: BULL_STRESS_V0_ID.to_string(),
+        version: BULL_STRESS_V0_VERSION.to_string(),
         metric_family: "stress".to_string(),
-        display_name: "Goose Stress v0".to_string(),
+        display_name: "Bull Stress v0".to_string(),
         implementation: "rust".to_string(),
         license: "UNLICENSED".to_string(),
-        input_schema: "goose.stress-input.v1".to_string(),
-        output_schema: "goose.stress-output.v1".to_string(),
+        input_schema: "bull.stress-input.v1".to_string(),
+        output_schema: "bull.stress-output.v1".to_string(),
         input_requirements_json: json!({
             "heart_rate_bpm": {"unit": "bpm"},
             "resting_hr_bpm": {"unit": "bpm"},
@@ -774,7 +774,7 @@ fn stress_definition() -> AlgorithmDefinitionRecord {
     }
 }
 
-pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
+pub fn bull_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
     let mut valid = Vec::new();
@@ -806,8 +806,8 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
         let interval_count = input.rr_intervals_ms.len();
         let valid_interval_count = valid.len();
         Some(HrvOutput {
-            algorithm_id: GOOSE_HRV_V0_ID.to_string(),
-            algorithm_version: GOOSE_HRV_V0_VERSION.to_string(),
+            algorithm_id: BULL_HRV_V0_ID.to_string(),
+            algorithm_version: BULL_HRV_V0_VERSION.to_string(),
             interval_count,
             valid_interval_count,
             invalid_interval_count,
@@ -843,8 +843,8 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
     };
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_HRV_V0_ID.to_string(),
-        algorithm_version: GOOSE_HRV_V0_VERSION.to_string(),
+        algorithm_id: BULL_HRV_V0_ID.to_string(),
+        algorithm_version: BULL_HRV_V0_VERSION.to_string(),
         family: "hrv".to_string(),
         start_time: input.start_time.clone(),
         end_time: input.end_time.clone(),
@@ -855,12 +855,12 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
             "input_ids": input.input_ids,
             "input_interval_count": input.rr_intervals_ms.len(),
             "valid_rr_range_ms": [300.0, 2000.0],
-            "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
         }),
     }
 }
 
-pub fn goose_sleep_v0(input: &SleepInput) -> AlgorithmRunResult<SleepScoreOutput> {
+pub fn bull_sleep_v0(input: &SleepInput) -> AlgorithmRunResult<SleepScoreOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
 
@@ -1013,8 +1013,8 @@ pub fn goose_sleep_v0(input: &SleepInput) -> AlgorithmRunResult<SleepScoreOutput
         ];
 
         Some(SleepScoreOutput {
-            algorithm_id: GOOSE_SLEEP_V0_ID.to_string(),
-            algorithm_version: GOOSE_SLEEP_V0_VERSION.to_string(),
+            algorithm_id: BULL_SLEEP_V0_ID.to_string(),
+            algorithm_version: BULL_SLEEP_V0_VERSION.to_string(),
             score_0_to_100: component_sum(&components),
             sleep_performance_fraction,
             sleep_debt_minutes,
@@ -1033,8 +1033,8 @@ pub fn goose_sleep_v0(input: &SleepInput) -> AlgorithmRunResult<SleepScoreOutput
     };
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_SLEEP_V0_ID.to_string(),
-        algorithm_version: GOOSE_SLEEP_V0_VERSION.to_string(),
+        algorithm_id: BULL_SLEEP_V0_ID.to_string(),
+        algorithm_version: BULL_SLEEP_V0_VERSION.to_string(),
         family: "sleep".to_string(),
         start_time: input.start_time.clone(),
         end_time: input.end_time.clone(),
@@ -1044,12 +1044,12 @@ pub fn goose_sleep_v0(input: &SleepInput) -> AlgorithmRunResult<SleepScoreOutput
         provenance: json!({
             "input_ids": input.input_ids,
             "score_policy": "weighted_duration_efficiency_consistency_disturbances_with_unweighted_sleep_architecture_diagnostics",
-            "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
         }),
     }
 }
 
-pub fn goose_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output> {
+pub fn bull_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
 
@@ -1135,7 +1135,7 @@ pub fn goose_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output>
         None
     };
 
-    let v0_result = goose_sleep_v0(&input.sleep);
+    let v0_result = bull_sleep_v0(&input.sleep);
     quality_flags.extend(v0_result.quality_flags.clone());
     errors.extend(v0_result.errors.clone());
 
@@ -1211,8 +1211,8 @@ pub fn goose_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output>
             );
 
             Some(SleepV1Output {
-                algorithm_id: GOOSE_SLEEP_V1_ID.to_string(),
-                algorithm_version: GOOSE_SLEEP_V1_VERSION.to_string(),
+                algorithm_id: BULL_SLEEP_V1_ID.to_string(),
+                algorithm_version: BULL_SLEEP_V1_VERSION.to_string(),
                 model_status: status_report.status.clone(),
                 model_status_label: status_report.status_label.clone(),
                 model_status_reason: status_report.status_reason.clone(),
@@ -1270,8 +1270,8 @@ pub fn goose_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output>
     );
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_SLEEP_V1_ID.to_string(),
-        algorithm_version: GOOSE_SLEEP_V1_VERSION.to_string(),
+        algorithm_id: BULL_SLEEP_V1_ID.to_string(),
+        algorithm_version: BULL_SLEEP_V1_VERSION.to_string(),
         family: "sleep".to_string(),
         start_time: input.sleep.start_time.clone(),
         end_time: input.sleep.end_time.clone(),
@@ -1316,7 +1316,7 @@ fn sleep_v1_output_provenance(
             "usable_prior_night_count": usable_prior_night_count,
             "fields": previous_night_fields
         },
-        "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+        "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
     })
 }
 
@@ -1324,7 +1324,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
     let mut quality_flags = Vec::new();
     let mut next_actions = Vec::new();
     let valid_sleep_nights = input
-        .trusted_goose_sleep_nights
+        .trusted_bull_sleep_nights
         .saturating_add(input.imported_platform_sleep_nights);
     let nights_until_baseline = 7u32.saturating_sub(valid_sleep_nights);
     let nights_until_training = 14u32.saturating_sub(input.calibration_label_count);
@@ -1353,13 +1353,13 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
     if !input.sleep_permission_granted && valid_sleep_nights == 0 {
         quality_flags.push("sleep_history_permission_missing".to_string());
         next_actions.push(
-            "Grant sleep history access or complete one Goose packet-derived sleep night."
+            "Grant sleep history access or complete one Bull packet-derived sleep night."
                 .to_string(),
         );
         return sleep_model_status_report(
             SleepModelStatus::SetupNeeded,
             "Setup needed",
-            "Goose needs sleep history access or one packet-derived night to begin learning.",
+            "Bull needs sleep history access or one packet-derived night to begin learning.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1375,7 +1375,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         return sleep_model_status_report(
             SleepModelStatus::ImportingHistory,
             "Importing history",
-            "Goose is importing existing sleep history before building a baseline.",
+            "Bull is importing existing sleep history before building a baseline.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1408,13 +1408,13 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
             quality_flags.push("repeated_low_confidence_nights".to_string());
         }
         next_actions.push(
-            "Collect several recent high-confidence nights so Goose can refresh the baseline."
+            "Collect several recent high-confidence nights so Bull can refresh the baseline."
                 .to_string(),
         );
         return sleep_model_status_report(
             SleepModelStatus::NeedsRelearn,
             "Needs relearn",
-            "Recent sleep patterns differ enough that Goose should refresh the personal model.",
+            "Recent sleep patterns differ enough that Bull should refresh the personal model.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1435,7 +1435,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         return sleep_model_status_report(
             SleepModelStatus::NeedsRelearn,
             "Needs relearn",
-            "The sleep baseline is stale because Goose has not seen a recent valid night.",
+            "The sleep baseline is stale because Bull has not seen a recent valid night.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1446,7 +1446,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
     }
 
     if input.holdout_validation_passed
-        && input.trusted_goose_sleep_nights >= 7
+        && input.trusted_bull_sleep_nights >= 7
         && input.calibration_label_count >= 14
         && motion_coverage_ok
         && heart_rate_coverage_ok
@@ -1454,7 +1454,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         return sleep_model_status_report(
             SleepModelStatus::Trained,
             "Trained",
-            "Goose has a passed personal sleep model for this algorithm version.",
+            "Bull has a passed personal sleep model for this algorithm version.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1469,7 +1469,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         return sleep_model_status_report(
             SleepModelStatus::SetupNeeded,
             "Setup needed",
-            "Goose needs one valid sleep night to start learning.",
+            "Bull needs one valid sleep night to start learning.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1500,7 +1500,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         );
     }
 
-    if input.trusted_goose_sleep_nights >= 7
+    if input.trusted_bull_sleep_nights >= 7
         && input.calibration_label_count >= 14
         && !input.holdout_validation_passed
     {
@@ -1508,7 +1508,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         return sleep_model_status_report(
             SleepModelStatus::Training,
             "Training",
-            "Goose has enough sleep history for training, but holdout validation has not passed.",
+            "Bull has enough sleep history for training, but holdout validation has not passed.",
             input,
             valid_sleep_nights,
             nights_until_baseline,
@@ -1518,16 +1518,16 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
         );
     }
 
-    if input.trusted_goose_sleep_nights == 0 {
+    if input.trusted_bull_sleep_nights == 0 {
         next_actions.push(
-            "Complete one Goose packet-derived sleep night before showing a final Sleep V1 score."
+            "Complete one Bull packet-derived sleep night before showing a final Sleep V1 score."
                 .to_string(),
         );
-    } else if input.trusted_goose_sleep_nights < 7 {
-        let nights_until_goose_training = 7u32.saturating_sub(input.trusted_goose_sleep_nights);
+    } else if input.trusted_bull_sleep_nights < 7 {
+        let nights_until_bull_training = 7u32.saturating_sub(input.trusted_bull_sleep_nights);
         next_actions.push(format!(
-            "Collect {nights_until_goose_training} more Goose packet-derived sleep night{} before training.",
-            plural_suffix(nights_until_goose_training)
+            "Collect {nights_until_bull_training} more Bull packet-derived sleep night{} before training.",
+            plural_suffix(nights_until_bull_training)
         ));
     } else if input.calibration_label_count < 14 {
         next_actions.push(format!(
@@ -1540,7 +1540,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
     sleep_model_status_report(
         SleepModelStatus::BaselineReady,
         "Baseline ready",
-        "Goose has enough sleep history for personal schedule and debt baselines.",
+        "Bull has enough sleep history for personal schedule and debt baselines.",
         input,
         valid_sleep_nights,
         nights_until_baseline,
@@ -1550,7 +1550,7 @@ pub fn evaluate_sleep_model_status(input: &SleepModelStatusInput) -> SleepModelS
     )
 }
 
-pub fn goose_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutput> {
+pub fn bull_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
 
@@ -1612,8 +1612,8 @@ pub fn goose_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOut
         ];
 
         Some(StrainScoreOutput {
-            algorithm_id: GOOSE_STRAIN_V0_ID.to_string(),
-            algorithm_version: GOOSE_STRAIN_V0_VERSION.to_string(),
+            algorithm_id: BULL_STRAIN_V0_ID.to_string(),
+            algorithm_version: BULL_STRAIN_V0_VERSION.to_string(),
             score_0_to_21: component_sum(&components),
             zone_load,
             average_hr_reserve_fraction: hr_reserve_fraction,
@@ -1624,8 +1624,8 @@ pub fn goose_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOut
     };
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_STRAIN_V0_ID.to_string(),
-        algorithm_version: GOOSE_STRAIN_V0_VERSION.to_string(),
+        algorithm_id: BULL_STRAIN_V0_ID.to_string(),
+        algorithm_version: BULL_STRAIN_V0_VERSION.to_string(),
         family: "strain".to_string(),
         start_time: input.start_time.clone(),
         end_time: input.end_time.clone(),
@@ -1636,12 +1636,12 @@ pub fn goose_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOut
             "input_ids": input.input_ids,
             "score_policy": "weighted_zone_load_and_average_hr_reserve",
             "zone_weights": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
         }),
     }
 }
 
-pub fn goose_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoveryScoreOutput> {
+pub fn bull_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoveryScoreOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
 
@@ -1745,8 +1745,8 @@ pub fn goose_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySc
         ];
 
         Some(RecoveryScoreOutput {
-            algorithm_id: GOOSE_RECOVERY_V0_ID.to_string(),
-            algorithm_version: GOOSE_RECOVERY_V0_VERSION.to_string(),
+            algorithm_id: BULL_RECOVERY_V0_ID.to_string(),
+            algorithm_version: BULL_RECOVERY_V0_VERSION.to_string(),
             score_0_to_100: component_sum(&components),
             components,
         })
@@ -1755,8 +1755,8 @@ pub fn goose_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySc
     };
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_RECOVERY_V0_ID.to_string(),
-        algorithm_version: GOOSE_RECOVERY_V0_VERSION.to_string(),
+        algorithm_id: BULL_RECOVERY_V0_ID.to_string(),
+        algorithm_version: BULL_RECOVERY_V0_VERSION.to_string(),
         family: "recovery".to_string(),
         start_time: input.start_time.clone(),
         end_time: input.end_time.clone(),
@@ -1767,12 +1767,12 @@ pub fn goose_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySc
             "input_ids": input.input_ids,
             "score_policy": "weighted_interpretable_recovery_components",
             "official_labels_policy": "not_used_unless_explicit_calibration_label",
-            "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
         }),
     }
 }
 
-pub fn goose_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOutput> {
+pub fn bull_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
 
@@ -1822,8 +1822,8 @@ pub fn goose_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOut
         ];
 
         Some(StressScoreOutput {
-            algorithm_id: GOOSE_STRESS_V0_ID.to_string(),
-            algorithm_version: GOOSE_STRESS_V0_VERSION.to_string(),
+            algorithm_id: BULL_STRESS_V0_ID.to_string(),
+            algorithm_version: BULL_STRESS_V0_VERSION.to_string(),
             score_0_to_100: component_sum(&components),
             heart_rate_elevation_score,
             hrv_suppression_score,
@@ -1835,8 +1835,8 @@ pub fn goose_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOut
     };
 
     AlgorithmRunResult {
-        algorithm_id: GOOSE_STRESS_V0_ID.to_string(),
-        algorithm_version: GOOSE_STRESS_V0_VERSION.to_string(),
+        algorithm_id: BULL_STRESS_V0_ID.to_string(),
+        algorithm_version: BULL_STRESS_V0_VERSION.to_string(),
         family: "stress".to_string(),
         start_time: input.start_time.clone(),
         end_time: input.end_time.clone(),
@@ -1846,7 +1846,7 @@ pub fn goose_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOut
         provenance: json!({
             "input_ids": input.input_ids,
             "score_policy": "hr_elevation_and_hrv_suppression_with_motion_context",
-            "expected_values_policy": "hand-derived-tests-and-versioned-goose-output"
+            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
         }),
     }
 }
@@ -1854,19 +1854,19 @@ pub fn goose_stress_v0(input: &StressInput) -> AlgorithmRunResult<StressScoreOut
 pub fn algorithm_run_record<T: Serialize>(
     run_id: &str,
     result: &AlgorithmRunResult<T>,
-) -> GooseResult<AlgorithmRunRecord> {
+) -> BullResult<AlgorithmRunRecord> {
     let output_json = serde_json::to_string(&result.output).map_err(|error| {
-        GooseError::message(format!("cannot serialize algorithm output: {error}"))
+        BullError::message(format!("cannot serialize algorithm output: {error}"))
     })?;
     let quality_flags_json = serde_json::to_string(&result.quality_flags).map_err(|error| {
-        GooseError::message(format!("cannot serialize algorithm quality flags: {error}"))
+        BullError::message(format!("cannot serialize algorithm quality flags: {error}"))
     })?;
     let provenance_json = serde_json::to_string(&json!({
         "provenance": result.provenance,
         "errors": result.errors
     }))
     .map_err(|error| {
-        GooseError::message(format!("cannot serialize algorithm provenance: {error}"))
+        BullError::message(format!("cannot serialize algorithm provenance: {error}"))
     })?;
 
     Ok(AlgorithmRunRecord {
@@ -1884,7 +1884,7 @@ pub fn algorithm_run_record<T: Serialize>(
 pub fn hrv_run_record(
     run_id: &str,
     result: &AlgorithmRunResult<HrvOutput>,
-) -> GooseResult<AlgorithmRunRecord> {
+) -> BullResult<AlgorithmRunRecord> {
     algorithm_run_record(run_id, result)
 }
 
@@ -2224,7 +2224,7 @@ fn sleep_model_status_report(
         )
     });
     let can_show_final_score =
-        can_show_personal_baseline && coverage_ready && input.trusted_goose_sleep_nights > 0;
+        can_show_personal_baseline && coverage_ready && input.trusted_bull_sleep_nights > 0;
     let can_show_provisional_score = valid_sleep_nights > 0 && status != SleepModelStatus::Blocked;
     let can_show_trained_score = status == SleepModelStatus::Trained;
     let report_state = if status == SleepModelStatus::Blocked {
@@ -2242,12 +2242,12 @@ fn sleep_model_status_report(
         status_reason: status_reason.to_string(),
         report_state: report_state.to_string(),
         valid_sleep_nights,
-        trusted_goose_sleep_nights: input.trusted_goose_sleep_nights,
+        trusted_bull_sleep_nights: input.trusted_bull_sleep_nights,
         imported_platform_sleep_nights: input.imported_platform_sleep_nights,
         excluded_sleep_nights: input.excluded_sleep_nights,
         calibration_label_count: input.calibration_label_count,
         nights_until_baseline,
-        nights_until_goose_training: 7u32.saturating_sub(input.trusted_goose_sleep_nights),
+        nights_until_bull_training: 7u32.saturating_sub(input.trusted_bull_sleep_nights),
         nights_until_training,
         can_show_provisional_score,
         can_show_final_score,

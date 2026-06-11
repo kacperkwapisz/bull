@@ -1,23 +1,23 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use goose_core::activity_candidates::{
+use bull_core::activity_candidates::{
     ACTIVITY_CANDIDATE_CLASSIFIER_INPUT_SCHEMA, ACTIVITY_CANDIDATE_CLASSIFIER_REPORT_SCHEMA,
     ActivityCandidateClassifierInput, ActivityCandidateState, run_activity_candidate_classifier,
 };
-use goose_core::fixtures::{
+use bull_core::fixtures::{
     ACTIVITY_SESSION_FIXTURE_SCHEMA, CAPTURED_FRAME_BATCH_SCHEMA,
     COMMAND_VALIDATION_FIXTURE_SCHEMA, FRAME_HEX_SCHEMA, OPENWHOOP_REFERENCE_FIXTURE_SCHEMA,
     PAYLOAD_HEX_SCHEMA, build_fixture_index, run_parser_fixtures,
 };
-use goose_core::health_sync::{
+use bull_core::health_sync::{
     ActivityHealthSyncDryRunInput, HealthPlatform, run_activity_health_sync_dry_run,
 };
-use goose_core::historical_sync::{
+use bull_core::historical_sync::{
     HistoricalSyncAckDisposition, HistoricalSyncDryRunInput, HistoricalSyncFakeEvent,
     HistoricalSyncGeneration, HistoricalSyncPayloadExpectation, HistoricalSyncPlanStep,
     HistoricalSyncPlanStepKind, HistoricalSyncState, run_historical_sync_dry_run,
 };
-use goose_core::openwhoop_reference::{
+use bull_core::openwhoop_reference::{
     OPENWHOOP_REFERENCE_COMMIT, OPENWHOOP_REFERENCE_LICENSE_CAVEAT, WhoopGeneration,
     whoop_generation_from_service_uuid, whoop_generation_reference,
 };
@@ -35,9 +35,9 @@ fn indexes_synthetic_fixture_with_required_metadata_and_checksum() {
     let fixture = index
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.get_hello_frame")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.get_hello_frame")
         .unwrap();
-    assert_eq!(fixture.id, "synthetic.goose.v5.get_hello_frame");
+    assert_eq!(fixture.id, "synthetic.bull.v5.get_hello_frame");
     assert_eq!(fixture.schema, FRAME_HEX_SCHEMA);
     assert_eq!(fixture.checksum_sha256.len(), 64);
     assert_eq!(fixture.byte_len, 33);
@@ -279,7 +279,7 @@ fn indexes_openwhoop_activity_health_sync_comparison_fixture_with_planned_sessio
         .iter()
         .find(|fixture| fixture.id == "synthetic.openwhoop.activity_health_sync_comparison")
         .unwrap();
-    assert_eq!(fixture.schema, "goose.activity-health-sync-dry-run.v1");
+    assert_eq!(fixture.schema, "bull.activity-health-sync-dry-run.v1");
     assert_eq!(fixture.kind, "synthetic");
     assert!(fixture.source.contains(OPENWHOOP_REFERENCE_COMMIT));
     assert!(fixture.notes.contains(OPENWHOOP_REFERENCE_LICENSE_CAVEAT));
@@ -323,7 +323,7 @@ fn indexes_gen5_historical_sync_command_validation_fixture_with_sequence_and_row
         .fixtures
         .iter()
         .find(|fixture| {
-            fixture.id == "synthetic.goose.v5.historical_sync_gen5_dry_run_command_validation"
+            fixture.id == "synthetic.bull.v5.historical_sync_gen5_dry_run_command_validation"
         })
         .unwrap();
     assert_eq!(fixture.schema, COMMAND_VALIDATION_FIXTURE_SCHEMA);
@@ -589,7 +589,7 @@ fn indexes_packet_derived_activity_candidate_fixture_with_provenance_and_reasons
             .and_then(serde_json::Value::as_object)
             .and_then(|value| value.get("fixture_id"))
             .and_then(serde_json::Value::as_str)
-            == Some("synthetic.goose.v5.historical_k18_packet")
+            == Some("synthetic.bull.v5.historical_k18_packet")
     );
     assert!(hr_only.provenance["motion_provenance"].is_null());
     assert!(hr_only.provenance["command_sync_provenance"].is_null());
@@ -647,7 +647,7 @@ fn indexes_packet_derived_activity_candidate_fixture_with_provenance_and_reasons
             .and_then(serde_json::Value::as_object)
             .and_then(|value| value.get("fixture_id"))
             .and_then(serde_json::Value::as_str)
-            == Some("synthetic.goose.v5.k10_motion_summary_short")
+            == Some("synthetic.bull.v5.k10_motion_summary_short")
     );
     assert!(motion_only.provenance["heart_rate_provenance"].is_null());
     assert!(motion_only.provenance["command_sync_provenance"].is_null());
@@ -754,7 +754,7 @@ fn indexes_openwhoop_gen5_history_plan_fixture_with_command_planning() {
         .unwrap();
     assert_eq!(
         fixture.schema,
-        goose_core::historical_sync::HISTORICAL_SYNC_DRY_RUN_SCHEMA
+        bull_core::historical_sync::HISTORICAL_SYNC_DRY_RUN_SCHEMA
     );
     assert_eq!(fixture.kind, "synthetic");
     assert!(fixture.source.contains(OPENWHOOP_REFERENCE_COMMIT));
@@ -887,7 +887,7 @@ fn indexes_openwhoop_gen5_history_metadata_markers_fixture_with_normalized_marke
         .unwrap();
     assert_eq!(
         fixture.schema,
-        goose_core::historical_sync::HISTORICAL_SYNC_DRY_RUN_SCHEMA
+        bull_core::historical_sync::HISTORICAL_SYNC_DRY_RUN_SCHEMA
     );
     assert_eq!(fixture.kind, "synthetic");
     assert!(fixture.source.contains(OPENWHOOP_REFERENCE_COMMIT));
@@ -1035,7 +1035,7 @@ fn parser_runner_validates_indexed_frame_fixture_expectations() {
     let fixture = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.get_hello_frame")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.get_hello_frame")
         .unwrap();
     assert!(fixture.pass, "{:?}", fixture.issues);
     assert!(
@@ -1048,7 +1048,7 @@ fn parser_runner_validates_indexed_frame_fixture_expectations() {
     let historical = report
         .fixtures
         .iter()
-        .find(|fixture| fixture.id == "synthetic.goose.v5.historical_k18_packet")
+        .find(|fixture| fixture.id == "synthetic.bull.v5.historical_k18_packet")
         .unwrap();
     assert_eq!(
         historical
@@ -1094,15 +1094,15 @@ fn parser_runner_validates_indexed_frame_fixture_expectations() {
 
     for (fixture_id, expected_summary_kind) in [
         (
-            "synthetic.goose.v5.r17_optical_summary",
+            "synthetic.bull.v5.r17_optical_summary",
             "r17_optical_or_labrador_filtered",
         ),
         (
-            "synthetic.goose.v5.k10_motion_summary_short",
+            "synthetic.bull.v5.k10_motion_summary_short",
             "raw_motion_k10",
         ),
         (
-            "synthetic.goose.v5.k21_motion_summary_short",
+            "synthetic.bull.v5.k21_motion_summary_short",
             "raw_motion_k21",
         ),
         ("owned.live_identity.k10_motion_payload", "raw_motion_k10"),
@@ -1246,7 +1246,7 @@ fn parser_runner_reports_next_actions_for_invalid_frame_fixture() {
 fn parser_runner_reports_next_action_for_missing_expected_fields() {
     let tempdir = tempfile::tempdir().unwrap();
     let valid_frame =
-        fs::read_to_string("fixtures/synthetic/goose_v5_get_hello_frame.hex").unwrap();
+        fs::read_to_string("fixtures/synthetic/bull_v5_get_hello_frame.hex").unwrap();
     fs::write(tempdir.path().join("valid.hex"), valid_frame).unwrap();
     write_fixture_sidecar(
         tempdir.path(),
@@ -1348,7 +1348,7 @@ fn assert_provenance_shape(provenance: &serde_json::Value, session_kind: &str) {
 }
 
 fn planned_activity_session_subset(
-    session: &goose_core::health_sync::PlannedActivityHealthWrite,
+    session: &bull_core::health_sync::PlannedActivityHealthWrite,
 ) -> serde_json::Value {
     json!({
         "session_id": &session.session_id,
@@ -1362,7 +1362,7 @@ fn planned_activity_session_subset(
         "end_time": &session.end_time,
         "attached_metric_count": session.attached_metric_count,
         "attached_interval_count": session.attached_interval_count,
-        "goose_marker": &session.goose_marker,
+        "bull_marker": &session.bull_marker,
     })
 }
 
@@ -1381,7 +1381,7 @@ struct OpenWhoopUuidProbe {
 }
 
 fn historical_sync_step(
-    report: &goose_core::historical_sync::HistoricalSyncDryRunReport,
+    report: &bull_core::historical_sync::HistoricalSyncDryRunReport,
     kind: HistoricalSyncPlanStepKind,
 ) -> &HistoricalSyncPlanStep {
     report

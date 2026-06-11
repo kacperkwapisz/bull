@@ -8,10 +8,10 @@ use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::{GooseError, GooseResult};
+use crate::{BullError, BullResult};
 
 pub const LOCAL_HEALTH_VALIDATION_MANIFEST_SCHEMA: &str =
-    "goose.local-health-validation-manifest.v1";
+    "bull.local-health-validation-manifest.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalHealthValidationManifestScaffoldOptions {
@@ -65,7 +65,7 @@ struct LocalHealthValidationCaptureSessionSummary {
 
 pub fn scaffold_local_health_validation_manifest(
     options: &LocalHealthValidationManifestScaffoldOptions,
-) -> GooseResult<Value> {
+) -> BullResult<Value> {
     let (start, end, window_source) = scaffold_time_window(options)?;
     let date_key = non_empty_string(options.date_key.as_deref())
         .or_else(|| date_key_from_rfc3339_start(&start))
@@ -84,7 +84,7 @@ pub fn scaffold_local_health_validation_manifest(
     manifest.insert(
         "notes".to_string(),
         json!(
-            "Generated from Goose-owned packet evidence. Fill manual/official labels before treating labeled cases as acceptance."
+            "Generated from Bull-owned packet evidence. Fill manual/official labels before treating labeled cases as acceptance."
         ),
     );
     manifest.insert("start".to_string(), json!(start));
@@ -180,7 +180,7 @@ pub fn local_health_validation_manifest_runbook_markdown(manifest: &Value) -> St
         .and_then(|run_validation| run_validation.get("command"))
         .and_then(value_string)
         .unwrap_or_else(|| {
-            "goose-local-health-validation-suite --manifest local-health-validation-manifest.json"
+            "bull-local-health-validation-suite --manifest local-health-validation-manifest.json"
                 .to_string()
         });
     let json_report_path = run_validation
@@ -646,7 +646,7 @@ pub fn review_local_health_validation_manifest(manifest: &Value) -> Value {
         "operator_edits_required"
     };
     json!({
-        "schema": "goose.local-health-validation-manifest-review.v1",
+        "schema": "bull.local-health-validation-manifest-review.v1",
         "manifest_schema": manifest_schema,
         "manifest_id": manifest_id,
         "status": status,
@@ -705,7 +705,7 @@ fn manifest_review_next_actions(blockers: &[&str]) -> Vec<Value> {
         .map(|blocker| {
             let action = match *blocker {
                 "manifest_schema_invalid" => {
-                    "Regenerate the validation manifest with goose.local-health-validation-manifest.v1."
+                    "Regenerate the validation manifest with bull.local-health-validation-manifest.v1."
                 }
                 "no_validation_cases" => {
                     "Regenerate the validation manifest from a Raw Export bundle or add validation cases before running acceptance."
@@ -2498,7 +2498,7 @@ fn markdown_table_cell(value: &str) -> String {
 
 fn scaffold_time_window(
     options: &LocalHealthValidationManifestScaffoldOptions,
-) -> GooseResult<(String, String, String)> {
+) -> BullResult<(String, String, String)> {
     if let Some(start) = non_empty_string(options.start.as_deref())
         && let Some(end) = non_empty_string(options.end.as_deref())
     {
@@ -2510,7 +2510,7 @@ fn scaffold_time_window(
         ));
     }
     let Some((start, end)) = query_database_raw_evidence_window(&options.database_path)? else {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "cannot scaffold a validation manifest without a provided time window or raw_evidence timestamps",
         ));
     };
@@ -2519,7 +2519,7 @@ fn scaffold_time_window(
 
 fn query_database_raw_evidence_window(
     database_path: &PathBuf,
-) -> GooseResult<Option<(String, String)>> {
+) -> BullResult<Option<(String, String)>> {
     let connection = open_read_only_database(database_path)?;
     connection
         .query_row(
@@ -2537,7 +2537,7 @@ fn query_database_raw_evidence_window(
             },
         )
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect raw_evidence timestamps for manifest scaffold: {error}"
             ))
         })
@@ -2547,29 +2547,29 @@ fn scaffold_evidence_summary(
     database_path: &PathBuf,
     start: &str,
     end: &str,
-) -> GooseResult<ScaffoldEvidenceSummary> {
+) -> BullResult<ScaffoldEvidenceSummary> {
     let connection = open_read_only_database(database_path)?;
     let observed_capture_session_ids = query_observed_capture_session_ids(&connection, start, end)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect capture_session_id values for manifest scaffold: {error}"
             ))
         })?;
     let raw_evidence_time_bounds = query_raw_evidence_time_bounds(&connection, start, end, None)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect raw_evidence bounds for manifest scaffold: {error}"
             ))
         })?;
     let decoded_frame_time_bounds = query_decoded_frames_time_bounds(&connection, start, end, None)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect decoded_frames bounds for manifest scaffold: {error}"
             ))
         })?;
     let packet_family_counts = query_decoded_packet_family_counts(&connection, start, end, None)
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect decoded packet families for manifest scaffold: {error}"
             ))
         })?;
@@ -2583,7 +2583,7 @@ fn scaffold_evidence_summary(
             Some(&session_ids),
         )
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect raw_evidence bounds for capture session {session_id}: {error}"
             ))
         })?;
@@ -2594,7 +2594,7 @@ fn scaffold_evidence_summary(
             Some(&session_ids),
         )
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect decoded_frames bounds for capture session {session_id}: {error}"
             ))
         })?;
@@ -2605,7 +2605,7 @@ fn scaffold_evidence_summary(
             Some(&session_ids),
         )
         .map_err(|error| {
-            GooseError::message(format!(
+            BullError::message(format!(
                 "cannot inspect decoded packet families for capture session {session_id}: {error}"
             ))
         })?;
@@ -2625,9 +2625,9 @@ fn scaffold_evidence_summary(
     })
 }
 
-fn open_read_only_database(database_path: &PathBuf) -> GooseResult<Connection> {
+fn open_read_only_database(database_path: &PathBuf) -> BullResult<Connection> {
     Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| {
-        GooseError::message(format!(
+        BullError::message(format!(
             "cannot open {} for manifest scaffold: {error}",
             database_path.display()
         ))
@@ -3059,7 +3059,7 @@ fn scaffold_run_validation(options: &LocalHealthValidationManifestScaffoldOption
     let json_report_path = "local-health-validation-report.json";
     let markdown_report_path = "local-health-validation-report.md";
     let review_report_path = "local-health-validation-review.json";
-    let mut args = vec!["goose-local-health-validation-suite".to_string()];
+    let mut args = vec!["bull-local-health-validation-suite".to_string()];
     if let Some(bundle_path) = &options.raw_export_bundle_path {
         args.push("--raw-export-bundle".to_string());
         args.push(bundle_path.display().to_string());
@@ -3088,7 +3088,7 @@ fn scaffold_run_validation(options: &LocalHealthValidationManifestScaffoldOption
         .collect::<Vec<_>>()
         .join(" ");
     json!({
-        "cli": "goose-local-health-validation-suite",
+        "cli": "bull-local-health-validation-suite",
         "args": args,
         "manifest_path": manifest_path,
         "json_report_path": json_report_path,
@@ -3133,7 +3133,7 @@ fn scaffold_operator_checklist(
         .get("command")
         .and_then(Value::as_str)
         .unwrap_or(
-            "goose-local-health-validation-suite --manifest local-health-validation-manifest.json",
+            "bull-local-health-validation-suite --manifest local-health-validation-manifest.json",
         );
 
     vec![

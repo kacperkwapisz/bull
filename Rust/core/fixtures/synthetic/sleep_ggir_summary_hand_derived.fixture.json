@@ -7,7 +7,7 @@
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.sleep-ggir-summary-input.v1",
+  "schema": "bull.sleep-ggir-summary-input.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "Two synthetic sleep summary rows using official GGIR-style duration, WASO, and sleep-efficiency field names. Expected values are hand-derived from row durations.",

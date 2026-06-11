@@ -4,10 +4,10 @@ use std::{
     path::Path,
 };
 
-use goose_core::{
+use bull_core::{
     bridge::{
-        BRIDGE_RESPONSE_SCHEMA, BridgeResponse, goose_bridge_free_string, goose_bridge_handle_json,
-        goose_core_version_json, handle_bridge_request_json,
+        BRIDGE_RESPONSE_SCHEMA, BridgeResponse, bull_bridge_free_string, bull_bridge_handle_json,
+        bull_core_version_json, handle_bridge_request_json,
     },
     calibration::{
         CalibrationDataset, CalibrationOptions, calibration_run_record, evaluate_linear_calibration,
@@ -15,31 +15,31 @@ use goose_core::{
     capture_import::{CaptureImportOptions, import_fixture_index},
     commands::{COMMAND_DEFINITIONS, CommandEvidence, validate_commands},
     energy_rollup::{
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID, GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID, GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_ID, BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION,
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID, BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
     },
     export::validate_export_bundle,
     fixtures::build_fixture_index,
-    metrics::{GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, built_in_algorithm_definitions},
+    metrics::{BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, built_in_algorithm_definitions},
     protocol::{
         DeviceType, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
         build_v5_payload_frame, parse_frame_hex,
     },
     recovery_rollup::{
-        GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_ID, GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION,
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID,
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION,
+        BULL_RECOVERY_UNAVAILABLE_STATUS_V0_ID, BULL_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION,
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID,
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION,
     },
     step_counter::{
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID, GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION,
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID, BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION,
     },
     step_motion_estimator::{
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_ID, GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION,
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_ID, BULL_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION,
     },
     store::{
         ActivitySessionInput, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION, CalibrationLabelInput,
         CaptureSessionInput, CommandValidationRecord, DailyActivityMetricInput,
-        DailyRecoveryMetricInput, DecodedFrameRow, GooseStore, HourlyActivityMetricInput,
+        DailyRecoveryMetricInput, DecodedFrameRow, BullStore, HourlyActivityMetricInput,
         RawEvidenceInput, StepCounterSampleInput,
     },
 };
@@ -54,7 +54,7 @@ const COMMAND_WRITE_TYPE: &str = "with_response";
 #[test]
 fn bridge_returns_core_version_payload() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "version-1",
         "method": "core.version",
         "args": {}
@@ -63,7 +63,7 @@ fn bridge_returns_core_version_payload() {
     assert!(response.ok, "{:?}", response.error);
     assert_eq!(response.request_id, "version-1");
     let result = response.result.unwrap();
-    assert_eq!(result["bridge_request_schema"], "goose.bridge.request.v1");
+    assert_eq!(result["bridge_request_schema"], "bull.bridge.request.v1");
     assert_eq!(result["bridge_response_schema"], BRIDGE_RESPONSE_SCHEMA);
     assert_eq!(result["storage_schema_version"], CURRENT_SCHEMA_VERSION);
 }
@@ -71,7 +71,7 @@ fn bridge_returns_core_version_payload() {
 #[test]
 fn bridge_returns_openwhoop_reference_report() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "openwhoop-reference-1",
         "method": "openwhoop.reference_report",
         "args": {}
@@ -79,8 +79,8 @@ fn bridge_returns_openwhoop_reference_report() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.openwhoop-reference-report.v1");
-    assert_eq!(result["generated_by"], "goose-bridge");
+    assert_eq!(result["schema"], "bull.openwhoop-reference-report.v1");
+    assert_eq!(result["generated_by"], "bull-bridge");
     assert_eq!(result["service_role_count"], 2);
     assert_eq!(result["history_field_count"], 11);
     assert_eq!(
@@ -133,11 +133,11 @@ fn bridge_returns_openwhoop_reference_report() {
 #[test]
 fn bridge_runs_historical_sync_dry_run() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "historical-sync-dry-run-1",
         "method": "historical_sync.dry_run",
         "args": {
-            "schema": "goose.historical-sync-dry-run.v1",
+            "schema": "bull.historical-sync-dry-run.v1",
             "generation": "gen5",
             "request_data_range": true,
             "fake_events": [
@@ -151,8 +151,8 @@ fn bridge_runs_historical_sync_dry_run() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.historical-sync-dry-run-report.v1");
-    assert_eq!(result["generated_by"], "goose-historical-sync-dry-run");
+    assert_eq!(result["schema"], "bull.historical-sync-dry-run-report.v1");
+    assert_eq!(result["generated_by"], "bull-historical-sync-dry-run");
     assert_eq!(result["generation"], "gen5");
     assert_eq!(result["pass"], true);
     assert_eq!(result["state"], "complete");
@@ -170,11 +170,11 @@ fn bridge_runs_historical_sync_dry_run() {
 #[test]
 fn bridge_validates_historical_sync_physical_evidence() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "historical-sync-physical-validation-1",
         "method": "historical_sync.validate_physical_evidence",
         "args": {
-            "schema": "goose.historical-sync-physical-validation.v1",
+            "schema": "bull.historical-sync-physical-validation.v1",
             "generation": "gen5",
             "capture_session_id": "strap-capture-2026-01-01",
             "service_uuids": ["fd4b0001-cce1-4033-93ce-002d5875f58a"],
@@ -266,11 +266,11 @@ fn bridge_validates_historical_sync_physical_evidence() {
     let result = response.result.unwrap();
     assert_eq!(
         result["schema"],
-        "goose.historical-sync-physical-validation-report.v1"
+        "bull.historical-sync-physical-validation-report.v1"
     );
     assert_eq!(
         result["generated_by"],
-        "goose-historical-sync-physical-validator"
+        "bull-historical-sync-physical-validator"
     );
     assert_eq!(result["pass"], true);
     assert_eq!(result["service_uuid_confirmed"], true);
@@ -285,7 +285,7 @@ fn bridge_validates_historical_sync_physical_evidence() {
 #[test]
 fn bridge_returns_historical_sync_physical_evidence_template() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "historical-sync-physical-template-1",
         "method": "historical_sync.physical_evidence_template",
         "args": {
@@ -298,13 +298,13 @@ fn bridge_returns_historical_sync_physical_evidence_template() {
     let result = response.result.unwrap();
     assert_eq!(
         result["schema"],
-        "goose.historical-sync-physical-evidence-template.v1"
+        "bull.historical-sync-physical-evidence-template.v1"
     );
     assert_eq!(result["generation"], "gen5");
     assert_eq!(result["capture_session_id"], "strap-capture-template");
     assert_eq!(
         result["input"]["schema"],
-        "goose.historical-sync-physical-validation.v1"
+        "bull.historical-sync-physical-validation.v1"
     );
     assert_eq!(
         result["expected_service_uuid"],
@@ -322,7 +322,7 @@ fn bridge_returns_historical_sync_physical_evidence_template() {
 #[test]
 fn bridge_validates_sleep_v1_release_gates_fail_closed() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-v1-release-gates-1",
         "method": "sleep.validate_v1_release_gates",
         "args": {
@@ -332,7 +332,7 @@ fn bridge_validates_sleep_v1_release_gates_fail_closed() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.sleep-v1-release-gate-report.v1");
+    assert_eq!(result["schema"], "bull.sleep-v1-release-gate-report.v1");
     assert_eq!(result["pass"], false);
     assert_eq!(result["physical_historical_sync_pass"], false);
     assert_eq!(result["timestamp_evidence_pass"], false);
@@ -349,7 +349,7 @@ fn bridge_validates_sleep_v1_release_gates_fail_closed() {
 fn bridge_validates_sleep_v1_evidence_folder_fail_closed() {
     let tempdir = tempfile::tempdir().unwrap();
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-v1-evidence-folder-1",
         "method": "sleep.validate_v1_evidence_folder",
         "args": {
@@ -362,7 +362,7 @@ fn bridge_validates_sleep_v1_evidence_folder_fail_closed() {
     let result = response.result.unwrap();
     assert_eq!(
         result["schema"],
-        "goose.sleep-v1-validation-evidence-folder-report.v1"
+        "bull.sleep-v1-validation-evidence-folder-report.v1"
     );
     assert_eq!(result["pass"], false);
     assert_eq!(result["required_file_count"], 6);
@@ -389,11 +389,11 @@ fn bridge_validates_sleep_v1_evidence_folder_fail_closed() {
 #[test]
 fn bridge_parses_frame_hex_for_app_import_flow() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "parse-1",
         "method": "protocol.parse_frame_hex",
         "args": {
-            "device_type": "GOOSE",
+            "device_type": "BULL",
             "frame_hex": GET_HELLO_FRAME
         }
     }));
@@ -408,7 +408,7 @@ fn bridge_parses_frame_hex_for_app_import_flow() {
 #[test]
 fn bridge_exposes_algorithm_registry_and_score_methods() {
     let registry = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-registry-1",
         "method": "metrics.built_in_definitions",
         "args": {}
@@ -421,18 +421,18 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|definition| definition["algorithm_id"] == "goose.recovery.v0")
+            .any(|definition| definition["algorithm_id"] == "bull.recovery.v0")
     );
     assert!(
         definitions
             .as_array()
             .unwrap()
             .iter()
-            .any(|definition| definition["algorithm_id"] == "goose.sleep.v1")
+            .any(|definition| definition["algorithm_id"] == "bull.sleep.v1")
     );
 
     let references = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-reference-registry-1",
         "method": "metrics.reference_definitions",
         "args": {}
@@ -450,9 +450,9 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     ));
 
     let sleep = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-sleep-1",
-        "method": "metrics.goose_sleep_v0",
+        "method": "metrics.bull_sleep_v0",
         "args": {
             "start_time": "2026-05-27T22:30:00Z",
             "end_time": "2026-05-28T06:30:00Z",
@@ -468,9 +468,9 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     assert_eq!(sleep.result.unwrap()["output"]["score_0_to_100"], 84.875);
 
     let sleep_v1 = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-sleep-v1-1",
-        "method": "metrics.goose_sleep_v1",
+        "method": "metrics.bull_sleep_v1",
         "args": {
             "start_time": "2026-05-27T22:30:00Z",
             "end_time": "2026-05-28T06:30:00Z",
@@ -493,7 +493,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
             "model_status": {
                 "sleep_permission_granted": true,
                 "imported_platform_sleep_nights": 10,
-                "trusted_goose_sleep_nights": 2,
+                "trusted_bull_sleep_nights": 2,
                 "motion_coverage_fraction": 0.94,
                 "heart_rate_coverage_fraction": 0.82
             },
@@ -510,7 +510,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     }));
     assert!(sleep_v1.ok, "{:?}", sleep_v1.error);
     let sleep_v1_result = sleep_v1.result.unwrap();
-    assert_eq!(sleep_v1_result["algorithm_id"], "goose.sleep.v1");
+    assert_eq!(sleep_v1_result["algorithm_id"], "bull.sleep.v1");
     assert_eq!(sleep_v1_result["output"]["model_status"], "baseline_ready");
     assert_eq!(
         sleep_v1_result["output"]["model_status_label"],
@@ -550,7 +550,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     );
 
     let sleep_v1_quality = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-v1-explanation-stability-1",
         "method": "sleep.validate_v1_explanation_stability",
         "args": {
@@ -604,7 +604,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
                 "model_status": {
                     "sleep_permission_granted": true,
                     "imported_platform_sleep_nights": 10,
-                    "trusted_goose_sleep_nights": 2,
+                    "trusted_bull_sleep_nights": 2,
                     "motion_coverage_fraction": 0.94,
                     "heart_rate_coverage_fraction": 0.82
                 },
@@ -624,7 +624,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     let sleep_v1_quality_result = sleep_v1_quality.result.unwrap();
     assert_eq!(
         sleep_v1_quality_result["schema"],
-        "goose.sleep-v1-explanation-stability-report.v1"
+        "bull.sleep-v1-explanation-stability-report.v1"
     );
     assert_eq!(sleep_v1_quality_result["pass"], true);
     assert_eq!(sleep_v1_quality_result["explanation_pass"], true);
@@ -632,7 +632,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     assert_eq!(sleep_v1_quality_result["perturbation_stability_pass"], true);
 
     let comparison = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-reference-compare-1",
         "method": "metrics.reference_compare",
         "args": {
@@ -649,7 +649,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     let comparison_result = comparison.result.unwrap();
     assert_eq!(
         comparison_result["schema"],
-        "goose.algorithm-comparison-report.v1"
+        "bull.algorithm-comparison-report.v1"
     );
     assert_eq!(comparison_result["family"], "hrv");
     assert_eq!(comparison_result["pass"], true);
@@ -657,7 +657,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     assert_eq!(comparison_result["deltas"][0]["absolute_delta"], 0.0);
 
     let stress_comparison = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-reference-stress-1",
         "method": "metrics.reference_compare",
         "args": {
@@ -684,7 +684,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     );
 
     let external_sleep_comparison = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-reference-external-sleep-1",
         "method": "metrics.reference_compare",
         "args": {
@@ -700,7 +700,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
                 "input_ids": ["bridge.sleep.external-reference"]
             },
             "reference_report": {
-                "schema": "goose.reference-algo-report.v1",
+                "schema": "bull.reference-algo-report.v1",
                 "family": "sleep",
                 "algorithm_id": "reference.sleep.ggir_summary.v1",
                 "algorithm_version": "1.0.0",
@@ -748,12 +748,12 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
     assert_eq!(external_sleep["deltas"].as_array().unwrap().len(), 7);
 
     let external_sleep_v1_comparison = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-reference-external-sleep-v1-1",
         "method": "metrics.reference_compare",
         "args": {
             "family": "sleep",
-            "goose_algorithm_id": "goose.sleep.v1",
+            "bull_algorithm_id": "bull.sleep.v1",
             "input": {
                 "sleep": {
                     "start_time": "2026-05-27T22:30:00Z",
@@ -775,7 +775,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
                 "data_coverage_fraction": 0.90
             },
             "reference_report": {
-                "schema": "goose.reference-algo-report.v1",
+                "schema": "bull.reference-algo-report.v1",
                 "family": "sleep",
                 "algorithm_id": "reference.sleep.ggir_summary.v1",
                 "algorithm_version": "1.0.0",
@@ -814,7 +814,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
         external_sleep_v1_comparison.error
     );
     let external_sleep_v1 = external_sleep_v1_comparison.result.unwrap();
-    assert_eq!(external_sleep_v1["goose_algorithm_id"], "goose.sleep.v1");
+    assert_eq!(external_sleep_v1["bull_algorithm_id"], "bull.sleep.v1");
     assert_eq!(
         external_sleep_v1["reference_algorithm_id"],
         "reference.sleep.ggir_summary.v1"
@@ -830,9 +830,9 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
 #[test]
 fn bridge_rejects_unsupported_primary_algorithm_for_packet_derived_score() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "packet-derived-primary-algorithm-1",
         "method": "metrics.hrv_features",
         "args": {
@@ -848,13 +848,13 @@ fn bridge_rejects_unsupported_primary_algorithm_for_packet_derived_score() {
     let error = response.error.unwrap();
     assert_eq!(error.code, "method_error");
     assert!(error.message.contains("unsupported primary algorithm"));
-    assert!(error.message.contains("goose.hrv.v0@0.1.0"));
+    assert!(error.message.contains("bull.hrv.v0@0.1.0"));
 }
 
 #[test]
 fn bridge_exposes_command_definitions_for_device_and_debug_controls() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-definitions-1",
         "method": "commands.definitions",
         "args": {}
@@ -917,7 +917,7 @@ fn bridge_exposes_command_definitions_for_device_and_debug_controls() {
 #[test]
 fn bridge_runs_ui_coverage_audit_for_debug_coverage_surface() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "ui-coverage-1",
         "method": "ui_coverage.audit",
         "args": {}
@@ -972,7 +972,7 @@ fn bridge_runs_ui_coverage_audit_for_debug_coverage_surface() {
 #[test]
 fn bridge_runs_perf_budget_for_debug_surface() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "perf-budget-1",
         "method": "diagnostics.perf_budget",
         "args": {
@@ -982,8 +982,8 @@ fn bridge_runs_perf_budget_for_debug_surface() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.perf-budget-report.v1");
-    assert_eq!(result["generated_by"], "goose-perf-budget");
+    assert_eq!(result["schema"], "bull.perf-budget-report.v1");
+    assert_eq!(result["generated_by"], "bull-perf-budget");
     assert_eq!(result["scale"], 16);
     assert_eq!(result["pass"], true);
     assert_eq!(result["input_valid"], true);
@@ -1010,7 +1010,7 @@ fn bridge_runs_perf_budget_for_debug_surface() {
 #[test]
 fn bridge_runs_property_suite_for_debug_surface() {
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "property-suite-1",
         "method": "diagnostics.property_suite",
         "args": {
@@ -1021,8 +1021,8 @@ fn bridge_runs_property_suite_for_debug_surface() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.property-test-report.v1");
-    assert_eq!(result["generated_by"], "goose-property-test-suite");
+    assert_eq!(result["schema"], "bull.property-test-report.v1");
+    assert_eq!(result["generated_by"], "bull-property-test-suite");
     assert_eq!(result["seed"], 42);
     assert_eq!(result["cases_per_group"], 16);
     assert_eq!(result["pass"], true);
@@ -1038,7 +1038,7 @@ fn bridge_runs_property_suite_for_debug_surface() {
     assert!(result["next_actions"].as_array().unwrap().is_empty());
 
     let rejected = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "property-suite-bad-1",
         "method": "diagnostics.property_suite",
         "args": {
@@ -1052,11 +1052,11 @@ fn bridge_runs_property_suite_for_debug_surface() {
 #[test]
 fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let defaults = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-defaults-1",
         "method": "metrics.default_preferences",
         "args": {}
@@ -1065,7 +1065,7 @@ fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
     assert_eq!(defaults.result.unwrap().as_array().unwrap().len(), 5);
 
     let applied = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-apply-1",
         "method": "settings.apply_default_algorithm_preferences",
         "args": {
@@ -1077,7 +1077,7 @@ fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
     assert_eq!(applied.result.unwrap().as_array().unwrap().len(), 5);
 
     let recovery = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-get-1",
         "method": "settings.get_algorithm_preference",
         "args": {
@@ -1089,11 +1089,11 @@ fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
     assert!(recovery.ok, "{:?}", recovery.error);
     assert_eq!(
         recovery.result.unwrap()["algorithm_id"],
-        "goose.recovery.v0"
+        "bull.recovery.v0"
     );
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-list-1",
         "method": "settings.list_algorithm_preferences",
         "args": {
@@ -1105,14 +1105,14 @@ fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
     assert_eq!(list.result.unwrap().as_array().unwrap().len(), 5);
 
     let set_debug = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-set-1",
         "method": "settings.set_algorithm_preference",
         "args": {
             "database_path": db_path,
             "scope": "debug-comparison",
             "metric_family": "sleep",
-            "algorithm_id": "goose.sleep.v0",
+            "algorithm_id": "bull.sleep.v0",
             "version": "0.1.0"
         }
     }));
@@ -1123,18 +1123,18 @@ fn bridge_persists_algorithm_preferences_for_settings_algorithms() {
 #[test]
 fn bridge_applies_stored_calibration_run_to_local_score() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
     seed_recovery_calibration(&db);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-apply-1",
         "method": "calibration.apply",
         "args": {
             "database_path": db_path,
             "metric_family": "recovery",
-            "algorithm_id": "goose.recovery.v0",
+            "algorithm_id": "bull.recovery.v0",
             "algorithm_version": "0.1.0",
             "raw_score": 70.0,
             "input_run_id": "recovery-run-1",
@@ -1148,14 +1148,14 @@ fn bridge_applies_stored_calibration_run_to_local_score() {
     let result = response.result.unwrap();
     assert_eq!(result["pass"], true);
     assert_eq!(result["calibrated_score"], 79.0);
-    assert_eq!(result["output_kind"], "goose_calibrated_local_score");
+    assert_eq!(result["output_kind"], "bull_calibrated_local_score");
     assert_eq!(result["official_labels_are_labels"], true);
 }
 
 #[test]
 fn bridge_evaluates_and_persists_calibration_dataset_for_app_metrics() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
     let dataset: serde_json::Value = serde_json::from_str(include_str!(
         "../fixtures/synthetic/recovery_calibration_linear.json"
@@ -1163,7 +1163,7 @@ fn bridge_evaluates_and_persists_calibration_dataset_for_app_metrics() {
     .unwrap();
 
     let evaluation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-evaluate-1",
         "method": "calibration.evaluate_dataset",
         "args": {
@@ -1173,7 +1173,7 @@ fn bridge_evaluates_and_persists_calibration_dataset_for_app_metrics() {
             "dataset": dataset,
             "options": {
                 "metric_family": "recovery",
-                "algorithm_id": "goose.recovery.v0",
+                "algorithm_id": "bull.recovery.v0",
                 "algorithm_version": "0.1.0",
                 "split_at": "2026-05-04T00:00:00Z",
                 "min_train_rows": 2,
@@ -1201,13 +1201,13 @@ fn bridge_evaluates_and_persists_calibration_dataset_for_app_metrics() {
     assert_eq!(evaluation_result["calibration_ready"], true);
 
     let applied = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-apply-app-1",
         "method": "calibration.apply",
         "args": {
             "database_path": db_path,
             "metric_family": "recovery",
-            "algorithm_id": "goose.recovery.v0",
+            "algorithm_id": "bull.recovery.v0",
             "algorithm_version": "0.1.0",
             "raw_score": 70.0,
             "input_run_id": "flutter-sample-recovery",
@@ -1235,11 +1235,11 @@ fn bridge_evaluates_and_persists_calibration_dataset_for_app_metrics() {
 #[test]
 fn bridge_imports_and_lists_user_owned_calibration_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let imported = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-label-import-1",
         "method": "calibration.import_labels",
         "args": {
@@ -1265,14 +1265,14 @@ fn bridge_imports_and_lists_user_owned_calibration_labels() {
     let import_result = imported.result.unwrap();
     assert_eq!(
         import_result["schema"],
-        "goose.calibration-label-import-report.v1"
+        "bull.calibration-label-import-report.v1"
     );
     assert_eq!(import_result["inserted"], 1);
     assert_eq!(import_result["official_labels_are_labels"], true);
     assert_eq!(import_result["labels"][0]["label_source"], "manual");
 
     let listed = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-label-list-1",
         "method": "calibration.list_labels",
         "args": {
@@ -1284,7 +1284,7 @@ fn bridge_imports_and_lists_user_owned_calibration_labels() {
 
     assert!(listed.ok, "{:?}", listed.error);
     let list_result = listed.result.unwrap();
-    assert_eq!(list_result["schema"], "goose.calibration-label-list.v1");
+    assert_eq!(list_result["schema"], "bull.calibration-label-list.v1");
     assert_eq!(list_result["label_count"], 1);
     assert_eq!(list_result["official_labels_are_labels"], true);
     assert_eq!(list_result["labels"][0]["value"], 79.0);
@@ -1293,12 +1293,12 @@ fn bridge_imports_and_lists_user_owned_calibration_labels() {
 #[test]
 fn bridge_evaluates_stored_labels_against_local_algorithm_runs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
     seed_stored_recovery_calibration_inputs(&db);
 
     let evaluation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-stored-labels-1",
         "method": "calibration.evaluate_stored_labels",
         "args": {
@@ -1309,7 +1309,7 @@ fn bridge_evaluates_stored_labels_against_local_algorithm_runs() {
             "calibration_run_id": "stored-recovery-calibration",
             "options": {
                 "metric_family": "recovery",
-                "algorithm_id": "goose.recovery.v0",
+                "algorithm_id": "bull.recovery.v0",
                 "algorithm_version": "0.1.0",
                 "split_at": "2026-05-04T00:00:00Z",
                 "min_train_rows": 2,
@@ -1334,13 +1334,13 @@ fn bridge_evaluates_stored_labels_against_local_algorithm_runs() {
     assert_eq!(result["official_labels_are_labels"], true);
 
     let applied = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-stored-apply-1",
         "method": "calibration.apply",
         "args": {
             "database_path": db_path,
             "metric_family": "recovery",
-            "algorithm_id": "goose.recovery.v0",
+            "algorithm_id": "bull.recovery.v0",
             "algorithm_version": "0.1.0",
             "raw_score": 70.0,
             "score_min": 0.0,
@@ -1354,12 +1354,12 @@ fn bridge_evaluates_stored_labels_against_local_algorithm_runs() {
 #[test]
 fn bridge_evaluates_sleep_v1_stored_labels_with_date_holdout_and_sessions() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
     seed_stored_sleep_v1_calibration_inputs(&db);
 
     let evaluation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-v1-calibration-stored-labels-1",
         "method": "calibration.evaluate_stored_labels",
         "args": {
@@ -1370,7 +1370,7 @@ fn bridge_evaluates_sleep_v1_stored_labels_with_date_holdout_and_sessions() {
             "calibration_run_id": "stored-sleep-v1-calibration",
             "options": {
                 "metric_family": "sleep",
-                "algorithm_id": "goose.sleep.v1",
+                "algorithm_id": "bull.sleep.v1",
                 "algorithm_version": "0.1.0",
                 "split_at": "2026-05-04T00:00:00Z",
                 "min_train_rows": 3,
@@ -1383,7 +1383,7 @@ fn bridge_evaluates_sleep_v1_stored_labels_with_date_holdout_and_sessions() {
     let result = evaluation.result.unwrap();
     assert_eq!(result["pass"], true);
     assert_eq!(result["metric_family"], "sleep");
-    assert_eq!(result["algorithm_id"], "goose.sleep.v1");
+    assert_eq!(result["algorithm_id"], "bull.sleep.v1");
     assert_eq!(result["dataset_record_count"], 6);
     assert_eq!(result["matched_record_count"], 6);
     assert_eq!(result["train_count"], 3);
@@ -1402,17 +1402,17 @@ fn bridge_evaluates_sleep_v1_stored_labels_with_date_holdout_and_sessions() {
 #[test]
 fn bridge_reports_missing_calibration_run_without_fallback_to_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "calibration-missing",
         "method": "calibration.apply",
         "args": {
             "database_path": db_path,
             "metric_family": "recovery",
-            "algorithm_id": "goose.recovery.v0",
+            "algorithm_id": "bull.recovery.v0",
             "algorithm_version": "0.1.0",
             "raw_score": 70.0,
             "calibration_run_id": "missing-calibration",
@@ -1428,18 +1428,18 @@ fn bridge_reports_missing_calibration_run_without_fallback_to_labels() {
 #[test]
 fn bridge_rejects_wrong_family_algorithm_preference() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "preferences-wrong-family",
         "method": "settings.set_algorithm_preference",
         "args": {
             "database_path": db_path,
             "scope": "global",
             "metric_family": "recovery",
-            "algorithm_id": "goose.sleep.v0",
+            "algorithm_id": "bull.sleep.v0",
             "version": "0.1.0"
         }
     }));
@@ -1450,22 +1450,22 @@ fn bridge_rejects_wrong_family_algorithm_preference() {
 
 #[test]
 fn bridge_derives_packet_timeline_from_decoded_rows() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let raw = hex::decode(GET_HELLO_FRAME).unwrap();
-    let parsed = parse_frame_hex(DeviceType::Goose, GET_HELLO_FRAME).unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
     store
         .insert_raw_evidence(RawEvidenceInput {
             evidence_id: "bridge-frame-1",
             source: "synthetic.fixture",
             captured_at: "2026-05-28T00:00:00Z",
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             payload: &raw,
             sensitivity: "synthetic",
             capture_session_id: None,
         })
         .unwrap();
     store
-        .insert_decoded_frame(goose_core::store::DecodedFrameInput {
+        .insert_decoded_frame(bull_core::store::DecodedFrameInput {
             frame_id: "bridge-frame-1.frame.0",
             evidence_id: "bridge-frame-1",
             parsed: &parsed,
@@ -1477,7 +1477,7 @@ fn bridge_derives_packet_timeline_from_decoded_rows() {
         .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "timeline-1",
         "method": "timeline.from_decoded_frames",
         "args": {
@@ -1495,34 +1495,34 @@ fn bridge_derives_packet_timeline_from_decoded_rows() {
 #[test]
 fn bridge_imports_app_captured_frame_batch_into_sqlite_and_timeline() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-import-1",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-capture-valid",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": GET_HELLO_FRAME,
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-capture-malformed",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:01Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": "00010203",
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -1554,7 +1554,7 @@ fn bridge_imports_app_captured_frame_batch_into_sqlite_and_timeline() {
     );
 
     let timeline = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-timeline-1",
         "method": "capture.timeline",
         "args": {
@@ -1570,7 +1570,7 @@ fn bridge_imports_app_captured_frame_batch_into_sqlite_and_timeline() {
     assert_eq!(timeline_result[0]["title"], "Command GET_HELLO");
 
     let inverted = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-timeline-inverted",
         "method": "capture.timeline",
         "args": {
@@ -1592,11 +1592,11 @@ fn bridge_imports_app_captured_frame_batch_into_sqlite_and_timeline() {
 #[test]
 fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let start_capture = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-start-capture",
         "method": "capture.start_session",
         "args": {
@@ -1604,7 +1604,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
             "session_id": "capture-live-observability",
             "source": "ios_core_bluetooth.live_notifications",
             "started_at_unix_ms": 1779840000000i64,
-            "device_model": "WHOOP 5.0 Goose",
+            "device_model": "WHOOP 5.0 Bull",
             "active_device_id": "test-device",
             "provenance": {
                 "owner": "user",
@@ -1615,22 +1615,22 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
     assert!(start_capture.ok, "{:?}", start_capture.error);
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-observability-test",
+            "parser_version": "bull-core/bridge-observability-test",
             "frames": [
                 {
                     "evidence_id": "bridge-observability-capture",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": GET_HELLO_FRAME,
                     "sensitivity": "user-owned-live-notification",
                     "capture_session_id": "capture-live-observability",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -1638,7 +1638,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
     assert!(import.ok, "{:?}", import.error);
 
     let debug_started = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-debug-start",
         "method": "debug.start_session",
         "args": {
@@ -1646,7 +1646,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
             "session_id": "debug-session-observability",
             "started_at_unix_ms": 1779840000000u64,
             "bridge": {
-                "url": "ws://127.0.0.1:49152/goose-debug/stream?token=test",
+                "url": "ws://127.0.0.1:49152/bull-debug/stream?token=test",
                 "bind_host": "127.0.0.1",
                 "token_required": true,
                 "token_present": true,
@@ -1658,7 +1658,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
     assert!(debug_started.ok, "{:?}", debug_started.error);
 
     let story_event = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-story-event",
         "method": "debug.record_event",
         "args": {
@@ -1679,7 +1679,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
     assert!(story_event.ok, "{:?}", story_event.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-timeline",
         "method": "capture.observability_timeline",
         "args": {
@@ -1703,7 +1703,7 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
         && row["parent_timeline_id"] == "raw.bridge-observability-capture"));
 
     let inverted = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-observability-inverted",
         "method": "capture.observability_timeline",
         "args": {
@@ -1727,11 +1727,11 @@ fn bridge_builds_capture_observability_timeline_from_packets_and_debug_events() 
 #[test]
 fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let start = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-session-start",
         "method": "capture.start_session",
         "args": {
@@ -1739,7 +1739,7 @@ fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
             "session_id": "capture-live-bridge",
             "source": "ios_core_bluetooth.live_notifications",
             "started_at_unix_ms": 1770000000000i64,
-            "device_model": "WHOOP 5.0 Goose",
+            "device_model": "WHOOP 5.0 Bull",
             "active_device_id": "test-device",
             "provenance": {
                 "owner": "user",
@@ -1749,12 +1749,12 @@ fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
     }));
     assert!(start.ok, "{:?}", start.error);
     let start_result = start.result.unwrap();
-    assert_eq!(start_result["schema"], "goose.capture-session-result.v1");
+    assert_eq!(start_result["schema"], "bull.capture-session-result.v1");
     assert_eq!(start_result["inserted"], true);
     assert_eq!(start_result["session"]["status"], "active");
 
     let finish = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-session-finish",
         "method": "capture.finish_session",
         "args": {
@@ -1770,7 +1770,7 @@ fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
     assert_eq!(finish_result["session"]["frame_count"], 7);
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-session-list",
         "method": "capture.list_sessions",
         "args": {
@@ -1781,7 +1781,7 @@ fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
     }));
     assert!(list.ok, "{:?}", list.error);
     let list_result = list.result.unwrap();
-    assert_eq!(list_result["schema"], "goose.capture-session-list.v1");
+    assert_eq!(list_result["schema"], "bull.capture-session-list.v1");
     assert_eq!(list_result["session_count"], 1);
     assert_eq!(
         list_result["sessions"][0]["session_id"],
@@ -1792,11 +1792,11 @@ fn bridge_records_capture_session_lifecycle_for_live_owned_capture() {
 #[test]
 fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let create = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-create-session",
         "method": "activity.create_session",
         "args": {
@@ -1817,7 +1817,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(create.ok, "{:?}", create.error);
     let create_result = create.result.unwrap();
-    assert_eq!(create_result["schema"], "goose.activity-session-result.v1");
+    assert_eq!(create_result["schema"], "bull.activity-session-result.v1");
     assert_eq!(create_result["inserted"], true);
     assert_eq!(
         create_result["session"]["session_id"],
@@ -1826,7 +1826,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     assert_eq!(create_result["session"]["duration_ms"], 3600000);
 
     let fetch = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-get-session",
         "method": "activity.get_session",
         "args": {
@@ -1836,12 +1836,12 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(fetch.ok, "{:?}", fetch.error);
     let fetch_result = fetch.result.unwrap();
-    assert_eq!(fetch_result["schema"], "goose.activity-session-result.v1");
+    assert_eq!(fetch_result["schema"], "bull.activity-session-result.v1");
     assert_eq!(fetch_result["session"]["activity_type"], "running");
     assert_eq!(fetch_result["session"]["sync_status"], "verified");
 
     let update = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-update-session",
         "method": "activity.update_session",
         "args": {
@@ -1865,7 +1865,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(update.ok, "{:?}", update.error);
     let update_result = update.result.unwrap();
-    assert_eq!(update_result["schema"], "goose.activity-session-result.v1");
+    assert_eq!(update_result["schema"], "bull.activity-session-result.v1");
     assert_eq!(update_result["updated"], true);
     assert_eq!(update_result["session"]["custom_label"], "bridge run");
     assert_eq!(
@@ -1875,7 +1875,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     assert_eq!(update_result["session"]["sync_status"], "synced");
 
     let correction_plans = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-correction-plans",
         "method": "activity.correction_plans"
     }));
@@ -1883,7 +1883,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let correction_plans_result = correction_plans.result.unwrap();
     assert_eq!(
         correction_plans_result["schema"],
-        "goose.activity-correction-plans.v1"
+        "bull.activity-correction-plans.v1"
     );
     assert_eq!(correction_plans_result["plan_count"], 6);
     assert!(
@@ -1895,7 +1895,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let missing_type = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-correction-missing-type",
         "method": "activity.apply_correction",
         "args": {
@@ -1915,7 +1915,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let correction = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-correction-change-type",
         "method": "activity.apply_correction",
         "args": {
@@ -1939,7 +1939,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let correction_result = correction.result.unwrap();
     assert_eq!(
         correction_result["schema"],
-        "goose.activity-correction-result.v1"
+        "bull.activity-correction-result.v1"
     );
     assert_eq!(correction_result["kind"], "change_activity_type");
     assert_eq!(correction_result["updated"], true);
@@ -1985,7 +1985,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-list-sessions",
         "method": "activity.list_sessions",
         "args": {
@@ -1996,7 +1996,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(list.ok, "{:?}", list.error);
     let list_result = list.result.unwrap();
-    assert_eq!(list_result["schema"], "goose.activity-session-list.v1");
+    assert_eq!(list_result["schema"], "bull.activity-session-list.v1");
     assert_eq!(list_result["session_count"], 1);
     assert_eq!(
         list_result["sessions"][0]["session_id"],
@@ -2004,7 +2004,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let attach_metric = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-attach-metric",
         "method": "activity.attach_metric",
         "args": {
@@ -2027,7 +2027,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let attach_metric_result = attach_metric.result.unwrap();
     assert_eq!(
         attach_metric_result["schema"],
-        "goose.activity-metric-result.v1"
+        "bull.activity-metric-result.v1"
     );
     assert_eq!(attach_metric_result["inserted"], true);
     assert_eq!(
@@ -2036,7 +2036,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let metrics = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-list-metrics",
         "method": "activity.list_metrics",
         "args": {
@@ -2046,7 +2046,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(metrics.ok, "{:?}", metrics.error);
     let metrics_result = metrics.result.unwrap();
-    assert_eq!(metrics_result["schema"], "goose.activity-metric-list.v1");
+    assert_eq!(metrics_result["schema"], "bull.activity-metric-list.v1");
     assert_eq!(metrics_result["metric_count"], 1);
     assert_eq!(
         metrics_result["metrics"][0]["metric_id"],
@@ -2054,7 +2054,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let attach_interval = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-attach-interval",
         "method": "activity.attach_interval",
         "args": {
@@ -2078,7 +2078,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let attach_interval_result = attach_interval.result.unwrap();
     assert_eq!(
         attach_interval_result["schema"],
-        "goose.activity-interval-result.v1"
+        "bull.activity-interval-result.v1"
     );
     assert_eq!(attach_interval_result["inserted"], true);
     assert_eq!(
@@ -2087,7 +2087,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let intervals = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-list-intervals",
         "method": "activity.list_intervals",
         "args": {
@@ -2099,7 +2099,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let intervals_result = intervals.result.unwrap();
     assert_eq!(
         intervals_result["schema"],
-        "goose.activity-interval-list.v1"
+        "bull.activity-interval-list.v1"
     );
     assert_eq!(intervals_result["interval_count"], 1);
     assert_eq!(
@@ -2108,7 +2108,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     );
 
     let chart = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-metrics-window",
         "method": "activity.metrics_for_session_in_window",
         "args": {
@@ -2120,7 +2120,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     }));
     assert!(chart.ok, "{:?}", chart.error);
     let chart_result = chart.result.unwrap();
-    assert_eq!(chart_result["schema"], "goose.activity-metric-window.v1");
+    assert_eq!(chart_result["schema"], "bull.activity-metric-window.v1");
     assert_eq!(chart_result["metric_count"], 1);
     assert_eq!(
         chart_result["metrics"][0]["metric_id"],
@@ -2129,7 +2129,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     assert_eq!(chart_result["metrics"][0]["value"], 148.0);
 
     let delete = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-delete-session",
         "method": "activity.delete_session",
         "args": {
@@ -2141,13 +2141,13 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     let delete_result = delete.result.unwrap();
     assert_eq!(
         delete_result["schema"],
-        "goose.activity-session-delete-result.v1"
+        "bull.activity-session-delete-result.v1"
     );
     assert_eq!(delete_result["session_id"], "activity-session-bridge");
     assert_eq!(delete_result["deleted"], true);
 
     let empty_list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-list-sessions-after-delete",
         "method": "activity.list_sessions",
         "args": {
@@ -2161,7 +2161,7 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
     assert_eq!(empty_list_result["session_count"], 0);
 
     let delete_again = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-delete-session-again",
         "method": "activity.delete_session",
         "args": {
@@ -2177,12 +2177,12 @@ fn bridge_manages_local_activity_sessions_metrics_and_intervals() {
 #[test]
 fn bridge_runs_capture_correlation_for_debug_trust_gate() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
     let db_path = db.display().to_string();
 
     let permissive = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-correlation-1",
         "method": "capture.correlation_report",
         "args": {
@@ -2194,7 +2194,7 @@ fn bridge_runs_capture_correlation_for_debug_trust_gate() {
     }));
     assert!(permissive.ok, "{:?}", permissive.error);
     let report = permissive.result.unwrap();
-    assert_eq!(report["schema"], "goose.capture-correlation-report.v1");
+    assert_eq!(report["schema"], "bull.capture-correlation-report.v1");
     assert_eq!(report["pass"], true);
     assert!(
         report["summaries"]
@@ -2206,7 +2206,7 @@ fn bridge_runs_capture_correlation_for_debug_trust_gate() {
     );
 
     let required = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-correlation-required",
         "method": "capture.correlation_report",
         "args": {
@@ -2243,12 +2243,12 @@ fn bridge_runs_capture_correlation_for_debug_trust_gate() {
 #[test]
 fn bridge_reports_metric_input_readiness_for_debug_scoring_gate() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "metric-readiness-1",
         "method": "metrics.input_readiness",
         "args": {
@@ -2263,7 +2263,7 @@ fn bridge_reports_metric_input_readiness_for_debug_scoring_gate() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.metric-input-readiness-report.v1");
+    assert_eq!(report["schema"], "bull.metric-input-readiness-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["family_count"], 6);
     assert_eq!(report["ready_family_count"], 0);
@@ -2303,12 +2303,12 @@ fn bridge_reports_metric_input_readiness_for_debug_scoring_gate() {
 #[test]
 fn bridge_reports_capture_arrival_plan_for_device_day_readiness() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-arrival-plan-1",
         "method": "capture.arrival_plan",
         "args": {
@@ -2323,7 +2323,7 @@ fn bridge_reports_capture_arrival_plan_for_device_day_readiness() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.capture-arrival-plan-report.v1");
+    assert_eq!(report["schema"], "bull.capture-arrival-plan-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["min_owned_captures"], 1);
     assert_eq!(report["physical_arrival_row_count"], 11);
@@ -2348,19 +2348,19 @@ fn bridge_reports_capture_arrival_plan_for_device_day_readiness() {
     }));
     assert_eq!(
         report["capture_correlation"]["schema"],
-        "goose.capture-correlation-report.v1"
+        "bull.capture-correlation-report.v1"
     );
     assert_eq!(
         report["metric_input_readiness"]["schema"],
-        "goose.metric-input-readiness-report.v1"
+        "bull.metric-input-readiness-report.v1"
     );
     assert_eq!(
         report["recovery_sensor_discovery"]["schema"],
-        "goose.recovery-sensor-discovery-report.v1"
+        "bull.recovery-sensor-discovery-report.v1"
     );
     assert_eq!(
         report["local_health_validation_review"]["schema"],
-        "goose.local-health-validation-manifest-review.v1"
+        "bull.local-health-validation-manifest-review.v1"
     );
     assert_eq!(
         report["local_health_validation_review"]["status"],
@@ -2429,8 +2429,8 @@ fn bridge_reports_capture_arrival_plan_for_device_day_readiness() {
 #[test]
 fn bridge_derives_capture_arrival_physical_rows_from_local_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     let db_path = db.display().to_string();
     let provenance = serde_json::json!({
         "whoop_scan_targeted": true,
@@ -2536,7 +2536,7 @@ fn bridge_derives_capture_arrival_physical_rows_from_local_evidence() {
         .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-arrival-plan-physical-rows",
         "method": "capture.arrival_plan",
         "args": {
@@ -2579,26 +2579,26 @@ fn bridge_derives_capture_arrival_physical_rows_from_local_evidence() {
 #[test]
 fn bridge_extracts_motion_features_for_debug_score_inputs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "motion-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-owned-motion",
                     "frame_id": "bridge-owned-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -2606,7 +2606,7 @@ fn bridge_extracts_motion_features_for_debug_score_inputs() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "motion-features-1",
         "method": "metrics.motion_features",
         "args": {
@@ -2620,7 +2620,7 @@ fn bridge_extracts_motion_features_for_debug_score_inputs() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.motion-feature-report.v1");
+    assert_eq!(report["schema"], "bull.motion-feature-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
@@ -2638,26 +2638,26 @@ fn bridge_extracts_motion_features_for_debug_score_inputs() {
 #[test]
 fn bridge_runs_step_packet_discovery_over_decoded_motion_frames() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-discovery-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-step-discovery-motion",
                     "frame_id": "bridge-step-discovery-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -2665,7 +2665,7 @@ fn bridge_runs_step_packet_discovery_over_decoded_motion_frames() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-discovery-1",
         "method": "metrics.step_packet_discovery",
         "args": {
@@ -2678,7 +2678,7 @@ fn bridge_runs_step_packet_discovery_over_decoded_motion_frames() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.step-packet-discovery-report.v1");
+    assert_eq!(report["schema"], "bull.step-packet-discovery-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["decoded_frame_count"], 1);
     assert_eq!(report["inspected_frame_count"], 1);
@@ -2696,26 +2696,26 @@ fn bridge_runs_step_packet_discovery_over_decoded_motion_frames() {
 #[test]
 fn bridge_runs_step_capture_validation_with_validation_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-step-validation-motion",
                     "frame_id": "bridge-step-validation-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -2723,7 +2723,7 @@ fn bridge_runs_step_capture_validation_with_validation_labels() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-validation-1",
         "method": "metrics.step_capture_validation",
         "args": {
@@ -2744,7 +2744,7 @@ fn bridge_runs_step_capture_validation_with_validation_labels() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.step-capture-validation-report.v1");
+    assert_eq!(report["schema"], "bull.step-capture-validation-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["capture_kind"], "100_counted_steps");
     assert_eq!(report["manual_step_delta"], 100);
@@ -2763,10 +2763,10 @@ fn bridge_runs_step_capture_validation_with_validation_labels() {
 #[test]
 fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
     {
-        let store = GooseStore::open(&db).unwrap();
+        let store = BullStore::open(&db).unwrap();
         for (sample_id, sample_time_unix_ms, counter_value, cadence_spm, activity_state) in [
             (
                 "bridge-step-s1",
@@ -2811,7 +2811,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     }
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-counter-rollup-1",
         "method": "metrics.step_counter_daily_rollup",
         "args": {
@@ -2829,7 +2829,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.step-counter-daily-rollup-report.v1"
+        "bull.step-counter-daily-rollup-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["steps"], 105);
@@ -2839,7 +2839,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     assert_eq!(report["daily_metric_written"], true);
     assert_eq!(report["metric_provenance_written"], true);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.steps, Some(105));
@@ -2847,7 +2847,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     assert_eq!(metric.source_kind, "device_counter");
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "daily-activity-metrics-list-1",
         "method": "metrics.daily_activity_metrics",
         "args": {
@@ -2859,13 +2859,13 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
 
     assert!(list.ok, "{:?}", list.error);
     let list_report = list.result.unwrap();
-    assert_eq!(list_report["schema"], "goose.daily-activity-metric-list.v1");
+    assert_eq!(list_report["schema"], "bull.daily-activity-metric-list.v1");
     assert_eq!(list_report["metric_count"], 1);
     assert_eq!(list_report["metrics"][0]["steps"], 105);
     assert_eq!(list_report["metrics"][0]["source_kind"], "device_counter");
 
     let hourly = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "step-counter-hourly-rollup-1",
         "method": "metrics.step_counter_hourly_rollup",
         "args": {
@@ -2883,7 +2883,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     let hourly_report = hourly.result.unwrap();
     assert_eq!(
         hourly_report["schema"],
-        "goose.step-counter-hourly-rollup-report.v1"
+        "bull.step-counter-hourly-rollup-report.v1"
     );
     assert_eq!(hourly_report["pass"], true);
     assert_eq!(hourly_report["steps"], 105);
@@ -2891,7 +2891,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     assert_eq!(hourly_report["metric_provenance_written"], true);
 
     let hourly_list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hourly-activity-metrics-list-1",
         "method": "metrics.hourly_activity_metrics",
         "args": {
@@ -2905,7 +2905,7 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
     let hourly_list_report = hourly_list.result.unwrap();
     assert_eq!(
         hourly_list_report["schema"],
-        "goose.hourly-activity-metric-list.v1"
+        "bull.hourly-activity-metric-list.v1"
     );
     assert_eq!(hourly_list_report["metric_count"], 1);
     assert_eq!(hourly_list_report["metrics"][0]["steps"], 105);
@@ -2918,11 +2918,11 @@ fn bridge_runs_step_counter_daily_rollup_from_persisted_device_samples() {
 #[test]
 fn bridge_persists_unavailable_activity_step_status_with_provenance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "activity-unavailable-status-1",
         "method": "metrics.activity_unavailable_daily_status",
         "args": {
@@ -2940,7 +2940,7 @@ fn bridge_persists_unavailable_activity_step_status_with_provenance() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.activity-unavailable-daily-status-report.v1"
+        "bull.activity-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["available_step_metric_count"], 0);
@@ -2957,7 +2957,7 @@ fn bridge_persists_unavailable_activity_step_status_with_provenance() {
             .any(|reason| reason == "insufficient_step_counter_samples")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["statuses"][0]["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.steps, None);
@@ -2966,11 +2966,11 @@ fn bridge_persists_unavailable_activity_step_status_with_provenance() {
     let provenance_json: serde_json::Value = serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_ID
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION
+        BULL_ACTIVITY_UNAVAILABLE_STATUS_V0_VERSION
     );
     assert_eq!(provenance_json["source_kind"], "unavailable");
     assert_eq!(
@@ -2989,26 +2989,26 @@ fn bridge_persists_unavailable_activity_step_status_with_provenance() {
 #[test]
 fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "raw-motion-step-estimate-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-raw-motion-steps",
                     "frame_id": "bridge-raw-motion-steps.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-06-02T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_step_frame_hex(&[10, 25, 40, 55, 70]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3016,7 +3016,7 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "raw-motion-step-estimate-write",
         "method": "metrics.raw_motion_step_estimate",
         "args": {
@@ -3040,14 +3040,14 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.raw-motion-step-estimate-report.v1");
+    assert_eq!(report["schema"], "bull.raw-motion-step-estimate-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["source_kind_if_promoted"], "local_estimate");
     assert_eq!(report["estimated_steps"], 5);
     assert_eq!(report["daily_metric_written"], true);
     assert_eq!(report["metric_provenance_written"], true);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.steps, Some(5));
@@ -3056,11 +3056,11 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
     let provenance: serde_json::Value = serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         provenance["algorithm"],
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_ID
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_ID
     );
     assert_eq!(
         provenance["algorithm_version"],
-        GOOSE_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
+        BULL_STEPS_RAW_MOTION_ESTIMATE_V0_VERSION
     );
     assert_eq!(
         provenance["official_labels_policy"],
@@ -3071,26 +3071,26 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
 #[test]
 fn bridge_extracts_heart_rate_features_for_debug_score_inputs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "heart-rate-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-owned-history",
                     "frame_id": "bridge-owned-history.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(77),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3098,7 +3098,7 @@ fn bridge_extracts_heart_rate_features_for_debug_score_inputs() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "heart-rate-features-1",
         "method": "metrics.heart_rate_features",
         "args": {
@@ -3112,7 +3112,7 @@ fn bridge_extracts_heart_rate_features_for_debug_score_inputs() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.heart-rate-feature-report.v1");
+    assert_eq!(report["schema"], "bull.heart-rate-feature-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
@@ -3124,26 +3124,26 @@ fn bridge_extracts_heart_rate_features_for_debug_score_inputs() {
 #[test]
 fn bridge_extracts_vital_event_candidates_without_resolved_units() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "vital-event-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-owned-temperature",
                     "frame_id": "bridge-owned-temperature.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": temperature_event_frame_hex(&[0xde, 0xad, 0xbe, 0xef]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3151,7 +3151,7 @@ fn bridge_extracts_vital_event_candidates_without_resolved_units() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "vital-event-features-1",
         "method": "metrics.vital_event_features",
         "args": {
@@ -3165,7 +3165,7 @@ fn bridge_extracts_vital_event_candidates_without_resolved_units() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.vital-event-feature-report.v1");
+    assert_eq!(report["schema"], "bull.vital-event-feature-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
@@ -3179,26 +3179,26 @@ fn bridge_extracts_vital_event_candidates_without_resolved_units() {
 #[test]
 fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "respiratory-rate-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-respiratory-rate-validation-k18",
                     "frame_id": "bridge-respiratory-rate-validation-k18.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex_with_vital_candidates(77, 3567, 145),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3206,7 +3206,7 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "respiratory-rate-validation-1",
         "method": "metrics.respiratory_rate_capture_validation",
         "args": {
@@ -3229,7 +3229,7 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.respiratory-rate-capture-validation-report.v1"
+        "bull.respiratory-rate-capture-validation-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(
@@ -3249,7 +3249,7 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
     );
     assert_eq!(
         report["decoder_id"],
-        "goose.respiratory_rate.history_candidate.v0"
+        "bull.respiratory_rate.history_candidate.v0"
     );
     assert_eq!(report["decoder_version"], "0.1.0");
     assert_eq!(
@@ -3265,11 +3265,11 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
     );
     assert_eq!(
         report["vital_event_report"]["schema"],
-        "goose.vital-event-feature-report.v1"
+        "bull.vital-event-feature-report.v1"
     );
     assert_eq!(report["vital_event_report"]["pass"], true);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert!(
         store
             .daily_recovery_metrics_between(0, i64::MAX)
@@ -3278,7 +3278,7 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
     );
 
     let blocked = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "respiratory-rate-validation-missing-label-policy",
         "method": "metrics.respiratory_rate_capture_validation",
         "args": {
@@ -3314,26 +3314,26 @@ fn bridge_validates_respiratory_rate_against_whoop_label_without_promoting_metri
 #[test]
 fn bridge_extracts_hrv_features_and_score_for_debug_score_inputs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hrv-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-owned-r17",
                     "frame_id": "bridge-owned-r17.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 810, 790, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3341,7 +3341,7 @@ fn bridge_extracts_hrv_features_and_score_for_debug_score_inputs() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hrv-features-1",
         "method": "metrics.hrv_features",
         "args": {
@@ -3358,7 +3358,7 @@ fn bridge_extracts_hrv_features_and_score_for_debug_score_inputs() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.hrv-feature-report.v1");
+    assert_eq!(report["schema"], "bull.hrv-feature-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
@@ -3385,26 +3385,26 @@ fn bridge_extracts_hrv_features_and_score_for_debug_score_inputs() {
 #[test]
 fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hrv-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-hrv-validation-r17",
                     "frame_id": "bridge-hrv-validation-r17.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 810, 790, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3412,7 +3412,7 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hrv-validation-1",
         "method": "metrics.hrv_capture_validation",
         "args": {
@@ -3434,7 +3434,7 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     }));
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.hrv-capture-validation-report.v1");
+    assert_eq!(report["schema"], "bull.hrv-capture-validation-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(
         report["label_policy"],
@@ -3451,8 +3451,8 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     assert_eq!(report["matching_label_count"], 1);
     assert_eq!(report["rr_interval_count"], 4);
     assert_eq!(report["trusted_rr_interval_count"], 4);
-    assert_eq!(report["algorithm_id"], GOOSE_HRV_V0_ID);
-    assert_eq!(report["algorithm_version"], GOOSE_HRV_V0_VERSION);
+    assert_eq!(report["algorithm_id"], BULL_HRV_V0_ID);
+    assert_eq!(report["algorithm_version"], BULL_HRV_V0_VERSION);
     assert_eq!(
         report["promotion_status"],
         "validation_only_rr_interval_scale_still_unverified"
@@ -3466,11 +3466,11 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     );
     assert_eq!(
         report["hrv_report"]["schema"],
-        "goose.hrv-feature-report.v1"
+        "bull.hrv-feature-report.v1"
     );
     assert_eq!(report["hrv_report"]["pass"], true);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert!(
         store
             .daily_recovery_metrics_between(0, i64::MAX)
@@ -3479,7 +3479,7 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
     );
 
     let blocked = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "hrv-validation-missing-label-policy",
         "method": "metrics.hrv_capture_validation",
         "args": {
@@ -3516,46 +3516,46 @@ fn bridge_validates_hrv_against_whoop_label_without_promoting_metric() {
 #[test]
 fn bridge_aggregates_metric_window_features_for_debug_score_inputs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "window-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-window-history-1",
                     "frame_id": "bridge-window-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(80),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-window-history-2",
                     "frame_id": "bridge-window-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-window-motion",
                     "frame_id": "bridge-window-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:05:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3563,7 +3563,7 @@ fn bridge_aggregates_metric_window_features_for_debug_score_inputs() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "window-features-1",
         "method": "metrics.window_features",
         "args": {
@@ -3579,7 +3579,7 @@ fn bridge_aggregates_metric_window_features_for_debug_score_inputs() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.metric-window-feature-report.v1");
+    assert_eq!(report["schema"], "bull.metric-window-feature-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["heart_rate_feature_count"], 3);
     assert_eq!(report["trusted_heart_rate_feature_count"], 3);
@@ -3601,76 +3601,76 @@ fn bridge_aggregates_metric_window_features_for_debug_score_inputs() {
 #[test]
 fn bridge_extracts_resting_heart_rate_features_for_debug_score_inputs() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "resting-heart-rate-feature-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-rhr-history-1",
                     "frame_id": "bridge-rhr-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-25T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(60),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-history-2",
                     "frame_id": "bridge-rhr-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-25T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(80),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-history-3",
                     "frame_id": "bridge-rhr-history-3.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-26T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(62),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-history-4",
                     "frame_id": "bridge-rhr-history-4.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-26T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-history-5",
                     "frame_id": "bridge-rhr-history-5.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(58),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-history-6",
                     "frame_id": "bridge-rhr-history-6.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3678,7 +3678,7 @@ fn bridge_extracts_resting_heart_rate_features_for_debug_score_inputs() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "resting-heart-rate-features-1",
         "method": "metrics.resting_hr_features",
         "args": {
@@ -3696,7 +3696,7 @@ fn bridge_extracts_resting_heart_rate_features_for_debug_score_inputs() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.resting-heart-rate-feature-report.v1"
+        "bull.resting-heart-rate-feature-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["heart_rate_feature_count"], 6);
@@ -3710,11 +3710,11 @@ fn bridge_extracts_resting_heart_rate_features_for_debug_score_inputs() {
 #[test]
 fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     {
-        let store = GooseStore::open(&db).unwrap();
+        let store = BullStore::open(&db).unwrap();
         store
             .insert_daily_recovery_metric(DailyRecoveryMetricInput {
                 daily_metric_id: "prior-rhr-2026-05-26",
@@ -3750,38 +3750,38 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
                 confidence: 0.61,
                 inputs_json: r#"{"fixture":"same_day_hrv_only"}"#,
                 quality_flags_json: r#"["rr_interval_scale_unvalidated"]"#,
-                provenance_json: r#"{"owner":"user","bridge_test":true,"algorithm":"goose.hrv.device_sensor.v0"}"#,
+                provenance_json: r#"{"owner":"user","bridge_test":true,"algorithm":"bull.hrv.device_sensor.v0"}"#,
             })
             .unwrap();
     }
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "rhr-daily-rollup-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-rhr-rollup-history-1",
                     "frame_id": "bridge-rhr-rollup-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(58),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-rollup-history-2",
                     "frame_id": "bridge-rhr-rollup-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3789,7 +3789,7 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "rhr-daily-rollup-1",
         "method": "metrics.resting_hr_daily_rollup",
         "args": {
@@ -3809,7 +3809,7 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.resting-heart-rate-daily-rollup-report.v1"
+        "bull.resting-heart-rate-daily-rollup-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["resting_hr_bpm"], 58.0);
@@ -3820,7 +3820,7 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
     assert_eq!(report["selected_vs_7_day_average_bpm"], -2.0);
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "daily-recovery-metrics-list-1",
         "method": "metrics.daily_recovery_metrics",
         "args": {
@@ -3832,7 +3832,7 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
 
     assert!(list.ok, "{:?}", list.error);
     let list_report = list.result.unwrap();
-    assert_eq!(list_report["schema"], "goose.daily-recovery-metric-list.v1");
+    assert_eq!(list_report["schema"], "bull.daily-recovery-metric-list.v1");
     assert_eq!(list_report["metric_count"], 2);
     assert!(
         list_report["metrics"]
@@ -3852,7 +3852,7 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
             )
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_recovery_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.resting_hr_bpm, Some(58.0));
@@ -3894,11 +3894,11 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
         serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         metric_provenance_json["algorithm"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
     );
     assert_eq!(
         metric_provenance_json["algorithm_version"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
     );
     assert_eq!(metric_provenance_json["source_kind"], "device_sensor");
     let provenance_rows = store
@@ -3909,47 +3909,47 @@ fn bridge_rolls_up_resting_heart_rate_into_daily_recovery_metric() {
         serde_json::from_str(&provenance_rows[0].provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
     );
 }
 
 #[test]
 fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "rhr-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-rhr-validation-history-1",
                     "frame_id": "bridge-rhr-validation-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(58),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-rhr-validation-history-2",
                     "frame_id": "bridge-rhr-validation-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -3957,7 +3957,7 @@ fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metri
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "rhr-validation-1",
         "method": "metrics.resting_hr_capture_validation",
         "args": {
@@ -3982,7 +3982,7 @@ fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metri
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.resting-heart-rate-capture-validation-report.v1"
+        "bull.resting-heart-rate-capture-validation-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(
@@ -3997,15 +3997,15 @@ fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metri
     assert_eq!(report["matching_label_count"], 1);
     assert_eq!(
         report["algorithm_id"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_ID
     );
     assert_eq!(
         report["algorithm_version"],
-        GOOSE_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
+        BULL_RESTING_HEART_RATE_DEVICE_SENSOR_V0_VERSION
     );
     assert_eq!(report["resting_hr_rollup"]["daily_metric_written"], false);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert!(
         store
             .daily_recovery_metrics_between(1_779_842_400_000, 1_779_928_800_000)
@@ -4014,7 +4014,7 @@ fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metri
     );
 
     let blocked = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "rhr-validation-missing-label-policy",
         "method": "metrics.resting_hr_capture_validation",
         "args": {
@@ -4049,11 +4049,11 @@ fn bridge_validates_resting_heart_rate_against_whoop_label_without_writing_metri
 #[test]
 fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-unavailable-status-1",
         "method": "metrics.recovery_unavailable_daily_status",
         "args": {
@@ -4073,7 +4073,7 @@ fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.recovery-unavailable-daily-status-report.v1"
+        "bull.recovery-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["unavailable_metric_count"], 4);
@@ -4099,7 +4099,7 @@ fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
 
     let start_time_unix_ms = report["start_time_unix_ms"].as_i64().unwrap();
     let end_time_unix_ms = report["end_time_unix_ms"].as_i64().unwrap();
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let rows = store
         .daily_recovery_metrics_between(start_time_unix_ms, end_time_unix_ms)
         .unwrap();
@@ -4125,11 +4125,11 @@ fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
         serde_json::from_str(&hrv_row.provenance_json).unwrap();
     assert_eq!(
         hrv_provenance_json["algorithm"],
-        GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_ID
+        BULL_RECOVERY_UNAVAILABLE_STATUS_V0_ID
     );
     assert_eq!(
         hrv_provenance_json["algorithm_version"],
-        GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION
+        BULL_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION
     );
     assert_eq!(hrv_provenance_json["source_kind"], "unavailable");
     assert_eq!(
@@ -4152,7 +4152,7 @@ fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
     assert_eq!(provenance_rows[0].confidence, Some(0.0));
 
     let refresh = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-unavailable-status-refresh",
         "method": "metrics.recovery_unavailable_daily_status",
         "args": {
@@ -4185,46 +4185,46 @@ fn bridge_persists_unavailable_recovery_widget_status_with_provenance() {
 #[test]
 fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-daily-rollup-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-energy-history-1",
                     "frame_id": "bridge-energy-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-history-2",
                     "frame_id": "bridge-energy-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(120),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-motion",
                     "frame_id": "bridge-energy-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:05:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -4232,7 +4232,7 @@ fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-daily-rollup-1",
         "method": "metrics.energy_daily_rollup",
         "args": {
@@ -4255,7 +4255,7 @@ fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.energy-daily-rollup-report.v1");
+    assert_eq!(report["schema"], "bull.energy-daily-rollup-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["daily_metric_written"], true);
     assert_eq!(report["metric_provenance_written"], true);
@@ -4268,7 +4268,7 @@ fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
     assert_eq!(report["covered_minutes"], 10.0);
     assert_eq!(report["profile_weight_kg"], 80.0);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.source_kind, "local_estimate");
@@ -4280,11 +4280,11 @@ fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
         serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         metric_provenance_json["algorithm"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_ID
     );
     assert_eq!(
         metric_provenance_json["algorithm_version"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION
     );
     assert_eq!(metric_provenance_json["source_kind"], "local_estimate");
     assert_eq!(metric_provenance_json["official_labels_policy"], "not_used");
@@ -4296,22 +4296,22 @@ fn bridge_rolls_up_local_energy_into_daily_activity_metric() {
         serde_json::from_str(&provenance_rows[0].provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION
     );
 }
 
 #[test]
 fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     {
-        let store = GooseStore::open(&db).unwrap();
+        let store = BullStore::open(&db).unwrap();
         store
             .upsert_daily_activity_metric(DailyActivityMetricInput {
                 daily_metric_id: "daily-step-device-counter-energy-support",
@@ -4328,7 +4328,7 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
                 confidence: 0.82,
                 inputs_json: r#"{"fixture":"device_counter_steps"}"#,
                 quality_flags_json: r#"["device_counter_step_rollup"]"#,
-                provenance_json: r#"{"source_kind":"device_counter","algorithm":"goose.steps.device_counter.v0"}"#,
+                provenance_json: r#"{"source_kind":"device_counter","algorithm":"bull.steps.device_counter.v0"}"#,
             })
             .unwrap();
         store
@@ -4347,48 +4347,48 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
                 confidence: 0.50,
                 inputs_json: r#"{"fixture":"local_estimate_steps"}"#,
                 quality_flags_json: r#"["raw_motion_step_estimate"]"#,
-                provenance_json: r#"{"source_kind":"local_estimate","algorithm":"goose.steps.raw_motion_estimate.v0"}"#,
+                provenance_json: r#"{"source_kind":"local_estimate","algorithm":"bull.steps.raw_motion_estimate.v0"}"#,
             })
             .unwrap();
     }
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-daily-step-support-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-energy-step-support-history-1",
                     "frame_id": "bridge-energy-step-support-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-step-support-history-2",
                     "frame_id": "bridge-energy-step-support-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(120),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-step-support-motion",
                     "frame_id": "bridge-energy-step-support-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:05:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -4396,7 +4396,7 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-daily-step-support-1",
         "method": "metrics.energy_daily_rollup",
         "args": {
@@ -4419,7 +4419,7 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.energy-daily-rollup-report.v1");
+    assert_eq!(report["schema"], "bull.energy-daily-rollup-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["confidence"], 0.81);
     assert_eq!(report["step_cadence_source_kind"], "device_counter");
@@ -4427,7 +4427,7 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
     assert_eq!(report["step_count"], 500);
     assert_eq!(report["average_cadence_spm"], 90.0);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["daily_metric_id"].as_str().unwrap();
     let metric = store.daily_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.confidence, 0.81);
@@ -4452,11 +4452,11 @@ fn bridge_energy_confidence_uses_only_device_counter_step_cadence_support() {
 #[test]
 fn bridge_persists_unavailable_energy_status_with_provenance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-unavailable-status-1",
         "method": "metrics.energy_unavailable_daily_status",
         "args": {
@@ -4481,7 +4481,7 @@ fn bridge_persists_unavailable_energy_status_with_provenance() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.energy-unavailable-daily-status-report.v1"
+        "bull.energy-unavailable-daily-status-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["energy_daily_rollup"]["pass"], false);
@@ -4499,7 +4499,7 @@ fn bridge_persists_unavailable_energy_status_with_provenance() {
                 .any(|reason| reason == "insufficient_heart_rate_samples")
     }));
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let rows = store.daily_activity_metrics_between(0, i64::MAX).unwrap();
     let unavailable_rows = rows
         .iter()
@@ -4522,11 +4522,11 @@ fn bridge_persists_unavailable_energy_status_with_provenance() {
         serde_json::from_str(&total_row.provenance_json).unwrap();
     assert_eq!(
         provenance_json["algorithm"],
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID
     );
     assert_eq!(
         provenance_json["algorithm_version"],
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION
     );
     assert_eq!(provenance_json["source_kind"], "unavailable");
     assert_eq!(provenance_json["metric_id"], "total_kcal");
@@ -4542,11 +4542,11 @@ fn bridge_persists_unavailable_energy_status_with_provenance() {
 #[test]
 fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     {
-        let store = GooseStore::open(&db).unwrap();
+        let store = BullStore::open(&db).unwrap();
         store
             .upsert_hourly_activity_metric(HourlyActivityMetricInput {
                 hourly_metric_id: "hourly-step-device-counter-energy-support",
@@ -4563,48 +4563,48 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
                 confidence: 0.84,
                 inputs_json: r#"{"fixture":"hourly_device_counter_steps"}"#,
                 quality_flags_json: r#"["device_counter_step_hourly_rollup"]"#,
-                provenance_json: r#"{"source_kind":"device_counter","algorithm":"goose.steps.device_counter.v0"}"#,
+                provenance_json: r#"{"source_kind":"device_counter","algorithm":"bull.steps.device_counter.v0"}"#,
             })
             .unwrap();
     }
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-hourly-rollup-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-energy-hour-history-1",
                     "frame_id": "bridge-energy-hour-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-hour-history-2",
                     "frame_id": "bridge-energy-hour-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(120),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-hour-motion",
                     "frame_id": "bridge-energy-hour-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:05:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -4612,7 +4612,7 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-hourly-rollup-1",
         "method": "metrics.energy_hourly_rollup",
         "args": {
@@ -4635,7 +4635,7 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.energy-hourly-rollup-report.v1");
+    assert_eq!(report["schema"], "bull.energy-hourly-rollup-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["hourly_metric_written"], true);
     assert_eq!(report["metric_provenance_written"], true);
@@ -4648,7 +4648,7 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
     assert_eq!(report["step_count"], 125);
     assert_eq!(report["average_cadence_spm"], 96.0);
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     let metric_id = report["hourly_metric_id"].as_str().unwrap();
     let metric = store.hourly_activity_metric(metric_id).unwrap().unwrap();
     assert_eq!(metric.source_kind, "local_estimate");
@@ -4667,11 +4667,11 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
         serde_json::from_str(&metric.provenance_json).unwrap();
     assert_eq!(
         metric_provenance_json["algorithm"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_ID
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_ID
     );
     assert_eq!(
         metric_provenance_json["algorithm_version"],
-        GOOSE_ENERGY_LOCAL_ESTIMATE_V0_VERSION
+        BULL_ENERGY_LOCAL_ESTIMATE_V0_VERSION
     );
     assert_eq!(metric_provenance_json["source_kind"], "local_estimate");
     assert_eq!(metric_provenance_json["rollup_kind"], "hourly_activity");
@@ -4686,7 +4686,7 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
     assert_eq!(provenance_rows.len(), 1);
 
     let listed = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-hourly-list-1",
         "method": "metrics.hourly_activity_metrics",
         "args": {
@@ -4712,46 +4712,46 @@ fn bridge_rolls_up_local_energy_into_hourly_activity_metric() {
 #[test]
 fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-energy-validation-history-1",
                     "frame_id": "bridge-energy-validation-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-validation-history-2",
                     "frame_id": "bridge-energy-validation-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(120),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-energy-validation-motion",
                     "frame_id": "bridge-energy-validation-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:05:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -4759,7 +4759,7 @@ fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-validation-1",
         "method": "metrics.energy_capture_validation",
         "args": {
@@ -4792,7 +4792,7 @@ fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
     let report = response.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.energy-capture-validation-report.v1"
+        "bull.energy-capture-validation-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(
@@ -4805,7 +4805,7 @@ fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
     assert_eq!(report["energy_rollup"]["daily_metric_written"], false);
 
     let missing_policy_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "energy-validation-missing-label-policy",
         "method": "metrics.energy_capture_validation",
         "args": {
@@ -4849,7 +4849,7 @@ fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
             .any(|issue| issue == "official_label_policy_not_marked")
     );
 
-    let store = GooseStore::open(&db).unwrap();
+    let store = BullStore::open(&db).unwrap();
     assert!(
         store
             .daily_activity_metrics_between(0, i64::MAX)
@@ -4861,46 +4861,46 @@ fn bridge_validates_local_energy_against_whoop_labels_without_writing_metric() {
 #[test]
 fn bridge_builds_local_strain_score_from_feature_reports() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "strain-feature-score-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-strain-history-1",
                     "frame_id": "bridge-strain-history-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(60),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-strain-history-2",
                     "frame_id": "bridge-strain-history-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(80),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-strain-history-3",
                     "frame_id": "bridge-strain-history-3.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:20:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -4908,7 +4908,7 @@ fn bridge_builds_local_strain_score_from_feature_reports() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "strain-feature-score-1",
         "method": "metrics.strain_score_from_features",
         "args": {
@@ -4925,7 +4925,7 @@ fn bridge_builds_local_strain_score_from_feature_reports() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.strain-feature-score-report.v1");
+    assert_eq!(report["schema"], "bull.strain-feature-score-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["max_hr_basis"], "observed_window_max_hr_bpm");
     assert_eq!(report["strain_input"]["resting_hr_bpm"], 60.0);
@@ -4940,66 +4940,66 @@ fn bridge_builds_local_strain_score_from_feature_reports() {
 #[test]
 fn bridge_builds_local_sleep_score_from_motion_features() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-feature-score-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-sleep-motion-1",
                     "frame_id": "bridge-sleep-motion-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T22:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-sleep-motion-2",
                     "frame_id": "bridge-sleep-motion-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T23:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-sleep-motion-3",
                     "frame_id": "bridge-sleep-motion-3.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T00:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(10000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-sleep-motion-4",
                     "frame_id": "bridge-sleep-motion-4.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T01:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-sleep-motion-5",
                     "frame_id": "bridge-sleep-motion-5.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T02:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -5007,7 +5007,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-feature-score-1",
         "method": "metrics.sleep_score_from_features",
         "args": {
@@ -5027,7 +5027,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.sleep-feature-score-report.v1");
+    assert_eq!(report["schema"], "bull.sleep-feature-score-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["sleep_window"]["time_in_bed_minutes"], 240.0);
     assert_eq!(report["sleep_window"]["sleep_duration_minutes"], 180.0);
@@ -5328,7 +5328,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
         }
     }));
     let external_import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-feature-score-external-history",
         "method": "sleep.import_external_history",
         "args": {
@@ -5340,7 +5340,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
     assert!(external_import.ok, "{:?}", external_import.error);
 
     let v1_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-feature-score-v1",
         "method": "metrics.sleep_score_from_features",
         "args": {
@@ -5353,14 +5353,14 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
             "low_motion_threshold_0_to_1": 0.05,
             "disturbance_motion_threshold_0_to_1": 0.20,
             "target_midpoint_minutes_since_midnight": 0.0,
-            "algorithm_id": "goose.sleep.v1",
+            "algorithm_id": "bull.sleep.v1",
             "algorithm_version": "0.1.0",
             "history_import_in_progress": true
         }
     }));
     assert!(v1_response.ok, "{:?}", v1_response.error);
     let v1_report = v1_response.result.unwrap();
-    assert_eq!(v1_report["score_result"]["algorithm_id"], "goose.sleep.v1");
+    assert_eq!(v1_report["score_result"]["algorithm_id"], "bull.sleep.v1");
     assert_eq!(
         v1_report["score_result"]["output"]["model_status"],
         "importing_history"
@@ -5525,7 +5525,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
 
     let export_dir = tempdir.path().join("sleep-feature-export");
     let export = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-feature-score-export",
         "method": "export.raw_timeframe",
         "args": {
@@ -5551,7 +5551,7 @@ fn bridge_canonicalizes_external_sleep_stage_aliases_on_import() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-stage-aliases",
         "method": "sleep.import_external_history",
         "args": {
@@ -5619,7 +5619,7 @@ fn bridge_canonicalizes_external_sleep_stage_aliases_on_import() {
     }));
 
     assert!(response.ok, "{:?}", response.error);
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let stages = store
         .external_sleep_stages_for_session("external-sleep-stage-aliases-1")
         .unwrap();
@@ -5638,7 +5638,7 @@ fn bridge_rejects_external_sleep_stage_outside_parent_session() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-stage-outside-session",
         "method": "sleep.import_external_history",
         "args": {
@@ -5684,7 +5684,7 @@ fn bridge_rejects_external_sleep_stage_outside_parent_session() {
     let message = response.error.unwrap().message;
     assert!(message.contains("must be within parent sleep session"));
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_session("external-sleep-stage-parent")
@@ -5700,7 +5700,7 @@ fn bridge_rejects_external_sleep_stage_without_parent_session() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-orphan-stage",
         "method": "sleep.import_external_history",
         "args": {
@@ -5726,7 +5726,7 @@ fn bridge_rejects_external_sleep_stage_without_parent_session() {
     let message = response.error.unwrap().message;
     assert!(message.contains("external sleep session external-sleep-missing-parent not found"));
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_stages_for_session("external-sleep-missing-parent")
@@ -5744,7 +5744,7 @@ fn bridge_rejects_malformed_external_sleep_stage_summary_atomically() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-malformed-stage-summary",
         "method": "sleep.import_external_history",
         "args": {
@@ -5775,7 +5775,7 @@ fn bridge_rejects_malformed_external_sleep_stage_summary_atomically() {
     let message = response.error.unwrap().message;
     assert!(message.contains("stage_summary_json must contain minutes_by_stage object"));
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_session("external-sleep-malformed-stage-summary")
@@ -5793,7 +5793,7 @@ fn bridge_rejects_malformed_external_sleep_confidence_atomically() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-malformed-confidence",
         "method": "sleep.import_external_history",
         "args": {
@@ -5841,7 +5841,7 @@ fn bridge_rejects_malformed_external_sleep_confidence_atomically() {
     assert!(message.contains("invalid args"));
     assert!(message.contains("invalid type: null"));
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_session("external-sleep-malformed-confidence")
@@ -5859,7 +5859,7 @@ fn bridge_rejects_malformed_external_sleep_stage_confidence_atomically() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-malformed-stage-confidence",
         "method": "sleep.import_external_history",
         "args": {
@@ -5907,7 +5907,7 @@ fn bridge_rejects_malformed_external_sleep_stage_confidence_atomically() {
     assert!(message.contains("invalid args"));
     assert!(message.contains("invalid type: null"));
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_session("external-sleep-malformed-stage-confidence")
@@ -5925,7 +5925,7 @@ fn bridge_rejects_unknown_external_sleep_stage_kind_atomically() {
     let db_path_text = db_path.to_str().unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "external-sleep-unknown-stage-kind",
         "method": "sleep.import_external_history",
         "args": {
@@ -5975,7 +5975,7 @@ fn bridge_rejects_unknown_external_sleep_stage_kind_atomically() {
         )
     );
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     assert!(
         store
             .external_sleep_session("external-sleep-unknown-stage-kind")
@@ -5987,10 +5987,10 @@ fn bridge_rejects_unknown_external_sleep_stage_kind_atomically() {
 #[test]
 fn bridge_persists_sleep_manual_corrections_as_labels() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite").display().to_string();
+    let db_path = tempdir.path().join("bull.sqlite").display().to_string();
 
     let correction = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-correction-label-1",
         "method": "sleep.add_correction_label",
         "args": {
@@ -6027,7 +6027,7 @@ fn bridge_persists_sleep_manual_corrections_as_labels() {
     );
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-correction-label-list-1",
         "method": "sleep.list_correction_labels",
         "args": {
@@ -6053,7 +6053,7 @@ fn bridge_persists_sleep_manual_corrections_as_labels() {
 #[test]
 fn bridge_lists_sleep_correction_label_proof_counts() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite").display().to_string();
+    let db_path = tempdir.path().join("bull.sqlite").display().to_string();
 
     for (label_id, sleep_id, label_type, value) in [
         (
@@ -6088,7 +6088,7 @@ fn bridge_lists_sleep_correction_label_proof_counts() {
         ),
     ] {
         let correction = request(serde_json::json!({
-            "schema": "goose.bridge.request.v1",
+            "schema": "bull.bridge.request.v1",
             "request_id": format!("sleep-correction-{label_id}"),
             "method": "sleep.add_correction_label",
             "args": {
@@ -6111,7 +6111,7 @@ fn bridge_lists_sleep_correction_label_proof_counts() {
     }
 
     let list = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-correction-proof-counts",
         "method": "sleep.list_correction_labels",
         "args": {
@@ -6133,7 +6133,7 @@ fn bridge_lists_sleep_correction_label_proof_counts() {
 #[test]
 fn bridge_validates_packet_sleep_window_against_manual_label_tolerance() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite").display().to_string();
+    let db_path = tempdir.path().join("bull.sqlite").display().to_string();
 
     let frames = [
         ("sleep-window-motion-0", "2026-05-27T22:00:00Z", 10000),
@@ -6149,28 +6149,28 @@ fn bridge_validates_packet_sleep_window_against_manual_label_tolerance() {
             "frame_id": format!("{id}.frame.0"),
             "source": "ios.corebluetooth.notification",
             "captured_at": captured_at,
-            "device_model": "WHOOP 5.0 Goose",
+            "device_model": "WHOOP 5.0 Bull",
             "frame_hex": k10_motion_frame_hex_with_value(sample_value),
             "sensitivity": "user-owned-capture",
-            "device_type": "GOOSE"
+            "device_type": "BULL"
         })
     })
     .collect::<Vec<_>>();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-window-label-validation-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": frames
         }
     }));
     assert!(import.ok, "{:?}", import.error);
 
     let correction = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-window-label-validation-label",
         "method": "sleep.add_correction_label",
         "args": {
@@ -6197,7 +6197,7 @@ fn bridge_validates_packet_sleep_window_against_manual_label_tolerance() {
     assert!(correction.ok, "{:?}", correction.error);
 
     let validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "sleep-window-label-validation-1",
         "method": "sleep.validate_window_labels",
         "args": {
@@ -6217,7 +6217,7 @@ fn bridge_validates_packet_sleep_window_against_manual_label_tolerance() {
     let report = validation.result.unwrap();
     assert_eq!(
         report["schema"],
-        "goose.sleep-window-label-validation-report.v1"
+        "bull.sleep-window-label-validation-report.v1"
     );
     assert_eq!(report["pass"], true);
     assert_eq!(report["label_count"], 1);
@@ -6235,126 +6235,126 @@ fn bridge_validates_packet_sleep_window_against_manual_label_tolerance() {
 #[test]
 fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-feature-score-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-recovery-r17-current",
                     "frame_id": "bridge-recovery-r17-current.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 825, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-r17-baseline",
                     "frame_id": "bridge-recovery-r17-baseline.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 850, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-resting-hr",
                     "frame_id": "bridge-recovery-resting-hr.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(55),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-strain-hr-1",
                     "frame_id": "bridge-recovery-strain-hr-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(60),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-strain-hr-2",
                     "frame_id": "bridge-recovery-strain-hr-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T12:10:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(80),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-strain-hr-3",
                     "frame_id": "bridge-recovery-strain-hr-3.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T12:20:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(100),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-sleep-motion-1",
                     "frame_id": "bridge-recovery-sleep-motion-1.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T22:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-sleep-motion-2",
                     "frame_id": "bridge-recovery-sleep-motion-2.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T23:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-sleep-motion-3",
                     "frame_id": "bridge-recovery-sleep-motion-3.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T00:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(10000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-sleep-motion-4",
                     "frame_id": "bridge-recovery-sleep-motion-4.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T01:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-recovery-sleep-motion-5",
                     "frame_id": "bridge-recovery-sleep-motion-5.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T02:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex_with_value(1000),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -6362,7 +6362,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-feature-score-1",
         "method": "metrics.recovery_score_from_features",
         "args": {
@@ -6393,7 +6393,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
             "respiratory_rate_baseline_rpm": 14.0,
             "skin_temp_delta_c": 0.0,
             "provided_vitals_source": "metrics.recovery_sensor_discovery",
-            "provided_vitals_provenance_json": "{\"source_kind\":\"device_sensor\",\"decoder\":\"goose_packet_decoder\",\"packet_family\":\"vital_event\",\"source\":\"bridge_test\"}",
+            "provided_vitals_provenance_json": "{\"source_kind\":\"device_sensor\",\"decoder\":\"bull_packet_decoder\",\"packet_family\":\"vital_event\",\"source\":\"bridge_test\"}",
             "persist_algorithm_run": true,
             "algorithm_run_id": "bridge-recovery-feature-run-1"
         }
@@ -6401,7 +6401,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.recovery-feature-score-report.v1");
+    assert_eq!(report["schema"], "bull.recovery-feature-score-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["recovery_input"]["hrv_rmssd_ms"], 25.0);
     assert_eq!(report["recovery_input"]["hrv_baseline_rmssd_ms"], 50.0);
@@ -6431,9 +6431,9 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
             .any(|flag| flag == "provided_resp_temp_inputs_not_packet_derived")
     );
 
-    let export_dir = tempdir.path().join("recovery-export.goosebundle");
+    let export_dir = tempdir.path().join("recovery-export.bullbundle");
     let export = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-feature-export",
         "method": "export.raw_timeframe",
         "args": {
@@ -6453,7 +6453,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
     assert!(algorithm_runs.contains("provided_vitals"));
 
     let blocked = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "recovery-feature-score-untrusted-vitals",
         "method": "metrics.recovery_score_from_features",
         "args": {
@@ -6500,66 +6500,66 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
 #[test]
 fn bridge_builds_local_stress_score_from_feature_reports() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let import = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "stress-feature-score-import",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "bridge-stress-current-hr",
                     "frame_id": "bridge-stress-current-hr.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(90),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-stress-motion",
                     "frame_id": "bridge-stress-motion.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:10Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": k10_motion_frame_hex(),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-stress-resting-hr",
                     "frame_id": "bridge-stress-resting-hr.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": historical_k18_frame_hex(60),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-stress-current-r17",
                     "frame_id": "bridge-stress-current-r17.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:01:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 825, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "bridge-stress-baseline-r17",
                     "frame_id": "bridge-stress-baseline-r17.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T04:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": r17_frame_hex(&[800, 850, 800]),
                     "sensitivity": "user-owned-capture",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -6567,7 +6567,7 @@ fn bridge_builds_local_stress_score_from_feature_reports() {
     assert!(import.ok, "{:?}", import.error);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "stress-feature-score-1",
         "method": "metrics.stress_score_from_features",
         "args": {
@@ -6590,7 +6590,7 @@ fn bridge_builds_local_stress_score_from_feature_reports() {
 
     assert!(response.ok, "{:?}", response.error);
     let report = response.result.unwrap();
-    assert_eq!(report["schema"], "goose.stress-feature-score-report.v1");
+    assert_eq!(report["schema"], "bull.stress-feature-score-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["stress_input"]["heart_rate_bpm"], 81.0);
     assert_eq!(report["stress_input"]["resting_hr_bpm"], 60.0);
@@ -6607,11 +6607,11 @@ fn bridge_builds_local_stress_score_from_feature_reports() {
 #[test]
 fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let missing_gate = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-gate-missing",
         "method": "commands.direct_send_gate",
         "args": {
@@ -6631,7 +6631,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let template = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-template",
         "method": "commands.evidence_template",
         "args": {}
@@ -6646,7 +6646,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-validate",
         "method": "commands.validate_evidence",
         "args": {
@@ -6704,7 +6704,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
          [1.010s] Notify command_from_strap queued=true: {GET_HELLO_RESPONSE_FRAME}\n"
     );
     let emulator_evidence = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-emulator-log-evidence",
         "method": "commands.evidence_from_emulator_log",
         "args": {
@@ -6715,7 +6715,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     }));
     assert!(emulator_evidence.ok, "{:?}", emulator_evidence.error);
     let emulator_report = emulator_evidence.result.unwrap();
-    assert_eq!(emulator_report["schema"], "goose.command-evidence.v1");
+    assert_eq!(emulator_report["schema"], "bull.command-evidence.v1");
     assert_eq!(emulator_report["source_log"], "whoop-emulator.log");
     assert_eq!(emulator_report["pass"], true);
     assert_eq!(emulator_report["official_capture_ready"], true);
@@ -6735,7 +6735,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let local_match = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-local-frame-match",
         "method": "commands.promote_local_frame_matches",
         "args": {
@@ -6754,7 +6754,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     let local_match_report = local_match.result.unwrap();
     assert_eq!(
         local_match_report["schema"],
-        "goose.command-local-frame-match-report.v1"
+        "bull.command-local-frame-match-report.v1"
     );
     assert_eq!(local_match_report["matched_count"], 1);
     assert_eq!(local_match_report["promotion_ready"], true);
@@ -6771,7 +6771,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let ready_gate = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-gate-ready",
         "method": "commands.direct_send_gate",
         "args": {
@@ -6803,7 +6803,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let blocked_preflight = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-preflight-blocked",
         "method": "commands.direct_send_preflight",
         "args": {
@@ -6833,7 +6833,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let allowed_preflight = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-preflight-allowed",
         "method": "commands.direct_send_preflight",
         "args": {
@@ -6856,7 +6856,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     let allowed_preflight_result = allowed_preflight.result.unwrap();
     assert_eq!(
         allowed_preflight_result["schema"],
-        "goose.command-direct-send-preflight.v1"
+        "bull.command-direct-send-preflight.v1"
     );
     assert_eq!(allowed_preflight_result["command"], "get_hello");
     assert_eq!(allowed_preflight_result["direct_send_allowed"], true);
@@ -6879,7 +6879,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let blocked_gate = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-gate-blocked",
         "method": "commands.direct_send_gate",
         "args": {
@@ -6903,7 +6903,7 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
     );
 
     let records = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-records",
         "method": "commands.list_validation_records",
         "args": {
@@ -6930,11 +6930,11 @@ fn bridge_persists_command_validation_and_returns_direct_send_gates() {
 #[test]
 fn bridge_reports_command_capture_plan_for_official_validation_work() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-plan-validate",
         "method": "commands.validate_evidence",
         "args": {
@@ -6970,7 +6970,7 @@ fn bridge_reports_command_capture_plan_for_official_validation_work() {
     assert!(validation.ok, "{:?}", validation.error);
 
     let plan = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-plan",
         "method": "commands.capture_plan",
         "args": {
@@ -6980,7 +6980,7 @@ fn bridge_reports_command_capture_plan_for_official_validation_work() {
     }));
     assert!(plan.ok, "{:?}", plan.error);
     let report = plan.result.unwrap();
-    assert_eq!(report["schema"], "goose.command-capture-plan-report.v1");
+    assert_eq!(report["schema"], "bull.command-capture-plan-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["requested_commands_valid"], true);
     assert_eq!(report["validation_records_valid"], true);
@@ -7027,7 +7027,7 @@ fn bridge_reports_command_capture_plan_for_official_validation_work() {
 #[test]
 fn bridge_imports_exported_command_validation_records_with_provenance_gate() {
     let validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-validate-for-import",
         "method": "commands.validate_evidence",
         "args": {
@@ -7072,9 +7072,9 @@ fn bridge_imports_exported_command_validation_records_with_provenance_gate() {
     assert_eq!(get_hello["validated_owner"], "user");
 
     let tempdir = tempfile::tempdir().unwrap();
-    let db_path = tempdir.path().join("goose.sqlite").display().to_string();
+    let db_path = tempdir.path().join("bull.sqlite").display().to_string();
     let imported = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-validation-import",
         "method": "commands.import_validation_records",
         "args": {
@@ -7096,7 +7096,7 @@ fn bridge_imports_exported_command_validation_records_with_provenance_gate() {
     assert_eq!(imported_result["ready_count"], 1);
 
     let ready_gate = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-gate-after-import",
         "method": "commands.direct_send_gate",
         "args": {
@@ -7120,11 +7120,11 @@ fn bridge_imports_exported_command_validation_records_with_provenance_gate() {
     let bad_tempdir = tempfile::tempdir().unwrap();
     let bad_db_path = bad_tempdir
         .path()
-        .join("goose.sqlite")
+        .join("bull.sqlite")
         .display()
         .to_string();
     let rejected = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "command-validation-import-rejected",
         "method": "commands.import_validation_records",
         "args": {
@@ -7158,10 +7158,10 @@ fn bridge_imports_exported_command_validation_records_with_provenance_gate() {
 #[test]
 fn bridge_runs_storage_check_against_app_database_path() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "storage-1",
         "method": "storage.check",
         "args": {
@@ -7189,11 +7189,11 @@ fn bridge_runs_storage_check_against_app_database_path() {
 #[test]
 fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
 
     let started = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "debug-start-session",
         "method": "debug.start_session",
         "args": {
@@ -7201,7 +7201,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
             "session_id": "debug-session-bridge",
             "started_at_unix_ms": 1779840000000u64,
             "bridge": {
-                "url": "ws://127.0.0.1:49152/goose-debug/stream?token=session-token",
+                "url": "ws://127.0.0.1:49152/bull-debug/stream?token=session-token",
                 "bind_host": "127.0.0.1",
                 "token_required": true,
                 "token_present": true,
@@ -7229,7 +7229,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
     );
 
     let command_started = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "debug-start-command",
         "method": "debug.start_command",
         "args": {
@@ -7237,7 +7237,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
             "session_id": "debug-session-bridge",
             "received_at_unix_ms": 1779840000100u64,
             "command": {
-                "schema": "goose.debug.command.v1",
+                "schema": "bull.debug.command.v1",
                 "command_id": "cmd-debug-export",
                 "command": "export.raw_timeframe",
                 "args": {
@@ -7279,7 +7279,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
     );
 
     let app_event = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "debug-record-event",
         "method": "debug.record_event",
         "args": {
@@ -7300,7 +7300,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
     assert_eq!(app_event.result.unwrap()["sequence"], 2);
 
     let command_finished = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "debug-finish-command",
         "method": "debug.finish_command",
         "args": {
@@ -7327,7 +7327,7 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
     assert_eq!(final_snapshot["events"].as_array().unwrap().len(), 3);
 
     let snapshot = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "debug-snapshot",
         "method": "debug.session_snapshot",
         "args": {
@@ -7344,12 +7344,12 @@ fn bridge_records_debug_session_command_events_for_debug_tab_stream() {
 #[test]
 fn bridge_persists_battery_status_history_debug_events() {
     let tempdir = tempfile::tempdir().unwrap();
-    let database_path = tempdir.path().join("goose.sqlite");
+    let database_path = tempdir.path().join("bull.sqlite");
     let database_path = database_path.to_str().unwrap().to_string();
     let session_id = "debug-session-battery-status-history";
 
     let start_session = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "battery-status-start-session",
         "method": "debug.start_session",
         "args": {
@@ -7357,7 +7357,7 @@ fn bridge_persists_battery_status_history_debug_events() {
             "session_id": session_id,
             "started_at_unix_ms": 1779840000000u64,
             "bridge": {
-                "url": "ws://127.0.0.1:49152/goose-debug/stream?token=test",
+                "url": "ws://127.0.0.1:49152/bull-debug/stream?token=test",
                 "bind_host": "127.0.0.1",
                 "token_required": true,
                 "token_present": true,
@@ -7369,7 +7369,7 @@ fn bridge_persists_battery_status_history_debug_events() {
     assert!(start_session.ok, "{:?}", start_session.error);
 
     let first_observation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "battery-status-event-1",
         "method": "debug.record_event",
         "args": {
@@ -7405,7 +7405,7 @@ fn bridge_persists_battery_status_history_debug_events() {
     assert_eq!(first_result["data"]["device_status"], "subscribed");
 
     let second_observation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "battery-status-event-2",
         "method": "debug.record_event",
         "args": {
@@ -7440,7 +7440,7 @@ fn bridge_persists_battery_status_history_debug_events() {
     assert_eq!(second_result["data"]["device_status"], "connected");
 
     let snapshot = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "battery-status-session-snapshot",
         "method": "debug.session_snapshot",
         "args": {
@@ -7483,13 +7483,13 @@ fn bridge_persists_battery_status_history_debug_events() {
 #[test]
 fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
-    let export_dir = tempdir.path().join("debug-export.goosebundle");
-    let zip_path = tempdir.path().join("debug-export.goosebundle.zip");
+    let export_dir = tempdir.path().join("debug-export.bullbundle");
+    let zip_path = tempdir.path().join("debug-export.bullbundle.zip");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-raw-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -7498,8 +7498,8 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
             "zip_output_path": zip_path,
             "start": "2026-05-01T00:00:00Z",
             "end": "2026-05-28T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "include_sqlite": true
         }
     }));
@@ -7525,7 +7525,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|file| file["path"] == "data/goose.sqlite")
+            .any(|file| file["path"] == "data/bull.sqlite")
     );
 
     let validation =
@@ -7535,7 +7535,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     assert!(zip_validation.pass, "{:?}", zip_validation.issues);
 
     let bridge_validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-validate-1",
         "method": "export.validate_bundle",
         "args": {
@@ -7558,7 +7558,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     );
 
     let bridge_zip_validation = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-validate-zip-1",
         "method": "export.validate_bundle",
         "args": {
@@ -7573,7 +7573,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     assert_eq!(bridge_zip_validation.result.unwrap()["pass"], true);
 
     let bridge_privacy_lint = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "privacy-lint-1",
         "method": "privacy.lint",
         "args": {
@@ -7582,7 +7582,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     }));
     assert!(bridge_privacy_lint.ok, "{:?}", bridge_privacy_lint.error);
     let privacy_result = bridge_privacy_lint.result.unwrap();
-    assert_eq!(privacy_result["schema"], "goose.privacy-lint-report.v1");
+    assert_eq!(privacy_result["schema"], "bull.privacy-lint-report.v1");
     assert_eq!(privacy_result["pass"], true);
     assert_eq!(privacy_result["input_valid"], true);
     assert_eq!(privacy_result["files_readable"], true);
@@ -7602,7 +7602,7 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     );
 
     let bridge_zip_privacy_lint = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "privacy-lint-zip-1",
         "method": "privacy.lint",
         "args": {
@@ -7623,13 +7623,13 @@ fn bridge_privacy_lint_serializes_next_actions_for_leaky_artifact() {
     let path = tempdir.path().join("leaky-debug.log");
     fs::write(
         &path,
-        "ws://127.0.0.1/goose-debug/stream?token=secret\n\
+        "ws://127.0.0.1/bull-debug/stream?token=secret\n\
          GET https://api-7.whoop.com/metrics-service/v1/metrics user_id=123\n",
     )
     .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "privacy-lint-next-actions-1",
         "method": "privacy.lint",
         "args": {
@@ -7639,7 +7639,7 @@ fn bridge_privacy_lint_serializes_next_actions_for_leaky_artifact() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.privacy-lint-report.v1");
+    assert_eq!(result["schema"], "bull.privacy-lint-report.v1");
     assert_eq!(result["pass"], false);
     assert_eq!(result["input_valid"], true);
     assert_eq!(result["files_readable"], true);
@@ -7678,7 +7678,7 @@ fn bridge_capture_sanitize_redacts_owned_capture_before_privacy_lint() {
     .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-sanitize-1",
         "method": "capture.sanitize",
         "args": {
@@ -7690,7 +7690,7 @@ fn bridge_capture_sanitize_redacts_owned_capture_before_privacy_lint() {
 
     assert!(response.ok, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert_eq!(result["schema"], "goose.capture-sanitize-report.v1");
+    assert_eq!(result["schema"], "bull.capture-sanitize-report.v1");
     assert_eq!(result["pass"], true);
     assert_eq!(result["input_valid"], true);
     assert_eq!(result["output_ready"], true);
@@ -7713,7 +7713,7 @@ fn bridge_capture_sanitize_redacts_owned_capture_before_privacy_lint() {
     assert!(!sanitized.contains("AA:BB:CC:DD:EE:FF"));
 
     let lint_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-sanitize-privacy-1",
         "method": "privacy.lint",
         "args": {
@@ -7731,9 +7731,9 @@ fn bridge_export_validation_serializes_next_actions_for_failed_bundle() {
     fs::write(
         tempdir.path().join("manifest.json"),
         r#"{
-  "schema_version": "goose.export.v1",
-  "app_version": "goose-app/bridge-test",
-  "core_version": "goose-core/bridge-test",
+  "schema_version": "bull.export.v1",
+  "app_version": "bull-app/bridge-test",
+  "core_version": "bull-core/bridge-test",
   "time_window": {"start": "2026-05-27T00:00:00Z", "end": "2026-05-27T01:00:00Z"},
   "data_families": ["raw_evidence"],
   "files": [{"path": "raw.jsonl", "sha256": "not-the-checksum", "kind": "jsonl"}]
@@ -7742,7 +7742,7 @@ fn bridge_export_validation_serializes_next_actions_for_failed_bundle() {
     .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-validate-failed-actions-1",
         "method": "export.validate_bundle",
         "args": {
@@ -7767,12 +7767,12 @@ fn bridge_export_validation_serializes_next_actions_for_failed_bundle() {
 #[test]
 fn bridge_raw_export_honors_selected_data_families() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
-    let export_dir = tempdir.path().join("selected-export.goosebundle");
+    let export_dir = tempdir.path().join("selected-export.bullbundle");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-selected-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -7780,8 +7780,8 @@ fn bridge_raw_export_honors_selected_data_families() {
             "output_dir": export_dir,
             "start": "2026-05-01T00:00:00Z",
             "end": "2026-05-28T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "include_sqlite": true,
             "data_families": ["raw_evidence", "decoded_frames"]
         }
@@ -7808,7 +7808,7 @@ fn bridge_raw_export_honors_selected_data_families() {
                 |path| path.contains("raw_evidence") || path.contains("decoded_frames")
             ))
     );
-    assert!(!export_dir.join("data/goose.sqlite").exists());
+    assert!(!export_dir.join("data/bull.sqlite").exists());
 
     let validation = validate_export_bundle(&export_dir).unwrap();
     assert!(validation.pass, "{:?}", validation.issues);
@@ -7817,12 +7817,12 @@ fn bridge_raw_export_honors_selected_data_families() {
 #[test]
 fn bridge_raw_export_honors_metric_and_algorithm_filters() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
-    let export_dir = tempdir.path().join("filtered-export.goosebundle");
+    let export_dir = tempdir.path().join("filtered-export.bullbundle");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-filtered-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -7830,11 +7830,11 @@ fn bridge_raw_export_honors_metric_and_algorithm_filters() {
             "output_dir": export_dir,
             "start": "2026-05-01T00:00:00Z",
             "end": "2026-05-28T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "data_families": ["metric_features"],
             "metric_families": [" hrv ", "hrv"],
-            "algorithm_ids": ["goose.hrv.v0"],
+            "algorithm_ids": ["bull.hrv.v0"],
             "algorithm_versions": ["0.1.0"]
         }
     }));
@@ -7846,7 +7846,7 @@ fn bridge_raw_export_honors_metric_and_algorithm_filters() {
     assert_eq!(result["manifest"]["filters"]["metric_families"][0], "hrv");
     assert_eq!(
         result["manifest"]["filters"]["algorithm_ids"][0],
-        "goose.hrv.v0"
+        "bull.hrv.v0"
     );
     assert_eq!(
         result["manifest"]["filters"]["algorithm_versions"][0],
@@ -7861,13 +7861,13 @@ fn bridge_raw_export_honors_metric_and_algorithm_filters() {
 #[test]
 fn bridge_raw_export_honors_capture_session_filter() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     let db_path = db.display().to_string();
-    let export_dir = tempdir.path().join("capture-filtered-export.goosebundle");
+    let export_dir = tempdir.path().join("capture-filtered-export.bullbundle");
 
     for session_id in ["capture-session-a", "capture-session-b"] {
         let response = request(serde_json::json!({
-            "schema": "goose.bridge.request.v1",
+            "schema": "bull.bridge.request.v1",
             "request_id": format!("start-{session_id}"),
             "method": "capture.start_session",
             "args": {
@@ -7875,7 +7875,7 @@ fn bridge_raw_export_honors_capture_session_filter() {
                 "session_id": session_id,
                 "source": "ios.corebluetooth.notification",
                 "started_at_unix_ms": 1770000000000i64,
-                "device_model": "WHOOP 5.0 Goose",
+                "device_model": "WHOOP 5.0 Bull",
                 "provenance": {}
             }
         }));
@@ -7883,34 +7883,34 @@ fn bridge_raw_export_honors_capture_session_filter() {
     }
 
     let import_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "capture-import-filtered",
         "method": "capture.import_frame_batch",
         "args": {
             "database_path": db_path,
-            "parser_version": "goose-core/bridge-test",
+            "parser_version": "bull-core/bridge-test",
             "frames": [
                 {
                     "evidence_id": "capture-a-command",
                     "frame_id": "capture-a-command.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:00Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": GET_HELLO_FRAME,
                     "sensitivity": "user-owned-capture",
                     "capture_session_id": "capture-session-a",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 },
                 {
                     "evidence_id": "capture-b-command",
                     "frame_id": "capture-b-command.frame.0",
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T12:00:01Z",
-                    "device_model": "WHOOP 5.0 Goose",
+                    "device_model": "WHOOP 5.0 Bull",
                     "frame_hex": GET_HELLO_FRAME,
                     "sensitivity": "user-owned-capture",
                     "capture_session_id": "capture-session-b",
-                    "device_type": "GOOSE"
+                    "device_type": "BULL"
                 }
             ]
         }
@@ -7919,7 +7919,7 @@ fn bridge_raw_export_honors_capture_session_filter() {
     assert_eq!(import_response.result.unwrap()["frames_inserted"], 2);
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-capture-filtered-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -7927,8 +7927,8 @@ fn bridge_raw_export_honors_capture_session_filter() {
             "output_dir": export_dir,
             "start": "2026-05-28T00:00:00Z",
             "end": "2026-05-29T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "data_families": ["raw_evidence", "decoded_frames", "packet_timeline"],
             "capture_session_ids": [" capture-session-a ", "capture-session-a"]
         }
@@ -7955,14 +7955,14 @@ fn bridge_raw_export_honors_capture_session_filter() {
 #[test]
 fn bridge_raw_export_honors_packet_and_sensor_filters() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
     let export_dir = tempdir
         .path()
-        .join("packet-signal-filtered-export.goosebundle");
+        .join("packet-signal-filtered-export.bullbundle");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-packet-signal-filtered-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -7970,8 +7970,8 @@ fn bridge_raw_export_honors_packet_and_sensor_filters() {
             "output_dir": export_dir,
             "start": "2026-05-01T00:00:00Z",
             "end": "2026-05-28T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "data_families": ["sensor_samples"],
             "packet_type_names": [" REALTIME_RAW_DATA ", "REALTIME_RAW_DATA"],
             "sensor_source_signals": ["raw_motion_k10", "raw_motion_k10"]
@@ -7999,12 +7999,12 @@ fn bridge_raw_export_honors_packet_and_sensor_filters() {
 #[test]
 fn bridge_raw_export_can_omit_raw_bytes() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
+    let db = tempdir.path().join("bull.sqlite");
     seed_fixture_database(&db);
-    let export_dir = tempdir.path().join("hash-only-export.goosebundle");
+    let export_dir = tempdir.path().join("hash-only-export.bullbundle");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "export-hash-only-1",
         "method": "export.raw_timeframe",
         "args": {
@@ -8012,8 +8012,8 @@ fn bridge_raw_export_can_omit_raw_bytes() {
             "output_dir": export_dir,
             "start": "2026-05-01T00:00:00Z",
             "end": "2026-05-28T00:00:00Z",
-            "app_version": "goose-app/bridge-test",
-            "core_version": "goose-core/bridge-test",
+            "app_version": "bull-app/bridge-test",
+            "core_version": "bull-core/bridge-test",
             "data_families": ["raw_evidence", "decoded_frames"],
             "include_raw_bytes": false
         }
@@ -8033,14 +8033,14 @@ fn bridge_raw_export_can_omit_raw_bytes() {
 #[test]
 fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     let tempdir = tempfile::tempdir().unwrap();
-    let db = tempdir.path().join("goose.sqlite");
-    let store = GooseStore::open(&db).unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let store = BullStore::open(&db).unwrap();
     store
         .start_capture_session(CaptureSessionInput {
             session_id: "bridge-walk-capture-session",
             source: "synthetic.bridge.validation",
             started_at_unix_ms: 1_780_392_000_000,
-            device_model: "WHOOP 5.0 Goose",
+            device_model: "WHOOP 5.0 Bull",
             active_device_id: None,
             provenance_json: r#"{"owned_capture":true}"#,
         })
@@ -8067,7 +8067,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
                 evidence_id,
                 source: "synthetic.bridge.validation",
                 captured_at,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 payload: &payload,
                 sensitivity: "public-test-fixture",
                 capture_session_id: Some("bridge-walk-capture-session"),
@@ -8095,7 +8095,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
                     parsed_payload_json,
                     parser_version,
                     warnings_json
-                ) VALUES (?1, ?2, 'Goose', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
+                ) VALUES (?1, ?2, 'Bull', 2, 0, 2, '0000', '', 1, 1, ?3, 'DATA', ?4, NULL, ?5, 'test', '[]')
                 "#,
                 (
                     format!("frame-{evidence_id}"),
@@ -8116,7 +8116,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     }
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "local-health-validation-scaffold-1",
         "method": "validation.local_health_manifest_scaffold",
         "args": {
@@ -8130,7 +8130,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     let manifest = response.result.unwrap();
     assert_eq!(
         manifest["schema"],
-        "goose.local-health-validation-manifest.v1"
+        "bull.local-health-validation-manifest.v1"
     );
     assert_eq!(manifest["manifest_id"], "bridge-walk-capture-scaffold");
     assert_eq!(manifest["start"], "2026-06-02T10:00:30Z");
@@ -8206,7 +8206,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     );
 
     let runbook_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "local-health-validation-runbook-1",
         "method": "validation.local_health_manifest_runbook",
         "args": {
@@ -8218,11 +8218,11 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     let runbook = runbook_response.result.unwrap();
     assert_eq!(
         runbook["schema"],
-        "goose.local-health-validation-runbook.v1"
+        "bull.local-health-validation-runbook.v1"
     );
     assert_eq!(
         runbook["manifest_schema"],
-        "goose.local-health-validation-manifest.v1"
+        "bull.local-health-validation-manifest.v1"
     );
     assert_eq!(
         runbook["json_report_path"],
@@ -8235,14 +8235,14 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     let markdown = runbook["markdown"].as_str().unwrap();
     assert!(markdown.contains("# Local Health Validation Runbook"));
     assert!(markdown.contains("bridge-walk-capture-scaffold"));
-    assert!(markdown.contains("goose-local-health-validation-suite"));
+    assert!(markdown.contains("bull-local-health-validation-suite"));
     assert!(markdown.contains("bridge-walk-capture-session"));
     assert!(markdown.contains("K10/raw_motion_stream_result"));
     assert!(markdown.contains("official_whoop_step_delta"));
     assert!(markdown.contains("validation labels only"));
 
     let review_response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "local-health-validation-review-1",
         "method": "validation.local_health_manifest_review",
         "args": {
@@ -8254,7 +8254,7 @@ fn bridge_scaffolds_local_health_validation_manifest_from_database() {
     let review = review_response.result.unwrap();
     assert_eq!(
         review["schema"],
-        "goose.local-health-validation-manifest-review.v1"
+        "bull.local-health-validation-manifest-review.v1"
     );
     assert_eq!(review["manifest_id"], "bridge-walk-capture-scaffold");
     assert_eq!(review["status"], "operator_edits_required");
@@ -8289,7 +8289,7 @@ fn bridge_dry_runs_health_sync_policy_for_app_sync_screen() {
     .unwrap();
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "health-sync-1",
         "method": "health_sync.dry_run",
         "args": args
@@ -8358,7 +8358,7 @@ fn bridge_errors_are_structured_for_bad_input() {
     assert_eq!(response.error.unwrap().code, "invalid_json");
 
     let response = request(serde_json::json!({
-        "schema": "goose.bridge.request.v1",
+        "schema": "bull.bridge.request.v1",
         "request_id": "bad-method",
         "method": "unknown.method",
         "args": {}
@@ -8369,18 +8369,18 @@ fn bridge_errors_are_structured_for_bad_input() {
 
 #[test]
 fn c_abi_bridge_roundtrips_json_and_allows_freeing_results() {
-    let version_ptr = goose_core_version_json();
+    let version_ptr = bull_core_version_json();
     assert!(!version_ptr.is_null());
     let version = unsafe { CStr::from_ptr(version_ptr) }
         .to_str()
         .unwrap()
         .to_string();
     assert!(version.contains("bridge_request_schema"));
-    unsafe { goose_bridge_free_string(version_ptr) };
+    unsafe { bull_bridge_free_string(version_ptr) };
 
     let request = CString::new(
         serde_json::json!({
-            "schema": "goose.bridge.request.v1",
+            "schema": "bull.bridge.request.v1",
             "request_id": "ffi-parse-1",
             "method": "protocol.parse_frame_hex",
             "args": {"frame_hex": GET_HELLO_FRAME}
@@ -8388,14 +8388,14 @@ fn c_abi_bridge_roundtrips_json_and_allows_freeing_results() {
         .to_string(),
     )
     .unwrap();
-    let response_ptr = unsafe { goose_bridge_handle_json(request.as_ptr()) };
+    let response_ptr = unsafe { bull_bridge_handle_json(request.as_ptr()) };
     assert!(!response_ptr.is_null());
     let response_json = unsafe { CStr::from_ptr(response_ptr) }.to_str().unwrap();
     let response: BridgeResponse = serde_json::from_str(response_json).unwrap();
     assert!(response.ok, "{:?}", response.error);
-    unsafe { goose_bridge_free_string(response_ptr) };
+    unsafe { bull_bridge_free_string(response_ptr) };
 
-    let null_response_ptr = unsafe { goose_bridge_handle_json(std::ptr::null()) };
+    let null_response_ptr = unsafe { bull_bridge_handle_json(std::ptr::null()) };
     assert!(!null_response_ptr.is_null());
     let null_response_json = unsafe { CStr::from_ptr(null_response_ptr) }
         .to_str()
@@ -8403,7 +8403,7 @@ fn c_abi_bridge_roundtrips_json_and_allows_freeing_results() {
     let null_response: BridgeResponse = serde_json::from_str(null_response_json).unwrap();
     assert!(!null_response.ok);
     assert_eq!(null_response.error.unwrap().code, "null_request");
-    unsafe { goose_bridge_free_string(null_response_ptr) };
+    unsafe { bull_bridge_free_string(null_response_ptr) };
 }
 
 fn request(value: serde_json::Value) -> BridgeResponse {
@@ -8411,7 +8411,7 @@ fn request(value: serde_json::Value) -> BridgeResponse {
 }
 
 fn seed_recovery_calibration(db: &std::path::Path) {
-    let store = GooseStore::open(db).unwrap();
+    let store = BullStore::open(db).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
@@ -8423,7 +8423,7 @@ fn seed_recovery_calibration(db: &std::path::Path) {
         &dataset,
         &CalibrationOptions {
             metric_family: "recovery".to_string(),
-            algorithm_id: "goose.recovery.v0".to_string(),
+            algorithm_id: "bull.recovery.v0".to_string(),
             algorithm_version: "0.1.0".to_string(),
             split_at: "2026-05-04T00:00:00Z".to_string(),
             min_train_rows: 2,
@@ -8436,7 +8436,7 @@ fn seed_recovery_calibration(db: &std::path::Path) {
 }
 
 fn seed_stored_recovery_calibration_inputs(db: &std::path::Path) {
-    let store = GooseStore::open(db).unwrap();
+    let store = BullStore::open(db).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
@@ -8455,7 +8455,7 @@ fn seed_stored_recovery_calibration_inputs(db: &std::path::Path) {
         let start_time = format!("2026-05-{day:02}T00:00:00Z");
         let end_time = format!("2026-05-{day:02}T23:59:00Z");
         let output_json = serde_json::json!({
-            "algorithm_id": "goose.recovery.v0",
+            "algorithm_id": "bull.recovery.v0",
             "algorithm_version": "0.1.0",
             "score_0_to_100": prediction,
             "components": []
@@ -8465,7 +8465,7 @@ fn seed_stored_recovery_calibration_inputs(db: &std::path::Path) {
             store
                 .insert_algorithm_run(&AlgorithmRunRecord {
                     run_id: run_id.clone(),
-                    algorithm_id: "goose.recovery.v0".to_string(),
+                    algorithm_id: "bull.recovery.v0".to_string(),
                     version: "0.1.0".to_string(),
                     start_time: start_time.clone(),
                     end_time,
@@ -8502,7 +8502,7 @@ fn seed_stored_recovery_calibration_inputs(db: &std::path::Path) {
 }
 
 fn seed_stored_sleep_v1_calibration_inputs(db: &std::path::Path) {
-    let store = GooseStore::open(db).unwrap();
+    let store = BullStore::open(db).unwrap();
     for definition in built_in_algorithm_definitions() {
         store.upsert_algorithm_definition(&definition).unwrap();
     }
@@ -8522,7 +8522,7 @@ fn seed_stored_sleep_v1_calibration_inputs(db: &std::path::Path) {
         let start_time = format!("2026-05-{day:02}T22:00:00Z");
         let end_time = format!("2026-05-{:02}T06:00:00Z", day + 1);
         let output_json = serde_json::json!({
-            "algorithm_id": "goose.sleep.v1",
+            "algorithm_id": "bull.sleep.v1",
             "algorithm_version": "0.1.0",
             "score_0_to_100": prediction,
             "model_status": "baseline_ready",
@@ -8535,7 +8535,7 @@ fn seed_stored_sleep_v1_calibration_inputs(db: &std::path::Path) {
             store
                 .insert_algorithm_run(&AlgorithmRunRecord {
                     run_id: run_id.clone(),
-                    algorithm_id: "goose.sleep.v1".to_string(),
+                    algorithm_id: "bull.sleep.v1".to_string(),
                     version: "0.1.0".to_string(),
                     start_time: start_time.clone(),
                     end_time,
@@ -8572,7 +8572,7 @@ fn seed_stored_sleep_v1_calibration_inputs(db: &std::path::Path) {
 }
 
 fn seed_fixture_database(db: &Path) {
-    let store = GooseStore::open(db).unwrap();
+    let store = BullStore::open(db).unwrap();
     let fixture_root = Path::new("fixtures");
     let index = build_fixture_index(fixture_root).unwrap();
     let report = import_fixture_index(
@@ -8581,7 +8581,7 @@ fn seed_fixture_database(db: &Path) {
         CaptureImportOptions {
             fixture_root,
             database_path: db,
-            parser_version: "goose-core/bridge-test",
+            parser_version: "bull-core/bridge-test",
         },
     );
     assert!(report.pass, "{:?}", report.issues);

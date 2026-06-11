@@ -1,6 +1,6 @@
 use std::fs;
 
-use goose_core::activity_candidates::{
+use bull_core::activity_candidates::{
     ACTIVITY_CANDIDATE_CLASSIFIER_INPUT_SCHEMA, ACTIVITY_CANDIDATE_CLASSIFIER_REPORT_SCHEMA,
     ACTIVITY_CANDIDATE_UNKNOWN_ACTIVITY_TYPE, ActivityCandidateClassifierInput,
     ActivityCandidateClassifierOptions, ActivityCandidateClassifierReport, ActivityCandidateState,
@@ -9,10 +9,10 @@ use goose_core::activity_candidates::{
     ActivitySessionPacketDerivedMetricPlanReport, run_activity_candidate_classifier,
     run_packet_derived_activity_metric_planner,
 };
-use goose_core::activity_sessions::{
+use bull_core::activity_sessions::{
     ACTIVITY_SESSION_CORRECTION_SCOPE, activity_session_correction_plans,
 };
-use goose_core::health_sync::{ActivitySyncCandidate, ActivitySyncMetric, HealthSyncSessionKind};
+use bull_core::health_sync::{ActivitySyncCandidate, ActivitySyncMetric, HealthSyncSessionKind};
 use serde_json::json;
 
 fn provenance(source: &str, evidence_id: &str) -> ActivityEvidenceProvenance {
@@ -185,11 +185,11 @@ fn assert_packet_derived_plan_report(
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(
         report.schema,
-        goose_core::activity_candidates::ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_REPORT_SCHEMA
+        bull_core::activity_candidates::ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_REPORT_SCHEMA
     );
     assert_eq!(
         report.generated_by,
-        goose_core::activity_candidates::ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_GENERATED_BY
+        bull_core::activity_candidates::ACTIVITY_SESSION_PACKET_DERIVED_METRIC_PLAN_GENERATED_BY
     );
     assert_eq!(report.session_id, expected_session_id);
     assert_eq!(report.activity_type, expected_activity_type);
@@ -495,7 +495,7 @@ fn packet_derived_hr_only_and_motion_only_windows_keep_provenance_and_blockers_v
             .and_then(serde_json::Value::as_object)
             .and_then(|value| value.get("fixture_id"))
             .and_then(serde_json::Value::as_str)
-            == Some("synthetic.goose.v5.historical_k18_packet")
+            == Some("synthetic.bull.v5.historical_k18_packet")
     );
     assert_eq!(
         hr_only.provenance["motion_provenance"],
@@ -559,7 +559,7 @@ fn packet_derived_hr_only_and_motion_only_windows_keep_provenance_and_blockers_v
             .and_then(serde_json::Value::as_object)
             .and_then(|value| value.get("fixture_id"))
             .and_then(serde_json::Value::as_str)
-            == Some("synthetic.goose.v5.k10_motion_summary_short")
+            == Some("synthetic.bull.v5.k10_motion_summary_short")
     );
     assert_eq!(
         motion_only.provenance["heart_rate_provenance"],

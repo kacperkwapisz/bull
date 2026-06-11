@@ -1,5 +1,5 @@
 {
-  "schema": "goose.activity-health-sync-dry-run.v1",
+  "schema": "bull.activity-health-sync-dry-run.v1",
   "platform": "health_kit",
   "permission_grants": ["HKWorkout"],
   "partial_plan_policy": "allow_planned_rows_after_confirmation",

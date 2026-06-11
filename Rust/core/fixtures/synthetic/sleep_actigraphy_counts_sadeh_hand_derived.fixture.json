@@ -7,7 +7,7 @@
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.sleep-actigraphy-counts-input.v1",
+  "schema": "bull.sleep-actigraphy-counts-input.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "One-minute synthetic activity-count window with active edges and quiet middle epochs for Sadeh-style sleep/wake scoring.",

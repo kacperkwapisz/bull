@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    GooseError, GooseResult,
-    store::{DebugCommandRow, DebugEventRow, DebugSessionRow, GooseStore},
+    BullError, BullResult,
+    store::{DebugCommandRow, DebugEventRow, DebugSessionRow, BullStore},
 };
 
-pub const DEBUG_WS_CONTRACT_SCHEMA: &str = "goose.debug-ws-contract.v1";
-pub const DEBUG_EVENT_SCHEMA: &str = "goose.debug.event.v1";
-pub const DEBUG_COMMAND_SCHEMA: &str = "goose.debug.command.v1";
+pub const DEBUG_WS_CONTRACT_SCHEMA: &str = "bull.debug-ws-contract.v1";
+pub const DEBUG_EVENT_SCHEMA: &str = "bull.debug.event.v1";
+pub const DEBUG_COMMAND_SCHEMA: &str = "bull.debug.command.v1";
 pub const DEBUG_EVENT_TOPIC_ACTIVITY_FEATURE_WINDOW_CREATED: &str =
     "activity.feature.window.created";
 pub const DEBUG_EVENT_TOPIC_ACTIVITY_CANDIDATE_CREATED: &str = "activity.candidate.created";
@@ -247,8 +247,8 @@ pub fn validate_debug_ws_contract(input: &DebugWsContractInput) -> DebugWsContra
     let pass = contract_ready;
 
     DebugWsContractReport {
-        schema: "goose.debug-ws-contract-report.v1".to_string(),
-        generated_by: "goose-debug-ws-contract".to_string(),
+        schema: "bull.debug-ws-contract-report.v1".to_string(),
+        generated_by: "bull-debug-ws-contract".to_string(),
         pass,
         input_valid,
         bridge_valid,
@@ -305,13 +305,13 @@ fn debug_command_result_issue(issue: &str) -> bool {
 }
 
 pub fn start_debug_session(
-    store: &GooseStore,
+    store: &BullStore,
     input: &DebugSessionStartInput,
-) -> GooseResult<DebugSessionSnapshot> {
+) -> BullResult<DebugSessionSnapshot> {
     validate_required("session_id", &input.session_id)?;
     let bridge_issues = debug_bridge_config_issues(&input.bridge);
     if !bridge_issues.is_empty() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "invalid debug bridge config: {}",
             bridge_issues.join(", ")
         )));
@@ -330,25 +330,25 @@ pub fn start_debug_session(
 }
 
 pub fn start_debug_command(
-    store: &GooseStore,
+    store: &BullStore,
     input: &DebugCommandStartInput,
-) -> GooseResult<DebugSessionSnapshot> {
+) -> BullResult<DebugSessionSnapshot> {
     validate_required("session_id", &input.session_id)?;
     if store.debug_session(&input.session_id)?.is_none() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "debug session {} not found",
             input.session_id
         )));
     }
     let command_issues = debug_command_envelope_issues(&input.command);
     if !command_issues.is_empty() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "invalid debug command: {}",
             command_issues.join(", ")
         )));
     }
     let args_json = serde_json::to_string(&input.command.args)
-        .map_err(|error| GooseError::message(format!("cannot serialize command args: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot serialize command args: {error}")))?;
     store.insert_debug_command(&DebugCommandRow {
         command_id: input.command.command_id.clone(),
         session_id: input.session_id.clone(),
@@ -376,17 +376,17 @@ pub fn start_debug_command(
 }
 
 pub fn finish_debug_command(
-    store: &GooseStore,
+    store: &BullStore,
     input: &DebugCommandFinishInput,
-) -> GooseResult<DebugSessionSnapshot> {
+) -> BullResult<DebugSessionSnapshot> {
     validate_required("session_id", &input.session_id)?;
     validate_required("command_id", &input.command_id)?;
     validate_required("message", &input.message)?;
     let command = store.debug_command(&input.command_id)?.ok_or_else(|| {
-        GooseError::message(format!("debug command {} not found", input.command_id))
+        BullError::message(format!("debug command {} not found", input.command_id))
     })?;
     if command.session_id != input.session_id {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "debug command {} belongs to session {}, not {}",
             input.command_id, command.session_id, input.session_id
         )));
@@ -413,12 +413,12 @@ pub fn finish_debug_command(
 }
 
 pub fn append_debug_event(
-    store: &GooseStore,
+    store: &BullStore,
     input: &DebugEventInput,
-) -> GooseResult<DebugEventEnvelope> {
+) -> BullResult<DebugEventEnvelope> {
     validate_required("session_id", &input.session_id)?;
     if store.debug_session(&input.session_id)?.is_none() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "debug session {} not found",
             input.session_id
         )));
@@ -426,10 +426,10 @@ pub fn append_debug_event(
     if let Some(command_id) = input.command_id.as_deref() {
         if !command_id.trim().is_empty() {
             let command = store.debug_command(command_id)?.ok_or_else(|| {
-                GooseError::message(format!("debug command {command_id} not found"))
+                BullError::message(format!("debug command {command_id} not found"))
             })?;
             if command.session_id != input.session_id {
-                return Err(GooseError::message(format!(
+                return Err(BullError::message(format!(
                     "debug command {command_id} belongs to session {}, not {}",
                     command.session_id, input.session_id
                 )));
@@ -452,13 +452,13 @@ pub fn append_debug_event(
     };
     let event_issues = debug_event_shape_issues(&event);
     if !event_issues.is_empty() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "invalid debug event: {}",
             event_issues.join(", ")
         )));
     }
     let data_json = serde_json::to_string(&event.data)
-        .map_err(|error| GooseError::message(format!("cannot serialize event data: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot serialize event data: {error}")))?;
     store.insert_debug_event(&DebugEventRow {
         session_id: event.session_id.clone(),
         sequence: u64_to_i64("sequence", event.sequence)?,
@@ -475,13 +475,13 @@ pub fn append_debug_event(
 }
 
 pub fn debug_session_snapshot(
-    store: &GooseStore,
+    store: &BullStore,
     session_id: &str,
-) -> GooseResult<DebugSessionSnapshot> {
+) -> BullResult<DebugSessionSnapshot> {
     validate_required("session_id", session_id)?;
     let session = store
         .debug_session(session_id)?
-        .ok_or_else(|| GooseError::message(format!("debug session {session_id} not found")))?;
+        .ok_or_else(|| BullError::message(format!("debug session {session_id} not found")))?;
     let bridge = DebugBridgeConfig {
         url: session.bridge_url,
         bind_host: session.bind_host,
@@ -494,12 +494,12 @@ pub fn debug_session_snapshot(
         .debug_commands_for_session(session_id)?
         .into_iter()
         .map(command_from_row)
-        .collect::<GooseResult<Vec<_>>>()?;
+        .collect::<BullResult<Vec<_>>>()?;
     let events = store
         .debug_events_for_session(session_id)?
         .into_iter()
         .map(debug_event_envelope_from_row)
-        .collect::<GooseResult<Vec<_>>>()?;
+        .collect::<BullResult<Vec<_>>>()?;
     let contract_input = DebugWsContractInput {
         schema: DEBUG_WS_CONTRACT_SCHEMA.to_string(),
         bridge: bridge.clone(),
@@ -508,7 +508,7 @@ pub fn debug_session_snapshot(
     };
     let contract_report = validate_debug_ws_contract(&contract_input);
     Ok(DebugSessionSnapshot {
-        schema: "goose.debug-session-snapshot.v1".to_string(),
+        schema: "bull.debug-session-snapshot.v1".to_string(),
         session_id: session_id.to_string(),
         bridge,
         commands,
@@ -540,7 +540,7 @@ fn validate_bridge(bridge: &DebugBridgeConfig, issues: &mut Vec<String>) {
     if !(bridge.url.starts_with("ws://") || bridge.url.starts_with("wss://")) {
         issues.push("bridge_url_must_be_websocket".to_string());
     }
-    if !bridge.url.contains("/goose-debug/stream") {
+    if !bridge.url.contains("/bull-debug/stream") {
         issues.push("bridge_url_missing_debug_stream_path".to_string());
     }
     if !bridge.token_required {
@@ -701,13 +701,13 @@ fn debug_ws_next_action(issue: &str) -> DebugWsNextAction {
     };
     let action = match reason {
         "unsupported_schema" => {
-            "Update the debug stream contract input to goose.debug-ws-contract.v1, then rerun the contract validator."
+            "Update the debug stream contract input to bull.debug-ws-contract.v1, then rerun the contract validator."
         }
         "bridge_url_must_be_websocket" => {
             "Use a ws:// or wss:// URL for the local debug stream, then rerun the contract validator."
         }
         "bridge_url_missing_debug_stream_path" => {
-            "Bind the debug stream on /goose-debug/stream so agents and tests connect to the expected path."
+            "Bind the debug stream on /bull-debug/stream so agents and tests connect to the expected path."
         }
         "bridge_token_required" => {
             "Require a per-session token for the debug stream before accepting clients."
@@ -722,7 +722,7 @@ fn debug_ws_next_action(issue: &str) -> DebugWsNextAction {
             "Expose a visible remote-bind toggle and approval state before enabling non-loopback debug access."
         }
         "command_schema_invalid" => {
-            "Emit debug commands with schema goose.debug.command.v1, then rerun the contract validator."
+            "Emit debug commands with schema bull.debug.command.v1, then rerun the contract validator."
         }
         "command_id_required" => {
             "Assign a non-empty stable command_id before recording the debug command."
@@ -737,7 +737,7 @@ fn debug_ws_next_action(issue: &str) -> DebugWsNextAction {
             "Serialize command args as a JSON object, using an empty object when the command has no parameters."
         }
         "event_schema_invalid" => {
-            "Emit debug events with schema goose.debug.event.v1, then rerun the contract validator."
+            "Emit debug events with schema bull.debug.event.v1, then rerun the contract validator."
         }
         "event_session_id_required" => {
             "Attach the active debug session id to every persisted debug event."
@@ -754,7 +754,7 @@ fn debug_ws_next_action(issue: &str) -> DebugWsNextAction {
             "Serialize debug event data as a JSON object, using an empty object when there is no payload."
         }
         "event_sequence_not_strictly_increasing" => {
-            "Append events through Goose storage so sequence numbers strictly increase before streaming."
+            "Append events through Bull storage so sequence numbers strictly increase before streaming."
         }
         "event_time_decreased" => {
             "Use non-decreasing event timestamps within a debug session before rerunning the validator."
@@ -772,7 +772,7 @@ fn debug_ws_next_action(issue: &str) -> DebugWsNextAction {
             "Finish the debug action with debug.finish_command so a command.result event is persisted."
         }
         _ => {
-            "Resolve the debug stream contract issue, then rerun goose-debug-ws-contract or refresh the Debug snapshot."
+            "Resolve the debug stream contract issue, then rerun bull-debug-ws-contract or refresh the Debug snapshot."
         }
     };
     DebugWsNextAction {
@@ -797,9 +797,9 @@ fn is_allowed_level(level: &str) -> bool {
     matches!(level, "trace" | "debug" | "info" | "warn" | "error")
 }
 
-fn command_from_row(row: DebugCommandRow) -> GooseResult<DebugCommandEnvelope> {
+fn command_from_row(row: DebugCommandRow) -> BullResult<DebugCommandEnvelope> {
     let args = serde_json::from_str::<serde_json::Value>(&row.args_json)
-        .map_err(|error| GooseError::message(format!("cannot parse command args JSON: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot parse command args JSON: {error}")))?;
     Ok(DebugCommandEnvelope {
         schema: row.schema,
         command_id: row.command_id,
@@ -809,9 +809,9 @@ fn command_from_row(row: DebugCommandRow) -> GooseResult<DebugCommandEnvelope> {
     })
 }
 
-pub fn debug_event_envelope_from_row(row: DebugEventRow) -> GooseResult<DebugEventEnvelope> {
+pub fn debug_event_envelope_from_row(row: DebugEventRow) -> BullResult<DebugEventEnvelope> {
     let data = serde_json::from_str::<serde_json::Value>(&row.data_json)
-        .map_err(|error| GooseError::message(format!("cannot parse event data JSON: {error}")))?;
+        .map_err(|error| BullError::message(format!("cannot parse event data JSON: {error}")))?;
     Ok(DebugEventEnvelope {
         schema: row.schema,
         session_id: row.session_id,
@@ -826,28 +826,28 @@ pub fn debug_event_envelope_from_row(row: DebugEventRow) -> GooseResult<DebugEve
     })
 }
 
-fn validate_required(name: &str, value: &str) -> GooseResult<()> {
+fn validate_required(name: &str, value: &str) -> BullResult<()> {
     if value.trim().is_empty() {
-        Err(GooseError::message(format!("{name} is required")))
+        Err(BullError::message(format!("{name} is required")))
     } else {
         Ok(())
     }
 }
 
-fn object_value(value: serde_json::Value, name: &str) -> GooseResult<serde_json::Value> {
+fn object_value(value: serde_json::Value, name: &str) -> BullResult<serde_json::Value> {
     if value.is_object() {
         Ok(value)
     } else {
-        Err(GooseError::message(format!("{name} must be a JSON object")))
+        Err(BullError::message(format!("{name} must be a JSON object")))
     }
 }
 
-fn u64_to_i64(name: &str, value: u64) -> GooseResult<i64> {
-    i64::try_from(value).map_err(|_| GooseError::message(format!("{name} is too large")))
+fn u64_to_i64(name: &str, value: u64) -> BullResult<i64> {
+    i64::try_from(value).map_err(|_| BullError::message(format!("{name} is too large")))
 }
 
-fn i64_to_u64(name: &str, value: i64) -> GooseResult<u64> {
-    u64::try_from(value).map_err(|_| GooseError::message(format!("{name} is negative")))
+fn i64_to_u64(name: &str, value: i64) -> BullResult<u64> {
+    u64::try_from(value).map_err(|_| BullError::message(format!("{name} is negative")))
 }
 
 fn sorted_unique_issues(mut issues: Vec<String>) -> Vec<String> {

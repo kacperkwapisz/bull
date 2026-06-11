@@ -1,5 +1,5 @@
 {
-  "schema": "goose.health-sync-dry-run.v1",
+  "schema": "bull.health-sync-dry-run.v1",
   "platform": "health_kit",
   "permission_grants": ["heartRate", "heartRateVariabilitySDNN"],
   "partial_plan_policy": "allow_planned_rows_after_confirmation",
@@ -18,7 +18,7 @@
       "value": 61.0,
       "unit": "count/min",
       "approved_by_user": true,
-      "provenance": {"evidence_ids": ["synthetic.goose.v5.get_hello_frame"]}
+      "provenance": {"evidence_ids": ["synthetic.bull.v5.get_hello_frame"]}
     },
     {
       "record_id": "hrv-sdnn-2026-05-27",
@@ -29,7 +29,7 @@
       "end_time": "2026-05-27T00:15:00Z",
       "value": 42.0,
       "unit": "ms",
-      "algorithm_id": "goose.hrv.v0",
+      "algorithm_id": "bull.hrv.v0",
       "algorithm_version": "0.1.0",
       "approved_by_user": true,
       "provenance": {"run_id": "hrv-demo-run", "component": "sdnn"}
@@ -43,7 +43,7 @@
       "end_time": "2026-05-27T00:15:00Z",
       "value": 38.0,
       "unit": "ms",
-      "algorithm_id": "goose.hrv.v0",
+      "algorithm_id": "bull.hrv.v0",
       "algorithm_version": "0.1.0",
       "approved_by_user": true,
       "provenance": {"run_id": "hrv-demo-run", "component": "rmssd"}

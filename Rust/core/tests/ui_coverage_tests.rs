@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use goose_core::ui_coverage::{
+use bull_core::ui_coverage::{
     LayoutCoverageRule, NavigationCoverageRule, SourceClassCoverageRule, UiCoverageAuditInput,
     UiCoverageExpectedInventory, UiCoverageInventoryPaths, UiCoverageRules, UiCoverageStatus,
     UiResourceCoverageRule, run_ui_coverage_audit,
@@ -192,7 +192,7 @@ fn deferred_surfaces_are_reported_as_review_debt_without_becoming_missing() {
         "class_name,category,module,package_path,path\nOtherUiWidget,other_ui,other,com/whoop/other,sources/OtherUiWidget.java\n",
     );
     let input = UiCoverageAuditInput {
-        schema: "goose.ui-coverage-audit.v1".to_string(),
+        schema: "bull.ui-coverage-audit.v1".to_string(),
         inventory: UiCoverageInventoryPaths {
             navigation_destinations_csv: "navigation-destinations.csv".to_string(),
             layouts_csv: "layouts.csv".to_string(),
@@ -209,7 +209,7 @@ fn deferred_surfaces_are_reported_as_review_debt_without_becoming_missing() {
                 class_or_graph: None,
                 class_prefix: None,
                 status: UiCoverageStatus::Defer,
-                goose_area: "Activity".to_string(),
+                bull_area: "Activity".to_string(),
                 target_level: None,
                 reason: Some("Manual local activity UX mapping is pending.".to_string()),
             }],
@@ -218,7 +218,7 @@ fn deferred_surfaces_are_reported_as_review_debt_without_becoming_missing() {
                 resource: None,
                 category: Some("browser".to_string()),
                 status: UiCoverageStatus::Defer,
-                goose_area: "Content".to_string(),
+                bull_area: "Content".to_string(),
                 target_level: None,
                 reason: Some("Embedded content surfaces need manual review.".to_string()),
             }],
@@ -228,7 +228,7 @@ fn deferred_surfaces_are_reported_as_review_debt_without_becoming_missing() {
                 variant: None,
                 resource: None,
                 status: UiCoverageStatus::Defer,
-                goose_area: "Coverage Review".to_string(),
+                bull_area: "Coverage Review".to_string(),
                 target_level: None,
                 reason: Some("Layout resource file family needs screen mapping.".to_string()),
             }],
@@ -238,7 +238,7 @@ fn deferred_surfaces_are_reported_as_review_debt_without_becoming_missing() {
                 category: Some("other_ui".to_string()),
                 module: None,
                 status: UiCoverageStatus::Defer,
-                goose_area: "Coverage Review".to_string(),
+                bull_area: "Coverage Review".to_string(),
                 target_level: None,
                 reason: Some("Miscellaneous UI class needs module-level review.".to_string()),
             }],
@@ -381,7 +381,7 @@ fn expected_inventory_drift_fails_with_regeneration_next_action() {
 
 fn input_with_rules() -> UiCoverageAuditInput {
     UiCoverageAuditInput {
-        schema: "goose.ui-coverage-audit.v1".to_string(),
+        schema: "bull.ui-coverage-audit.v1".to_string(),
         inventory: UiCoverageInventoryPaths {
             navigation_destinations_csv: "navigation-destinations.csv".to_string(),
             layouts_csv: "layouts.csv".to_string(),
@@ -399,7 +399,7 @@ fn input_with_rules() -> UiCoverageAuditInput {
                     class_or_graph: None,
                     class_prefix: None,
                     status: UiCoverageStatus::Implement,
-                    goose_area: "Today".to_string(),
+                    bull_area: "Today".to_string(),
                     target_level: Some("L3".to_string()),
                     reason: None,
                 },
@@ -411,10 +411,10 @@ fn input_with_rules() -> UiCoverageAuditInput {
                     class_or_graph: None,
                     class_prefix: None,
                     status: UiCoverageStatus::Omit,
-                    goose_area: "Out of scope".to_string(),
+                    bull_area: "Out of scope".to_string(),
                     target_level: None,
                     reason: Some(
-                        "Social/community features are not part of Goose MVP.".to_string(),
+                        "Social/community features are not part of Bull MVP.".to_string(),
                     ),
                 },
             ],
@@ -424,7 +424,7 @@ fn input_with_rules() -> UiCoverageAuditInput {
                     resource: None,
                     category: Some("fragment".to_string()),
                     status: UiCoverageStatus::ApproximateLocally,
-                    goose_area: "Screens".to_string(),
+                    bull_area: "Screens".to_string(),
                     target_level: Some("component_inventory".to_string()),
                     reason: None,
                 },
@@ -433,7 +433,7 @@ fn input_with_rules() -> UiCoverageAuditInput {
                     resource: None,
                     category: Some("activity".to_string()),
                     status: UiCoverageStatus::ApproximateLocally,
-                    goose_area: "Navigation shell".to_string(),
+                    bull_area: "Navigation shell".to_string(),
                     target_level: Some("component_inventory".to_string()),
                     reason: None,
                 },
@@ -444,7 +444,7 @@ fn input_with_rules() -> UiCoverageAuditInput {
                 variant: None,
                 resource: None,
                 status: UiCoverageStatus::ApproximateLocally,
-                goose_area: "Resource inventory".to_string(),
+                bull_area: "Resource inventory".to_string(),
                 target_level: Some("resource_inventory".to_string()),
                 reason: None,
             }],
@@ -454,7 +454,7 @@ fn input_with_rules() -> UiCoverageAuditInput {
                 category: Some("fragment".to_string()),
                 module: None,
                 status: UiCoverageStatus::ApproximateLocally,
-                goose_area: "Screen inventory".to_string(),
+                bull_area: "Screen inventory".to_string(),
                 target_level: Some("component_inventory".to_string()),
                 reason: None,
             }],

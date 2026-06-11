@@ -2,12 +2,12 @@
   "id": "synthetic.openwhoop.activity_health_sync_comparison",
   "path": "synthetic/openwhoop_activity_health_sync_comparison.json",
   "kind": "synthetic",
-  "source": "Hand-derived OpenWhoop-inspired activity dry-run comparison fixture from Goose's current planner and the OpenWhoop reference commit 55c5c1e2e02d3822c33e258838a57bb7d9e2ca53.",
+  "source": "Hand-derived OpenWhoop-inspired activity dry-run comparison fixture from Bull's current planner and the OpenWhoop reference commit 55c5c1e2e02d3822c33e258838a57bb7d9e2ca53.",
   "captured_at": "2026-05-29T00:00:00Z",
   "device_model": "not_applicable",
   "device_firmware": "not_applicable",
   "app_version": "not_applicable",
-  "schema": "goose.activity-health-sync-dry-run.v1",
+  "schema": "bull.activity-health-sync-dry-run.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
   "notes": "Covers planned activity-session labels, destination activity mappings, and attached metric/interval counts for OpenWhoop-inspired dry-run comparison. Strain comparison remains covered by the existing strain reference tests. The referenced OpenWhoop snapshot did not include a license file at the cited commit; use it as reverse-engineering prior art only.",
@@ -31,7 +31,7 @@
         "end_time": "2026-05-27T06:45:00Z",
         "attached_metric_count": 1,
         "attached_interval_count": 1,
-        "goose_marker": "goose:activity:running:synthetic.activity.run_like.session"
+        "bull_marker": "bull:activity:running:synthetic.activity.run_like.session"
       },
       {
         "session_id": "synthetic.activity.ride_like.session",
@@ -45,7 +45,7 @@
         "end_time": "2026-05-27T08:00:00Z",
         "attached_metric_count": 1,
         "attached_interval_count": 1,
-        "goose_marker": "goose:activity:cycling:synthetic.activity.ride_like.session"
+        "bull_marker": "bull:activity:cycling:synthetic.activity.ride_like.session"
       },
       {
         "session_id": "synthetic.activity.strength_like.session",
@@ -59,7 +59,7 @@
         "end_time": "2026-05-27T18:30:00Z",
         "attached_metric_count": 1,
         "attached_interval_count": 1,
-        "goose_marker": "goose:activity:strength:synthetic.activity.strength_like.session"
+        "bull_marker": "bull:activity:strength:synthetic.activity.strength_like.session"
       }
     ]
   }

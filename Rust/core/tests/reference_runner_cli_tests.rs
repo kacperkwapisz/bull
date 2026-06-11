@@ -4,7 +4,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use goose_core::store::GooseStore;
+use bull_core::store::BullStore;
 
 #[test]
 fn neurokit_hrv_adapter_emits_external_reference_contract() {
@@ -12,20 +12,20 @@ fn neurokit_hrv_adapter_emits_external_reference_contract() {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("tools/reference/neurokit_hrv.py")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--family")
         .arg("hrv")
         .arg("--provider")
         .arg("external.neurokit2.hrv")
         .arg("--output-format")
-        .arg("goose.external-reference-output.v1")
+        .arg("bull.external-reference-output.v1")
         .arg("--allow-hand-derived-fallback")
         .output()
         .unwrap();
     assert!(output.status.success());
 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.external-reference-output.v1");
+    assert_eq!(report["schema"], "bull.external-reference-output.v1");
     assert_eq!(report["algorithm_id"], "reference.hrv.neurokit2.v1");
     assert_eq!(report["provider"], "external.neurokit2.hrv");
     assert_eq!(report["provider_version"], "test-fallback");
@@ -58,20 +58,20 @@ fn pyhrv_time_domain_adapter_emits_external_reference_contract() {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("tools/reference/pyhrv_time_domain.py")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--family")
         .arg("hrv")
         .arg("--provider")
         .arg("external.pyhrv.hrv")
         .arg("--output-format")
-        .arg("goose.external-reference-output.v1")
+        .arg("bull.external-reference-output.v1")
         .arg("--allow-hand-derived-fallback")
         .output()
         .unwrap();
     assert!(output.status.success());
 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.external-reference-output.v1");
+    assert_eq!(report["schema"], "bull.external-reference-output.v1");
     assert_eq!(report["algorithm_id"], "reference.hrv.pyhrv_time_domain.v1");
     assert_eq!(report["provider"], "external.pyhrv.hrv");
     assert_eq!(report["provider_version"], "test-fallback");
@@ -111,14 +111,14 @@ fn pyactigraphy_sadeh_adapter_emits_external_reference_contract() {
         .arg("--provider")
         .arg("external.pyactigraphy.sadeh")
         .arg("--output-format")
-        .arg("goose.external-reference-output.v1")
+        .arg("bull.external-reference-output.v1")
         .arg("--allow-hand-derived-fallback")
         .output()
         .unwrap();
     assert!(output.status.success());
 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.external-reference-output.v1");
+    assert_eq!(report["schema"], "bull.external-reference-output.v1");
     assert_eq!(
         report["algorithm_id"],
         "reference.sleep.pyactigraphy_sadeh.v1"
@@ -127,7 +127,7 @@ fn pyactigraphy_sadeh_adapter_emits_external_reference_contract() {
     assert_eq!(report["provider_version"], "test-fallback");
     assert_eq!(
         report["input_schema"],
-        "goose.sleep-actigraphy-counts-input.v1"
+        "bull.sleep-actigraphy-counts-input.v1"
     );
     assert_eq!(
         report["output_units"]["sleep_efficiency_fraction"],
@@ -172,17 +172,17 @@ fn ggir_sleep_summary_adapter_emits_external_reference_contract() {
         .arg("--provider")
         .arg("external.ggir.sleep")
         .arg("--output-format")
-        .arg("goose.external-reference-output.v1")
+        .arg("bull.external-reference-output.v1")
         .output()
         .unwrap();
     assert!(output.status.success());
 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema"], "goose.external-reference-output.v1");
+    assert_eq!(report["schema"], "bull.external-reference-output.v1");
     assert_eq!(report["algorithm_id"], "reference.sleep.ggir_summary.v1");
     assert_eq!(report["provider"], "external.ggir.sleep");
     assert_eq!(report["provider_version"], "3.3-4");
-    assert_eq!(report["input_schema"], "goose.sleep-ggir-summary-input.v1");
+    assert_eq!(report["input_schema"], "bull.sleep-ggir-summary-input.v1");
     assert_eq!(
         report["output_units"]["wake_after_sleep_onset_minutes"],
         "minutes"
@@ -221,9 +221,9 @@ fn ggir_sleep_summary_adapter_emits_external_reference_contract() {
 fn reference_runner_executes_named_neurokit_hrv_adapter_and_stores_run() {
     let tempdir = tempfile::tempdir().unwrap();
     let report_path = tempdir.path().join("neurokit-reference-report.json");
-    let db_path = tempdir.path().join("goose-neurokit-reference.sqlite");
+    let db_path = tempdir.path().join("bull-neurokit-reference.sqlite");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -231,7 +231,7 @@ fn reference_runner_executes_named_neurokit_hrv_adapter_and_stores_run() {
         .arg("--provider")
         .arg("external.neurokit2.hrv")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--external-command")
         .arg("python3")
         .arg("--external-arg")
@@ -250,7 +250,7 @@ fn reference_runner_executes_named_neurokit_hrv_adapter_and_stores_run() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["provider_kind"], "external_reference");
     assert_eq!(report["algorithm_id"], "reference.hrv.neurokit2.v1");
     assert_eq!(report["input_valid"], true);
@@ -272,7 +272,7 @@ fn reference_runner_executes_named_neurokit_hrv_adapter_and_stores_run() {
         true
     );
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let definition = store
         .algorithm_definition("reference.hrv.neurokit2.v1", "1.0.0")
         .unwrap()
@@ -306,7 +306,7 @@ fn reference_runner_reports_machine_readable_blockers_for_insufficient_input() {
     )
     .unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -321,7 +321,7 @@ fn reference_runner_reports_machine_readable_blockers_for_insufficient_input() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["pass"], false);
     assert_eq!(report["input_valid"], true);
     assert_eq!(report["provider_valid"], true);
@@ -355,9 +355,9 @@ fn reference_runner_reports_machine_readable_blockers_for_insufficient_input() {
 fn reference_runner_executes_named_pyhrv_adapter_and_stores_run() {
     let tempdir = tempfile::tempdir().unwrap();
     let report_path = tempdir.path().join("pyhrv-reference-report.json");
-    let db_path = tempdir.path().join("goose-pyhrv-reference.sqlite");
+    let db_path = tempdir.path().join("bull-pyhrv-reference.sqlite");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -365,7 +365,7 @@ fn reference_runner_executes_named_pyhrv_adapter_and_stores_run() {
         .arg("--provider")
         .arg("external.pyhrv.hrv")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--external-command")
         .arg("python3")
         .arg("--external-arg")
@@ -384,7 +384,7 @@ fn reference_runner_executes_named_pyhrv_adapter_and_stores_run() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["provider_kind"], "external_reference");
     assert_eq!(report["algorithm_id"], "reference.hrv.pyhrv_time_domain.v1");
     assert_eq!(report["provenance"]["output_units"]["rmssd_ms"], "ms");
@@ -397,7 +397,7 @@ fn reference_runner_executes_named_pyhrv_adapter_and_stores_run() {
         true
     );
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let definition = store
         .algorithm_definition("reference.hrv.pyhrv_time_domain.v1", "1.0.0")
         .unwrap()
@@ -420,9 +420,9 @@ fn reference_runner_executes_named_pyhrv_adapter_and_stores_run() {
 fn reference_runner_executes_named_pyactigraphy_sadeh_adapter_and_stores_run() {
     let tempdir = tempfile::tempdir().unwrap();
     let report_path = tempdir.path().join("pyactigraphy-reference-report.json");
-    let db_path = tempdir.path().join("goose-pyactigraphy-reference.sqlite");
+    let db_path = tempdir.path().join("bull-pyactigraphy-reference.sqlite");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -449,7 +449,7 @@ fn reference_runner_executes_named_pyactigraphy_sadeh_adapter_and_stores_run() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["provider_kind"], "external_reference");
     assert_eq!(
         report["algorithm_id"],
@@ -461,7 +461,7 @@ fn reference_runner_executes_named_pyactigraphy_sadeh_adapter_and_stores_run() {
     );
     assert_eq!(report["output"]["sleep_epoch_count"], 6);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let definition = store
         .algorithm_definition("reference.sleep.pyactigraphy_sadeh.v1", "1.0.0")
         .unwrap()
@@ -485,9 +485,9 @@ fn reference_runner_executes_named_pyactigraphy_sadeh_adapter_and_stores_run() {
 fn reference_runner_executes_named_ggir_sleep_adapter_and_stores_run() {
     let tempdir = tempfile::tempdir().unwrap();
     let report_path = tempdir.path().join("ggir-reference-report.json");
-    let db_path = tempdir.path().join("goose-ggir-reference.sqlite");
+    let db_path = tempdir.path().join("bull-ggir-reference.sqlite");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -512,7 +512,7 @@ fn reference_runner_executes_named_ggir_sleep_adapter_and_stores_run() {
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["provider_kind"], "external_reference");
     assert_eq!(report["algorithm_id"], "reference.sleep.ggir_summary.v1");
     assert_eq!(
@@ -521,7 +521,7 @@ fn reference_runner_executes_named_ggir_sleep_adapter_and_stores_run() {
     );
     assert_eq!(report["output"]["valid_night_count"], 2);
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let definition = store
         .algorithm_definition("reference.sleep.ggir_summary.v1", "1.0.0")
         .unwrap()
@@ -549,13 +549,13 @@ fn reference_runner_executes_external_provider_contract_and_stores_run() {
     let tempdir = tempfile::tempdir().unwrap();
     let script_path = tempdir.path().join("external-neurokit-fixture.sh");
     let report_path = tempdir.path().join("external-reference-report.json");
-    let db_path = tempdir.path().join("goose-reference.sqlite");
+    let db_path = tempdir.path().join("bull-reference.sqlite");
     write_executable_script(
         &script_path,
         r#"#!/bin/sh
 cat <<'JSON'
 {
-  "schema": "goose.external-reference-output.v1",
+  "schema": "bull.external-reference-output.v1",
   "family": "hrv",
   "provider": "external.neurokit2.hrv",
   "provider_version": "0.2.10",
@@ -564,8 +564,8 @@ cat <<'JSON'
   "algorithm_id": "reference.hrv.neurokit2.v1",
   "algorithm_version": "1.0.0",
   "display_name": "NeuroKit2 HRV Reference Fixture",
-  "input_schema": "goose.hrv-input.v1",
-  "output_schema": "goose.hrv-neurokit2-reference-output.v1",
+  "input_schema": "bull.hrv-input.v1",
+  "output_schema": "bull.hrv-neurokit2-reference-output.v1",
   "start_time": "2026-05-27T00:00:00Z",
   "end_time": "2026-05-27T00:01:00Z",
   "output": {
@@ -604,7 +604,7 @@ JSON
 "#,
     );
 
-    let status = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let status = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdout(Stdio::null())
         .arg("--family")
@@ -612,7 +612,7 @@ JSON
         .arg("--provider")
         .arg("external.neurokit2.hrv")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--external-command")
         .arg(&script_path)
         .arg("--external-arg")
@@ -629,7 +629,7 @@ JSON
 
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["schema"], "goose.reference-algo-report.v1");
+    assert_eq!(report["schema"], "bull.reference-algo-report.v1");
     assert_eq!(report["provider_kind"], "external_reference");
     assert_eq!(report["pass"], true);
     assert_eq!(report["algorithm_id"], "reference.hrv.neurokit2.v1");
@@ -658,7 +658,7 @@ JSON
         64
     );
 
-    let store = GooseStore::open(&db_path).unwrap();
+    let store = BullStore::open(&db_path).unwrap();
     let definition = store
         .algorithm_definition("reference.hrv.neurokit2.v1", "1.0.0")
         .unwrap()
@@ -687,7 +687,7 @@ fn reference_runner_rejects_external_provider_with_wrong_schema() {
         r#"#!/bin/sh
 cat <<'JSON'
 {
-  "schema": "not-goose",
+  "schema": "not-bull",
   "family": "hrv",
   "provider": "external.neurokit2.hrv",
   "provider_version": "0.2.10",
@@ -711,14 +711,14 @@ JSON
 "#,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let output = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("--family")
         .arg("hrv")
         .arg("--provider")
         .arg("external.neurokit2.hrv")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--external-command")
         .arg(&script_path)
         .output()
@@ -738,7 +738,7 @@ fn reference_runner_rejects_external_provider_without_output_units() {
         r#"#!/bin/sh
 cat <<'JSON'
 {
-  "schema": "goose.external-reference-output.v1",
+  "schema": "bull.external-reference-output.v1",
   "family": "hrv",
   "provider": "external.neurokit2.hrv",
   "provider_version": "0.2.10",
@@ -760,14 +760,14 @@ JSON
 "#,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_goose-reference-algo-runner"))
+    let output = Command::new(env!("CARGO_BIN_EXE_bull-reference-algo-runner"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("--family")
         .arg("hrv")
         .arg("--provider")
         .arg("external.neurokit2.hrv")
         .arg("--input")
-        .arg("fixtures/synthetic/hrv_goose_v0_hand_derived.json")
+        .arg("fixtures/synthetic/hrv_bull_v0_hand_derived.json")
         .arg("--external-command")
         .arg(&script_path)
         .output()

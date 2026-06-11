@@ -1,15 +1,15 @@
-use goose_core::{
+use bull_core::{
     energy_rollup::{
-        EnergyDailyRollupOptions, GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID,
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
+        EnergyDailyRollupOptions, BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID,
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION,
         rollup_energy_unavailable_daily_status_for_store,
     },
-    store::{DailyActivityMetricInput, GooseStore},
+    store::{DailyActivityMetricInput, BullStore},
 };
 
 #[test]
 fn energy_unavailable_status_writes_calorie_activity_metrics_with_provenance() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
 
     let report = rollup_energy_unavailable_daily_status_for_store(
         &store,
@@ -35,7 +35,7 @@ fn energy_unavailable_status_writes_calorie_activity_metrics_with_provenance() {
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(
         report.schema,
-        "goose.energy-unavailable-daily-status-report.v1"
+        "bull.energy-unavailable-daily-status-report.v1"
     );
     assert_eq!(report.energy_daily_rollup.pass, false);
     assert_eq!(report.available_energy_metric_count, 0);
@@ -76,11 +76,11 @@ fn energy_unavailable_status_writes_calorie_activity_metrics_with_provenance() {
     let provenance: serde_json::Value = serde_json::from_str(&active.provenance_json).unwrap();
     assert_eq!(
         provenance["algorithm"],
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_ID
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_ID
     );
     assert_eq!(
         provenance["algorithm_version"],
-        GOOSE_ENERGY_UNAVAILABLE_STATUS_V0_VERSION
+        BULL_ENERGY_UNAVAILABLE_STATUS_V0_VERSION
     );
     assert_eq!(provenance["source_kind"], "unavailable");
     assert_eq!(provenance["metric_id"], "active_kcal");
@@ -99,7 +99,7 @@ fn energy_unavailable_status_writes_calorie_activity_metrics_with_provenance() {
 
 #[test]
 fn energy_unavailable_status_skips_calories_when_available_metric_exists() {
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     store
         .upsert_daily_activity_metric(DailyActivityMetricInput {
             daily_metric_id: "daily-activity-energy-2026-06-02-europe-london-local-estimate-v0",
@@ -116,7 +116,7 @@ fn energy_unavailable_status_skips_calories_when_available_metric_exists() {
             confidence: 0.74,
             inputs_json: r#"{"heart_rate_sample_count":120}"#,
             quality_flags_json: r#"["local_energy_estimate"]"#,
-            provenance_json: r#"{"algorithm":"goose.energy.local_estimate.v0","source_kind":"local_estimate"}"#,
+            provenance_json: r#"{"algorithm":"bull.energy.local_estimate.v0","source_kind":"local_estimate"}"#,
         })
         .unwrap();
 

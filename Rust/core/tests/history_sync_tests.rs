@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use goose_core::{
+use bull_core::{
     capture_import::{CapturedFrameBatchOptions, CapturedFrameInput, import_captured_frame_batch},
     fixtures::build_fixture_index,
     historical_sync::{
@@ -14,7 +14,7 @@ use goose_core::{
         HistoricalSyncTimestampEvidence, historical_sync_physical_evidence_template,
         run_historical_sync_dry_run, validate_historical_sync_physical_evidence,
     },
-    store::{ActivitySessionInput, CaptureSessionInput, GooseStore},
+    store::{ActivitySessionInput, CaptureSessionInput, BullStore},
 };
 use serde::Deserialize;
 
@@ -119,7 +119,7 @@ fn physical_historical_sync_evidence_passes_when_capture_confirms_flow_and_times
             .provenance
             .get("report_integrity_policy")
             .and_then(serde_json::Value::as_str),
-        Some(goose_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
+        Some(bull_core::historical_sync::HISTORICAL_SYNC_PHYSICAL_REPORT_INTEGRITY_POLICY)
     );
     assert!(report.issues.is_empty());
     assert!(report.next_actions.is_empty());
@@ -501,7 +501,7 @@ fn physical_historical_sync_evidence_template_names_required_capture_fields() {
 
     assert_eq!(
         template.schema,
-        "goose.historical-sync-physical-evidence-template.v1"
+        "bull.historical-sync-physical-evidence-template.v1"
     );
     assert_eq!(
         template.expected_service_uuid,
@@ -509,7 +509,7 @@ fn physical_historical_sync_evidence_template_names_required_capture_fields() {
     );
     assert_eq!(
         template.input.schema,
-        "goose.historical-sync-physical-validation.v1"
+        "bull.historical-sync-physical-validation.v1"
     );
     assert_eq!(template.input.capture_session_id, "strap-capture-template");
     assert!(
@@ -563,7 +563,7 @@ fn historical_sync_validator_cli_writes_template_and_validates_evidence() {
     let tempdir = tempfile::tempdir().unwrap();
     let template_path = tempdir.path().join("historical-sync-template.json");
     let template_output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-historical-sync-validator"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-historical-sync-validator"))
             .args([
                 "--template",
                 "--generation",
@@ -585,7 +585,7 @@ fn historical_sync_validator_cli_writes_template_and_validates_evidence() {
         serde_json::from_str(&fs::read_to_string(&template_path).unwrap()).unwrap();
     assert_eq!(
         template_json["schema"],
-        "goose.historical-sync-physical-evidence-template.v1"
+        "bull.historical-sync-physical-evidence-template.v1"
     );
     assert_eq!(
         template_json["input"]["capture_session_id"],
@@ -600,7 +600,7 @@ fn historical_sync_validator_cli_writes_template_and_validates_evidence() {
     .unwrap();
     let report_path = tempdir.path().join("historical-sync-validation.json");
     let validation_output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_goose-historical-sync-validator"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_bull-historical-sync-validator"))
             .args([
                 "--evidence",
                 evidence_path.to_str().unwrap(),
@@ -619,7 +619,7 @@ fn historical_sync_validator_cli_writes_template_and_validates_evidence() {
         serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
     assert_eq!(
         report_json["schema"],
-        "goose.historical-sync-physical-validation-report.v1"
+        "bull.historical-sync-physical-validation-report.v1"
     );
     assert_eq!(report_json["pass"], true);
 }
@@ -900,7 +900,7 @@ fn safety_gate_lock_blocks_before_planning_commands() {
 #[test]
 fn stale_preflight_rejects_unsupported_schema_before_any_commands() {
     let mut input = base_input(HistoricalSyncGeneration::Gen5, true, vec![]);
-    input.schema = "goose.historical-sync-dry-run.v0".to_string();
+    input.schema = "bull.historical-sync-dry-run.v0".to_string();
 
     let report = run_historical_sync_dry_run(&input);
 
@@ -915,16 +915,16 @@ fn stale_preflight_rejects_unsupported_schema_before_any_commands() {
     assert_eq!(report.failed_count, 1);
     assert_eq!(
         report.issues,
-        vec!["unsupported schema goose.historical-sync-dry-run.v0".to_string()]
+        vec!["unsupported schema bull.historical-sync-dry-run.v0".to_string()]
     );
     assert_eq!(report.next_actions.len(), 1);
     assert_eq!(
         report.next_actions[0].reason,
-        "unsupported schema goose.historical-sync-dry-run.v0"
+        "unsupported schema bull.historical-sync-dry-run.v0"
     );
     assert!(
         report.next_actions[0].action.contains(
-            "Use goose.historical-sync-dry-run.v1 input before planning historical sync."
+            "Use bull.historical-sync-dry-run.v1 input before planning historical sync."
         )
     );
 }
@@ -954,7 +954,7 @@ fn fake_history_sync_can_seed_capture_evidence_and_a_candidate_activity_session(
         .find(|fixture| fixture.id == "synthetic.activity.sessions.pre_device.hand_derived")
         .expect("missing pre-device activity fixture");
 
-    let store = GooseStore::open_in_memory().unwrap();
+    let store = BullStore::open_in_memory().unwrap();
     let capture_session_id = "fake.history-sync.capture-session";
     let capture_session_provenance = serde_json::json!({
         "source": "historical_sync_dry_run",
@@ -971,7 +971,7 @@ fn fake_history_sync_can_seed_capture_evidence_and_a_candidate_activity_session(
                 session_id: capture_session_id,
                 source: "historical_sync_dry_run",
                 started_at_unix_ms: 1_770_000_000_000,
-                device_model: "WHOOP 5.0 Goose",
+                device_model: "WHOOP 5.0 Bull",
                 active_device_id: None,
                 provenance_json: &capture_session_provenance,
             })
@@ -991,7 +991,7 @@ fn fake_history_sync_can_seed_capture_evidence_and_a_candidate_activity_session(
         &store,
         &[historical_frame],
         CapturedFrameBatchOptions {
-            parser_version: "goose-core/test",
+            parser_version: "bull-core/test",
         },
     )
     .unwrap();
@@ -1087,7 +1087,7 @@ fn base_input(
     fake_events: Vec<HistoricalSyncFakeEvent>,
 ) -> HistoricalSyncDryRunInput {
     HistoricalSyncDryRunInput {
-        schema: "goose.historical-sync-dry-run.v1".to_string(),
+        schema: "bull.historical-sync-dry-run.v1".to_string(),
         generation,
         device_connected: true,
         safety_gate_ready: true,
@@ -1119,7 +1119,7 @@ fn happy_path_events() -> Vec<HistoricalSyncFakeEvent> {
 
 fn physical_validation_input() -> HistoricalSyncPhysicalValidationInput {
     HistoricalSyncPhysicalValidationInput {
-        schema: "goose.historical-sync-physical-validation.v1".to_string(),
+        schema: "bull.historical-sync-physical-validation.v1".to_string(),
         generation: HistoricalSyncGeneration::Gen5,
         capture_session_id: "strap-capture-2026-01-01".to_string(),
         service_uuids: vec!["fd4b0001-cce1-4033-93ce-002d5875f58a".to_string()],
@@ -1268,9 +1268,9 @@ fn physical_raw_evidence_anchors() -> Vec<HistoricalSyncRawEvidenceAnchor> {
 }
 
 fn step<'a>(
-    report: &'a goose_core::historical_sync::HistoricalSyncDryRunReport,
+    report: &'a bull_core::historical_sync::HistoricalSyncDryRunReport,
     kind: HistoricalSyncPlanStepKind,
-) -> &'a goose_core::historical_sync::HistoricalSyncPlanStep {
+) -> &'a bull_core::historical_sync::HistoricalSyncPlanStep {
     report
         .steps
         .iter()

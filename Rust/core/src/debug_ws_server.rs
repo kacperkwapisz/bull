@@ -13,9 +13,9 @@ use tungstenite::{
 };
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     debug_ws::{DebugBridgeConfig, debug_bridge_config_issues, debug_event_envelope_from_row},
-    store::GooseStore,
+    store::BullStore,
 };
 
 #[derive(Debug, Clone)]
@@ -61,34 +61,34 @@ pub struct DebugWsServeNextAction {
     pub action: String,
 }
 
-pub fn serve_debug_ws_once(options: DebugWsServerOptions) -> GooseResult<DebugWsServeReport> {
+pub fn serve_debug_ws_once(options: DebugWsServerOptions) -> BullResult<DebugWsServeReport> {
     let listener = bind_debug_ws_listener(&options)?;
     serve_debug_ws_listener_once(listener, options)
 }
 
-pub fn bind_debug_ws_listener(options: &DebugWsServerOptions) -> GooseResult<TcpListener> {
+pub fn bind_debug_ws_listener(options: &DebugWsServerOptions) -> BullResult<TcpListener> {
     validate_server_options(options)?;
     let mut addresses = (options.bind_host.as_str(), options.port)
         .to_socket_addrs()
         .map_err(|error| {
-            GooseError::message(format!("cannot resolve debug bind address: {error}"))
+            BullError::message(format!("cannot resolve debug bind address: {error}"))
         })?;
     let address = addresses
         .next()
-        .ok_or_else(|| GooseError::message("debug bind address did not resolve"))?;
+        .ok_or_else(|| BullError::message("debug bind address did not resolve"))?;
     TcpListener::bind(address)
-        .map_err(|error| GooseError::io(format!("{}:{}", options.bind_host, options.port), error))
+        .map_err(|error| BullError::io(format!("{}:{}", options.bind_host, options.port), error))
 }
 
 pub fn serve_debug_ws_listener_once(
     listener: TcpListener,
     options: DebugWsServerOptions,
-) -> GooseResult<DebugWsServeReport> {
+) -> BullResult<DebugWsServeReport> {
     validate_server_options(&options)?;
     let bind_url = debug_ws_url(&listener, &options)?;
     let (stream, _) = listener
         .accept()
-        .map_err(|error| GooseError::io(&options.database_path, error))?;
+        .map_err(|error| BullError::io(&options.database_path, error))?;
 
     let token = options.token.clone();
     let callback = move |request: &Request, response: Response| {
@@ -111,7 +111,7 @@ pub fn serve_debug_ws_listener_once(
         }
     };
 
-    let store = GooseStore::open(&options.database_path)?;
+    let store = BullStore::open(&options.database_path)?;
     if store.debug_session(&options.session_id)?.is_none() {
         return Ok(report(
             bind_url,
@@ -136,7 +136,7 @@ pub fn serve_debug_ws_listener_once(
         let rows = store.debug_events_after_sequence(
             &options.session_id,
             i64::try_from(last_sequence)
-                .map_err(|_| GooseError::message("last_sequence is too large"))?,
+                .map_err(|_| BullError::message("last_sequence is too large"))?,
             Some(100),
         )?;
         if rows.is_empty() {
@@ -162,12 +162,12 @@ pub fn serve_debug_ws_listener_once(
             let event = debug_event_envelope_from_row(row)?;
             last_sequence = event.sequence;
             let event_json = serde_json::to_string(&event).map_err(|error| {
-                GooseError::message(format!("cannot serialize debug event: {error}"))
+                BullError::message(format!("cannot serialize debug event: {error}"))
             })?;
             websocket
                 .send(Message::Text(event_json.into()))
                 .map_err(|error| {
-                    GooseError::message(format!("cannot write websocket event: {error}"))
+                    BullError::message(format!("cannot write websocket event: {error}"))
                 })?;
             events_sent += 1;
             last_activity = Instant::now();
@@ -193,22 +193,22 @@ pub fn serve_debug_ws_listener_once(
     }
 }
 
-fn validate_server_options(options: &DebugWsServerOptions) -> GooseResult<()> {
+fn validate_server_options(options: &DebugWsServerOptions) -> BullResult<()> {
     if options.session_id.trim().is_empty() {
-        return Err(GooseError::message("session_id is required"));
+        return Err(BullError::message("session_id is required"));
     }
     if options.token.trim().is_empty() {
-        return Err(GooseError::message("token is required"));
+        return Err(BullError::message("token is required"));
     }
     if options.poll_interval_ms == 0 {
-        return Err(GooseError::message("poll_interval_ms must be positive"));
+        return Err(BullError::message("poll_interval_ms must be positive"));
     }
     if options.idle_timeout_ms == 0 {
-        return Err(GooseError::message("idle_timeout_ms must be positive"));
+        return Err(BullError::message("idle_timeout_ms must be positive"));
     }
     let issues = debug_bridge_config_issues(&DebugBridgeConfig {
         url: format!(
-            "ws://{}:{}/goose-debug/stream?token={}",
+            "ws://{}:{}/bull-debug/stream?token={}",
             host_for_url(&options.bind_host),
             options.port,
             options.token
@@ -220,7 +220,7 @@ fn validate_server_options(options: &DebugWsServerOptions) -> GooseResult<()> {
         visible_remote_bind_toggle: false,
     });
     if !issues.is_empty() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "invalid debug websocket options: {}",
             issues.join(", ")
         )));
@@ -229,10 +229,10 @@ fn validate_server_options(options: &DebugWsServerOptions) -> GooseResult<()> {
 }
 
 fn validate_handshake_request(request: &Request, token: &str) -> Result<(), ErrorResponse> {
-    if request.uri().path() != "/goose-debug/stream" {
+    if request.uri().path() != "/bull-debug/stream" {
         return Err(error_response(
             StatusCode::NOT_FOUND,
-            "expected /goose-debug/stream",
+            "expected /bull-debug/stream",
         ));
     }
     if query_token(request.uri().query()) != Some(token) {
@@ -257,12 +257,12 @@ fn error_response(status: StatusCode, message: &str) -> ErrorResponse {
         .unwrap_or_else(|_| tungstenite::http::Response::new(Some(message.to_string())))
 }
 
-fn debug_ws_url(listener: &TcpListener, options: &DebugWsServerOptions) -> GooseResult<String> {
+fn debug_ws_url(listener: &TcpListener, options: &DebugWsServerOptions) -> BullResult<String> {
     let address = listener
         .local_addr()
-        .map_err(|error| GooseError::io(&options.database_path, error))?;
+        .map_err(|error| BullError::io(&options.database_path, error))?;
     Ok(format!(
-        "ws://{}:{}/goose-debug/stream?token={}",
+        "ws://{}:{}/bull-debug/stream?token={}",
         host_for_url(&address.ip().to_string()),
         address.port(),
         options.token
@@ -297,8 +297,8 @@ fn report(
     let server_valid = handshake_accepted && session_found;
     let next_actions = debug_ws_serve_next_actions(&issues);
     DebugWsServeReport {
-        schema: "goose.debug-ws-serve-report.v1".to_string(),
-        generated_by: "goose-debug-ws-serve".to_string(),
+        schema: "bull.debug-ws-serve-report.v1".to_string(),
+        generated_by: "bull-debug-ws-serve".to_string(),
         bind_url,
         session_id,
         pass: server_valid && stream_observed && issues.is_empty(),
@@ -346,7 +346,7 @@ fn debug_ws_serve_issue_reason(issue: &str) -> String {
 
 fn debug_ws_serve_issue_action(issue: &str) -> String {
     if issue.contains("websocket handshake failed") {
-        return "Connect with path /goose-debug/stream and the current per-session token."
+        return "Connect with path /bull-debug/stream and the current per-session token."
             .to_string();
     }
     match issue {

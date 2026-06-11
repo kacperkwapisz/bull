@@ -8,9 +8,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
-use crate::{GooseError, GooseResult};
+use crate::{BullError, BullResult};
 
-pub const PRIVACY_LINT_REPORT_SCHEMA: &str = "goose.privacy-lint-report.v1";
+pub const PRIVACY_LINT_REPORT_SCHEMA: &str = "bull.privacy-lint-report.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivacyLintReport {
@@ -65,9 +65,9 @@ pub struct PrivacyFinding {
     pub snippet: String,
 }
 
-pub fn lint_privacy_path(path: &Path) -> GooseResult<PrivacyLintReport> {
+pub fn lint_privacy_path(path: &Path) -> BullResult<PrivacyLintReport> {
     if !path.exists() {
-        return Err(GooseError::message(format!(
+        return Err(BullError::message(format!(
             "input path does not exist: {}",
             path.display()
         )));
@@ -126,7 +126,7 @@ pub fn lint_privacy_path(path: &Path) -> GooseResult<PrivacyLintReport> {
 
     Ok(PrivacyLintReport {
         schema: PRIVACY_LINT_REPORT_SCHEMA.to_string(),
-        generated_by: "goose-privacy-lint".to_string(),
+        generated_by: "bull-privacy-lint".to_string(),
         input_path: path.display().to_string(),
         pass: privacy_ready,
         input_valid,
@@ -189,10 +189,10 @@ fn privacy_lint_action_for_rule(rule: &str) -> &'static str {
             "Replace JSON token field values with redaction or pseudonym markers before export."
         }
         "private_whoop_api_material" => {
-            "Remove private WHOOP API replay material from Goose artifacts; keep official-app traces only as redacted capture fixtures with provenance."
+            "Remove private WHOOP API replay material from Bull artifacts; keep official-app traces only as redacted capture fixtures with provenance."
         }
         "direct_identifier" => {
-            "Replace direct user/device identifiers with Goose-owned pseudonyms before export and keep any mapping outside shareable artifacts."
+            "Replace direct user/device identifiers with Bull-owned pseudonyms before export and keep any mapping outside shareable artifacts."
         }
         "email" => {
             "Remove or pseudonymize email-like values before writing shareable logs or exports."
@@ -208,21 +208,21 @@ fn lint_file_path(
     path: &Path,
     display_path: &str,
     files: &mut Vec<PrivacyLintFileReport>,
-) -> GooseResult<()> {
+) -> BullResult<()> {
     if is_zip_path(path) {
-        let file = File::open(path).map_err(|source| GooseError::io(path, source))?;
+        let file = File::open(path).map_err(|source| BullError::io(path, source))?;
         let mut archive = ZipArchive::new(file)
-            .map_err(|source| GooseError::message(format!("cannot open zip archive: {source}")))?;
+            .map_err(|source| BullError::message(format!("cannot open zip archive: {source}")))?;
         for index in 0..archive.len() {
             let mut entry = archive.by_index(index).map_err(|source| {
-                GooseError::message(format!("cannot read zip entry {index}: {source}"))
+                BullError::message(format!("cannot read zip entry {index}: {source}"))
             })?;
             if entry.is_dir() {
                 continue;
             }
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes).map_err(|source| {
-                GooseError::message(format!("cannot read zip bytes: {source}"))
+                BullError::message(format!("cannot read zip bytes: {source}"))
             })?;
             let entry_path = format!("{display_path}!{}", entry.name());
             files.push(lint_bytes(&entry_path, &bytes));
@@ -230,7 +230,7 @@ fn lint_file_path(
         return Ok(());
     }
 
-    let bytes = fs::read(path).map_err(|source| GooseError::io(path, source))?;
+    let bytes = fs::read(path).map_err(|source| BullError::io(path, source))?;
     files.push(lint_bytes(display_path, &bytes));
     Ok(())
 }
@@ -545,9 +545,9 @@ fn is_zip_path(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
 }
 
-fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> GooseResult<()> {
-    for entry in fs::read_dir(root).map_err(|source| GooseError::io(root, source))? {
-        let entry = entry.map_err(|source| GooseError::io(root, source))?;
+fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> BullResult<()> {
+    for entry in fs::read_dir(root).map_err(|source| BullError::io(root, source))? {
+        let entry = entry.map_err(|source| BullError::io(root, source))?;
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, files)?;

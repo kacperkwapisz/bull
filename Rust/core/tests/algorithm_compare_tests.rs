@@ -1,9 +1,9 @@
-use goose_core::{
+use bull_core::{
     algorithm_compare::{
-        ALGORITHM_COMPARISON_SCHEMA, compare_hrv_goose_to_reference,
-        compare_sleep_goose_to_external_reference_report, compare_sleep_goose_to_reference,
-        compare_sleep_v1_goose_to_external_reference_report, compare_sleep_v1_goose_to_reference,
-        compare_strain_goose_to_reference, compare_stress_goose_to_reference,
+        ALGORITHM_COMPARISON_SCHEMA, compare_hrv_bull_to_reference,
+        compare_sleep_bull_to_external_reference_report, compare_sleep_bull_to_reference,
+        compare_sleep_v1_bull_to_external_reference_report, compare_sleep_v1_bull_to_reference,
+        compare_strain_bull_to_reference, compare_stress_bull_to_reference,
     },
     metrics::{
         HrvInput, SleepInput, SleepModelStatusInput, SleepV1Input, StrainInput, StressInput,
@@ -12,7 +12,7 @@ use goose_core::{
 
 #[test]
 fn hrv_comparison_reports_zero_deltas_for_shared_time_domain_fields() {
-    let report = compare_hrv_goose_to_reference(&HrvInput {
+    let report = compare_hrv_bull_to_reference(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
@@ -23,7 +23,7 @@ fn hrv_comparison_reports_zero_deltas_for_shared_time_domain_fields() {
     assert_eq!(report.schema, ALGORITHM_COMPARISON_SCHEMA);
     assert!(report.pass, "{:?}", report.errors);
     assert!(report.reference_contract_valid);
-    assert!(report.goose_output_ready);
+    assert!(report.bull_output_ready);
     assert!(report.reference_output_ready);
     assert!(report.shared_fields_ready);
     assert_eq!(report.family, "hrv");
@@ -36,7 +36,7 @@ fn hrv_comparison_reports_zero_deltas_for_shared_time_domain_fields() {
 
 #[test]
 fn sleep_comparison_reports_shared_window_and_actigraphy_summary_fields() {
-    let report = compare_sleep_goose_to_reference(&SleepInput {
+    let report = compare_sleep_bull_to_reference(&SleepInput {
         start_time: "2026-05-27T22:30:00Z".to_string(),
         end_time: "2026-05-28T06:30:00Z".to_string(),
         sleep_duration_minutes: 420.0,
@@ -63,19 +63,19 @@ fn sleep_comparison_reports_shared_window_and_actigraphy_summary_fields() {
             "fragmentation_index_per_hour"
         ]
     );
-    assert_close(report.deltas[0].goose_value, 480.0);
+    assert_close(report.deltas[0].bull_value, 480.0);
     assert_close(report.deltas[0].reference_value, 480.0);
-    assert_close(report.deltas[1].goose_value, 420.0);
+    assert_close(report.deltas[1].bull_value, 420.0);
     assert_close(report.deltas[1].reference_value, 420.0);
-    assert_close(report.deltas[2].goose_value, 60.0);
+    assert_close(report.deltas[2].bull_value, 60.0);
     assert_close(report.deltas[2].reference_value, 60.0);
-    assert_close(report.deltas[3].goose_value, 0.875);
+    assert_close(report.deltas[3].bull_value, 0.875);
     assert_close(report.deltas[3].reference_value, 0.875);
-    assert_close(report.deltas[4].goose_value, 60.0);
+    assert_close(report.deltas[4].bull_value, 60.0);
     assert_close(report.deltas[4].reference_value, 60.0);
-    assert_close(report.deltas[5].goose_value, 4.0);
+    assert_close(report.deltas[5].bull_value, 4.0);
     assert_close(report.deltas[5].reference_value, 4.0);
-    assert_close(report.deltas[6].goose_value, 4.0 / 7.0);
+    assert_close(report.deltas[6].bull_value, 4.0 / 7.0);
     assert_close(report.deltas[6].reference_value, 4.0 / 7.0);
     for delta in &report.deltas {
         assert_close(delta.absolute_delta, 0.0);
@@ -91,7 +91,7 @@ fn sleep_comparison_reports_shared_window_and_actigraphy_summary_fields() {
 
 #[test]
 fn sleep_v1_comparison_passes_reference_sleep_wake_summary_fields() {
-    let report = compare_sleep_v1_goose_to_reference(&SleepV1Input {
+    let report = compare_sleep_v1_bull_to_reference(&SleepV1Input {
         sleep: SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -117,7 +117,7 @@ fn sleep_v1_comparison_passes_reference_sleep_wake_summary_fields() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.errors);
-    assert_eq!(report.goose_algorithm_id, "goose.sleep.v1");
+    assert_eq!(report.bull_algorithm_id, "bull.sleep.v1");
     assert_eq!(
         report.provenance["comparison_policy"],
         "sleep_v1_shared_sleep_wake_summary_fields"
@@ -142,7 +142,7 @@ fn sleep_v1_comparison_passes_reference_sleep_wake_summary_fields() {
 #[test]
 fn sleep_comparison_accepts_external_reference_report_output() {
     let reference_report = serde_json::json!({
-        "schema": "goose.reference-algo-report.v1",
+        "schema": "bull.reference-algo-report.v1",
         "family": "sleep",
         "algorithm_id": "reference.sleep.ggir_summary.v1",
         "algorithm_version": "1.0.0",
@@ -173,7 +173,7 @@ fn sleep_comparison_accepts_external_reference_report_output() {
             }
         }
     });
-    let report = compare_sleep_goose_to_external_reference_report(
+    let report = compare_sleep_bull_to_external_reference_report(
         &SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -191,7 +191,7 @@ fn sleep_comparison_accepts_external_reference_report_output() {
 
     assert!(report.pass, "{:?}", report.errors);
     assert!(report.reference_contract_valid);
-    assert!(report.goose_output_ready);
+    assert!(report.bull_output_ready);
     assert!(report.reference_output_ready);
     assert!(report.shared_fields_ready);
     assert_eq!(
@@ -211,7 +211,7 @@ fn sleep_comparison_accepts_external_reference_report_output() {
 #[test]
 fn sleep_v1_comparison_accepts_external_reference_report_output() {
     let reference_report = serde_json::json!({
-        "schema": "goose.reference-algo-report.v1",
+        "schema": "bull.reference-algo-report.v1",
         "family": "sleep",
         "algorithm_id": "reference.sleep.ggir_summary.v1",
         "algorithm_version": "1.0.0",
@@ -242,7 +242,7 @@ fn sleep_v1_comparison_accepts_external_reference_report_output() {
             }
         }
     });
-    let report = compare_sleep_v1_goose_to_external_reference_report(
+    let report = compare_sleep_v1_bull_to_external_reference_report(
         &SleepV1Input {
             sleep: SleepInput {
                 start_time: "2026-05-27T22:30:00Z".to_string(),
@@ -272,7 +272,7 @@ fn sleep_v1_comparison_accepts_external_reference_report_output() {
 
     assert!(report.pass, "{:?}", report.errors);
     assert!(report.reference_contract_valid);
-    assert_eq!(report.goose_algorithm_id, "goose.sleep.v1");
+    assert_eq!(report.bull_algorithm_id, "bull.sleep.v1");
     assert_eq!(
         report.reference_algorithm_id,
         "reference.sleep.ggir_summary.v1"
@@ -283,7 +283,7 @@ fn sleep_v1_comparison_accepts_external_reference_report_output() {
     );
     assert_eq!(
         report.provenance["reference_report_schema"],
-        "goose.reference-algo-report.v1"
+        "bull.reference-algo-report.v1"
     );
     assert_eq!(report.deltas.len(), 7);
     for delta in &report.deltas {
@@ -294,7 +294,7 @@ fn sleep_v1_comparison_accepts_external_reference_report_output() {
 #[test]
 fn external_sleep_reference_requires_units_and_provenance_before_comparison_passes() {
     let reference_report = serde_json::json!({
-        "schema": "goose.reference-algo-report.v1",
+        "schema": "bull.reference-algo-report.v1",
         "family": "sleep",
         "algorithm_id": "reference.sleep.ggir_summary.v1",
         "algorithm_version": "1.0.0",
@@ -309,7 +309,7 @@ fn external_sleep_reference_requires_units_and_provenance_before_comparison_pass
         "errors": [],
         "provenance": {}
     });
-    let report = compare_sleep_goose_to_external_reference_report(
+    let report = compare_sleep_bull_to_external_reference_report(
         &SleepInput {
             start_time: "2026-05-27T22:30:00Z".to_string(),
             end_time: "2026-05-28T06:30:00Z".to_string(),
@@ -327,7 +327,7 @@ fn external_sleep_reference_requires_units_and_provenance_before_comparison_pass
 
     assert!(!report.pass);
     assert!(!report.reference_contract_valid);
-    assert!(report.goose_output_ready);
+    assert!(report.bull_output_ready);
     assert!(report.reference_output_ready);
     assert!(!report.shared_fields_ready);
     assert!(
@@ -352,7 +352,7 @@ fn external_sleep_reference_requires_units_and_provenance_before_comparison_pass
 
 #[test]
 fn strain_comparison_reports_edwards_zone_load_delta() {
-    let report = compare_strain_goose_to_reference(&StrainInput {
+    let report = compare_strain_bull_to_reference(&StrainInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T13:00:00Z".to_string(),
         duration_minutes: 60.0,
@@ -367,7 +367,7 @@ fn strain_comparison_reports_edwards_zone_load_delta() {
     assert!(report.pass, "{:?}", report.errors);
     assert_eq!(report.family, "strain");
     assert_eq!(report.comparable_fields, vec!["zone_load"]);
-    assert_close(report.deltas[0].goose_value, 140.0);
+    assert_close(report.deltas[0].bull_value, 140.0);
     assert_close(report.deltas[0].reference_value, 140.0);
     assert_close(report.deltas[0].absolute_delta, 0.0);
     assert!(
@@ -380,7 +380,7 @@ fn strain_comparison_reports_edwards_zone_load_delta() {
 
 #[test]
 fn stress_comparison_reports_shared_hr_and_hrv_proxy_deltas() {
-    let report = compare_stress_goose_to_reference(&StressInput {
+    let report = compare_stress_bull_to_reference(&StressInput {
         start_time: "2026-05-28T12:00:00Z".to_string(),
         end_time: "2026-05-28T12:05:00Z".to_string(),
         heart_rate_bpm: 90.0,
@@ -398,10 +398,10 @@ fn stress_comparison_reports_shared_hr_and_hrv_proxy_deltas() {
         report.comparable_fields,
         vec!["heart_rate_elevation_score", "hrv_suppression_score"]
     );
-    assert_close(report.deltas[0].goose_value, 50.0);
+    assert_close(report.deltas[0].bull_value, 50.0);
     assert_close(report.deltas[0].reference_value, 50.0);
     assert_close(report.deltas[0].absolute_delta, 0.0);
-    assert_close(report.deltas[1].goose_value, 50.0);
+    assert_close(report.deltas[1].bull_value, 50.0);
     assert_close(report.deltas[1].reference_value, 50.0);
     assert_close(report.deltas[1].absolute_delta, 0.0);
     assert!(report.non_comparable_fields.iter().any(|field| {
@@ -411,7 +411,7 @@ fn stress_comparison_reports_shared_hr_and_hrv_proxy_deltas() {
 
 #[test]
 fn comparison_fails_when_both_algorithms_lack_comparable_outputs() {
-    let report = compare_hrv_goose_to_reference(&HrvInput {
+    let report = compare_hrv_bull_to_reference(&HrvInput {
         start_time: "2026-05-27T00:00:00Z".to_string(),
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![100.0],
@@ -424,7 +424,7 @@ fn comparison_fails_when_both_algorithms_lack_comparable_outputs() {
     assert!(
         report
             .errors
-            .contains(&"goose:not_enough_valid_rr_intervals".to_string())
+            .contains(&"bull:not_enough_valid_rr_intervals".to_string())
     );
     assert!(
         report

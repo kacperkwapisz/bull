@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    GooseError, GooseResult,
+    BullError, BullResult,
     store::{CalibrationRunRecord, CalibrationRunTimes},
 };
 
@@ -185,7 +185,7 @@ pub fn evaluate_linear_calibration(
     options: &CalibrationOptions,
 ) -> CalibrationReport {
     let mut issues = Vec::new();
-    if dataset.schema != "goose.calibration-dataset.v1" {
+    if dataset.schema != "bull.calibration-dataset.v1" {
         issues.push(format!("unsupported dataset schema {}", dataset.schema));
     }
     validate_required("metric_family", &options.metric_family, &mut issues);
@@ -279,8 +279,8 @@ pub fn evaluate_linear_calibration(
         && issues.is_empty();
 
     CalibrationReport {
-        schema: "goose.calibration-report.v1".to_string(),
-        generated_by: "goose-calibration-evaluator".to_string(),
+        schema: "bull.calibration-report.v1".to_string(),
+        generated_by: "bull-calibration-evaluator".to_string(),
         pass: calibration_ready,
         dataset_valid,
         labels_valid,
@@ -399,8 +399,8 @@ pub fn apply_calibration(input: &CalibrationApplicationInput) -> CalibrationAppl
         && issues.is_empty();
 
     CalibrationApplicationReport {
-        schema: "goose.calibrated-score.v1".to_string(),
-        generated_by: "goose-calibration-apply".to_string(),
+        schema: "bull.calibrated-score.v1".to_string(),
+        generated_by: "bull-calibration-apply".to_string(),
         pass: application_ready,
         input_valid,
         score_range_valid,
@@ -417,7 +417,7 @@ pub fn apply_calibration(input: &CalibrationApplicationInput) -> CalibrationAppl
         score_max: input.score_max,
         calibration_run_id: input.calibration_run.calibration_run_id.clone(),
         applied_model,
-        output_kind: "goose_calibrated_local_score".to_string(),
+        output_kind: "bull_calibrated_local_score".to_string(),
         official_labels_are_labels: true,
         quality_flags,
         provenance: json!({
@@ -527,7 +527,7 @@ fn calibration_issue_action(issue: &str) -> (&'static str, &'static str) {
     if issue.starts_with("unsupported dataset schema ") {
         (
             "unsupported_dataset_schema",
-            "Convert the labels to goose.calibration-dataset.v1 before evaluating calibration.",
+            "Convert the labels to bull.calibration-dataset.v1 before evaluating calibration.",
         )
     } else if issue.contains(" is required") {
         (
@@ -575,7 +575,7 @@ fn calibration_issue_action(issue: &str) -> (&'static str, &'static str) {
     } else if issue == "training predictions have zero variance" {
         (
             "zero_prediction_variance",
-            "Add calibration rows with varied Goose predictions before fitting a linear calibration model.",
+            "Add calibration rows with varied Bull predictions before fitting a linear calibration model.",
         )
     } else if issue == "calibrated holdout MAE did not improve" {
         (
@@ -594,7 +594,7 @@ fn calibration_application_issue_action(issue: &str) -> (&'static str, &'static 
     if issue == "raw_score must be finite" {
         (
             "raw_score_invalid",
-            "Recompute the local Goose score and apply calibration only to a finite raw score.",
+            "Recompute the local Bull score and apply calibration only to a finite raw score.",
         )
     } else if issue == "score_min must be finite and less than score_max" {
         (
@@ -651,7 +651,7 @@ fn dedupe_calibration_next_actions(
 pub fn calibration_run_record(
     calibration_run_id: &str,
     report: &CalibrationReport,
-) -> GooseResult<CalibrationRunRecord> {
+) -> BullResult<CalibrationRunRecord> {
     let metrics_json = serde_json::to_string(&json!({
         "dataset_valid": report.dataset_valid,
         "labels_valid": report.labels_valid,
@@ -672,7 +672,7 @@ pub fn calibration_run_record(
         "next_actions": report.next_actions
     }))
     .map_err(|error| {
-        GooseError::message(format!("cannot serialize calibration metrics: {error}"))
+        BullError::message(format!("cannot serialize calibration metrics: {error}"))
     })?;
     let params_json = serde_json::to_string(&json!({
         "model": report.model,
@@ -687,7 +687,7 @@ pub fn calibration_run_record(
         "pass": report.pass
     }))
     .map_err(|error| {
-        GooseError::message(format!("cannot serialize calibration params: {error}"))
+        BullError::message(format!("cannot serialize calibration params: {error}"))
     })?;
 
     Ok(CalibrationRunRecord {
@@ -711,7 +711,7 @@ impl LinearCalibrationModel {
     }
 }
 
-fn fit_linear_model(records: &[CalibrationRecord]) -> GooseResult<LinearCalibrationModel> {
+fn fit_linear_model(records: &[CalibrationRecord]) -> BullResult<LinearCalibrationModel> {
     let x_mean = records.iter().map(|record| record.prediction).sum::<f64>() / records.len() as f64;
     let y_mean = records.iter().map(|record| record.label).sum::<f64>() / records.len() as f64;
     let x_var = records
@@ -722,7 +722,7 @@ fn fit_linear_model(records: &[CalibrationRecord]) -> GooseResult<LinearCalibrat
         })
         .sum::<f64>();
     if x_var == 0.0 {
-        return Err(GooseError::message(
+        return Err(BullError::message(
             "training predictions have zero variance",
         ));
     }

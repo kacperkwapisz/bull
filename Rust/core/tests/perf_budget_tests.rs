@@ -1,4 +1,4 @@
-use goose_core::perf_budget::{
+use bull_core::perf_budget::{
     PERF_BUDGET_REPORT_SCHEMA, PerfBudgetOptions, PerfBudgets, run_perf_budget,
 };
 
@@ -11,7 +11,7 @@ fn perf_budget_report_covers_parser_deframer_algorithms_and_export() {
     .unwrap();
 
     assert_eq!(report.schema, PERF_BUDGET_REPORT_SCHEMA);
-    assert_eq!(report.generated_by, "goose-perf-budget");
+    assert_eq!(report.generated_by, "bull-perf-budget");
     assert!(report.pass, "{:#?}", report.issues);
     assert!(report.input_valid);
     assert!(report.parser_workload_ready);
@@ -36,7 +36,7 @@ fn perf_budget_report_covers_parser_deframer_algorithms_and_export() {
         vec![
             "parser_frame_batch",
             "deframer_split_stream",
-            "goose_score_batch",
+            "bull_score_batch",
             "raw_export_bundle",
         ]
     );
