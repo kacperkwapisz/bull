@@ -14,10 +14,12 @@ struct HomeDashboardView: View {
   @State private var cachedHealthMonitorSnapshots: [HealthMetricSnapshot] = []
 
   var body: some View {
+    // Compute once per render — avoids calling healthStore.landingSnapshots(…) 9× per body pass.
+    let cached = landingSnapshots
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
         HomeDailyScoreCard(
-          scores: scoreSnapshots,
+          scores: scoreSnapshots(using: cached),
           actionSummary: dailyActionSummary,
           coachTip: CoachTipFactory.homeTip(healthStore: healthStore, appModel: model),
           openScore: openHealth,
@@ -25,8 +27,8 @@ struct HomeDashboardView: View {
         )
 
         HomeStressEnergySection(
-          stress: landingSnapshot(for: .stress),
-          energy: landingSnapshot(for: .energyBank),
+          stress: landingSnapshot(for: .stress, in: cached),
+          energy: landingSnapshot(for: .energyBank, in: cached),
           openStress: { openHealth(.stress) }
         )
 
@@ -44,9 +46,9 @@ struct HomeDashboardView: View {
         )
 
         HomeTimelineSection(
-          sleep: homeSnapshot(for: .sleep),
-          activity: homeSnapshot(for: .strain),
-          recovery: homeSnapshot(for: .recovery),
+          sleep: homeSnapshot(for: .sleep, in: cached),
+          activity: homeSnapshot(for: .strain, in: cached),
+          recovery: homeSnapshot(for: .recovery, in: cached),
           activities: model.homeActivityTimelineItems,
           openSleep: { openHealth(.sleep) },
           openActivity: { openHealth(.strain) },
@@ -112,10 +114,11 @@ struct HomeDashboardView: View {
       refreshSnapshots()
     }
     .sheet(isPresented: $showingScoreDatePicker) {
+      let cached = landingSnapshots
       ScoreDatePickerSheet(
         title: "Daily Scores",
         routes: [.sleep, .recovery, .strain],
-        snapshots: scorePickerSnapshots,
+        snapshots: scorePickerSnapshots(using: cached),
         selectedDate: $selectedDate
       )
     }
@@ -127,19 +130,19 @@ struct HomeDashboardView: View {
     }
   }
 
-  private var scoreSnapshots: [HealthMetricSnapshot] {
+  private func scoreSnapshots(using cached: [HealthMetricSnapshot]) -> [HealthMetricSnapshot] {
     [
-      datedHomeSnapshot(for: .sleep),
-      datedHomeSnapshot(for: .recovery),
-      datedHomeSnapshot(for: .strain),
+      datedHomeSnapshot(for: .sleep, in: cached),
+      datedHomeSnapshot(for: .recovery, in: cached),
+      datedHomeSnapshot(for: .strain, in: cached),
     ]
   }
 
-  private var scorePickerSnapshots: [HealthMetricSnapshot] {
+  private func scorePickerSnapshots(using cached: [HealthMetricSnapshot]) -> [HealthMetricSnapshot] {
     [
-      homeSnapshot(for: .sleep),
-      homeSnapshot(for: .recovery),
-      homeSnapshot(for: .strain),
+      homeSnapshot(for: .sleep, in: cached),
+      homeSnapshot(for: .recovery, in: cached),
+      homeSnapshot(for: .strain, in: cached),
     ]
   }
 
@@ -183,8 +186,8 @@ struct HomeDashboardView: View {
     cachedLandingSnapshots.first { $0.route == route } ?? healthStore.snapshot(for: route)
   }
 
-  private func homeSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
-    let snapshot = landingSnapshot(for: route)
+  private func homeSnapshot(for route: HealthRoute, in snapshots: [HealthMetricSnapshot]) -> HealthMetricSnapshot {
+    let snapshot = landingSnapshot(for: route, in: snapshots)
     guard route == .strain, snapshot.unit != "%" else {
       return snapshot
     }
@@ -207,8 +210,8 @@ struct HomeDashboardView: View {
     )
   }
 
-  private func datedHomeSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(from: homeSnapshot(for: route), date: selectedDate)
+  private func datedHomeSnapshot(for route: HealthRoute, in snapshots: [HealthMetricSnapshot]) -> HealthMetricSnapshot {
+    ScoreDateTimeline.datedSnapshot(from: homeSnapshot(for: route, in: snapshots), date: selectedDate)
   }
 
   private func openHealth(_ route: HealthRoute) {

@@ -90,8 +90,14 @@ extension BullAppModel {
   }
 
   func applyHeartRateTimelineSnapshot(_ snapshot: HeartRateTimelineSnapshot) {
-    heartRateHourlyRanges = snapshot.ranges
-    heartRateStorageStatus = snapshot.status
+    // Equality guard: the pipeline fires every 1 s; avoid a spurious objectWillChange
+    // (and full-view re-render of all BullAppModel observers) when the data is unchanged.
+    if snapshot.ranges != heartRateHourlyRanges {
+      heartRateHourlyRanges = snapshot.ranges
+    }
+    if snapshot.status != heartRateStorageStatus {
+      heartRateStorageStatus = snapshot.status
+    }
   }
 
   func handleBLEConnectionStateChange(_ state: String) {
