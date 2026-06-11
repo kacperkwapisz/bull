@@ -6,7 +6,7 @@ export type ModelTier = "default" | "deep"
 
 export interface UpstreamChatRequest {
   modelTier: ModelTier
-  messages: { role: "user" | "assistant" | "system"; content: string }[]
+  messages: { role: "user" | "assistant" | "system" | "tool"; content: string }[]
   tools?: Record<string, unknown>[]
   toolChoice?: "auto" | "required" | "none"
 }

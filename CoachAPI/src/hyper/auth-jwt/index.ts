@@ -69,8 +69,18 @@ declare module "@hyper/core" {
   }
 }
 
+function requireJwtSecret(secret: AuthJwtConfig["secret"]): string {
+  if (secret === undefined) {
+    throw new Error("@hyper/auth-jwt: secret is required for HS256 JWT verification")
+  }
+  if (typeof secret === "string") {
+    return secret
+  }
+  return new TextDecoder().decode(secret)
+}
+
 export function authJwt(config: AuthJwtConfig): Middleware {
-  validateJwtSecret(config.secret, { allowShort: config.allowShortSecret ?? false })
+  validateJwtSecret(requireJwtSecret(config.secret), { allowShort: config.allowShortSecret ?? false })
   const extract = config.extract ?? defaultExtract
   return async ({ ctx, req, next }) => {
     const token = extract(req)
@@ -114,7 +124,7 @@ function unauthorized(code: string) {
  * or call `.auth()` as sugar.
  */
 export function authJwtPlugin(config: AuthJwtConfig): HyperPlugin {
-  validateJwtSecret(config.secret, { allowShort: config.allowShortSecret ?? false })
+  validateJwtSecret(requireJwtSecret(config.secret), { allowShort: config.allowShortSecret ?? false })
   installAuthMethod(authJwt(config))
   return {
     name: "@hyper/auth-jwt",

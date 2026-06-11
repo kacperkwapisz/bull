@@ -35,12 +35,13 @@ export function coachRoutes(env: Env) {
         const enc = new TextEncoder()
         yield enc.encode(`data: ${JSON.stringify({ type: "response.created" })}\n\n`)
         try {
-          for await (const dataLine of streamUpstreamChat(env, {
+          const upstreamRequest = {
             modelTier: body.model_tier,
             messages: body.messages,
-            tools: body.tools,
             toolChoice: body.tool_mode,
-          })) {
+            ...(body.tools !== undefined ? { tools: body.tools } : {}),
+          }
+          for await (const dataLine of streamUpstreamChat(env, upstreamRequest)) {
             for (const event of mapChatChunkToResponsesEvents(dataLine)) {
               yield formatResponsesSseLine(event)
             }

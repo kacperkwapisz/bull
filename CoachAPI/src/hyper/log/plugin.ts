@@ -71,7 +71,7 @@ export function hyperLog(config: HyperLogPluginConfig = {}): HyperPlugin {
             method: req.method,
             path: new URL(req.url).pathname,
             ...(config.includeHeaders
-              ? { headers: Object.fromEntries(req.headers.entries()) }
+              ? { headers: headersToRecord(req.headers) }
               : {}),
           },
         })
@@ -123,4 +123,12 @@ export function hyperLog(config: HyperLogPluginConfig = {}): HyperPlugin {
       },
     },
   }
+}
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {}
+  headers.forEach((value, key) => {
+    out[key] = value
+  })
+  return out
 }

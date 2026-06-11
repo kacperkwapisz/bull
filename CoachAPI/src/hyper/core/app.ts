@@ -184,7 +184,7 @@ export function app(config: AppConfig = {}): HyperApp {
           }
         : {}),
     }
-    const req = new Request(url, init)
+    const req = new Request(url.href, init)
     const res = await fetch(req)
     const ct = res.headers.get("content-type") ?? ""
     const data = ct.includes("application/json") ? await res.json() : await res.text()

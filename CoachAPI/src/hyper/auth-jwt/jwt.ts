@@ -69,11 +69,13 @@ export async function verifyJwt(
     const digest = SUPPORTED[alg]
     if (!digest) throw new JwtError("alg_unsupported", `unsupported alg: ${alg}`)
     if (!options.secret) throw new JwtError("no_secret", "secret required for HMAC")
-    const key = await crypto.subtle.importKey(
-      "raw",
+    const keyBytes: BufferSource =
       typeof options.secret === "string"
         ? new TextEncoder().encode(options.secret)
-        : options.secret,
+        : new Uint8Array(options.secret)
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyBytes,
       { name: "HMAC", hash: digest },
       false,
       ["sign"],
