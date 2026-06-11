@@ -218,6 +218,7 @@ enum CoachTipFactory {
 struct CoachTipCard: View {
   let tip: CoachInlineTip
   var actionTitle = "Ask Coach"
+  var showsSource = true
   let action: () -> Void
 
   var body: some View {
@@ -244,11 +245,13 @@ struct CoachTipCard: View {
       }
 
       HStack(spacing: 8) {
-        Text(tip.source)
-          .font(.caption2.weight(.semibold))
-          .foregroundStyle(.tertiary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.78)
+        if showsSource {
+          Text(tip.source)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+        }
         Spacer(minLength: 8)
         Button(action: action) {
           Label(actionTitle, systemImage: "bubble.left.and.bubble.right")

@@ -10,7 +10,7 @@ enum SleepV2PaletteTheme {
   case stress
 }
 
-struct SleepV2Palette {
+struct SleepV2Palette: Equatable {
   let background: Color
   let surface: Color
   let surfaceElevated: Color
@@ -183,6 +183,7 @@ struct SleepV2Hero: View {
       Spacer().frame(height: 32)
 
       SleepV2ScoreGauge(palette: palette, score: score, label: gaugeLabel)
+        .equatable()
         .frame(width: 188, height: 188)
 
       Button(action: onDateTap) {
@@ -245,7 +246,7 @@ struct SleepV2ScenicBackground: View {
   }
 }
 
-struct SleepV2ScoreGauge: View {
+struct SleepV2ScoreGauge: View, Equatable {
   let palette: SleepV2Palette
   let score: Int
   let label: String

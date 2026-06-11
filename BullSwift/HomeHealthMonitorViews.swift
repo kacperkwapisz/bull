@@ -139,9 +139,9 @@ struct HomeHealthMetricCard: View {
           .lineLimit(1)
           .minimumScaleFactor(0.65)
 
-        Label(snapshot.status, systemImage: statusImage)
+        Label(statusText, systemImage: statusImage)
           .font(.caption.weight(.bold))
-          .foregroundStyle(snapshot.tint)
+          .foregroundStyle(hasData ? snapshot.tint : .secondary)
           .lineLimit(1)
           .minimumScaleFactor(0.75)
       }
@@ -162,8 +162,16 @@ struct HomeHealthMetricCard: View {
     .cardSurface(tint: snapshot.tint)
   }
 
+  private var statusText: String {
+    humanizedHomeStatus(snapshot.status)
+  }
+
+  private var hasData: Bool {
+    statusText != "No data yet"
+  }
+
   private var statusImage: String {
-    snapshot.status.localizedCaseInsensitiveContains("unavailable") ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
+    hasData ? "checkmark.circle.fill" : "moon.zzz.fill"
   }
 }
 

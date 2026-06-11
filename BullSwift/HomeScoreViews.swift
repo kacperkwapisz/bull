@@ -42,99 +42,188 @@ struct HomeStartActivityFloatingButton: View {
   }
 }
 
-struct HomeDailyScoreCard: View {
-  let scores: [HealthMetricSnapshot]
-  let actionSummary: String
-  let coachTip: CoachInlineTip
-  let openScore: (HealthRoute) -> Void
-  let openCoach: (String) -> Void
+// MARK: - Animated score ring
+
+struct ScoreRing: View {
+  let progress: Double
+  let color: Color
+  let lineWidth: CGFloat
+  var isPlaceholder = false
+
+  @State private var animatedProgress: Double = 0
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 12) {
-        ForEach(scores) { score in
-          Button {
-            openScore(score.route)
-          } label: {
-            HomeScoreDial(snapshot: score)
-          }
-          .buttonStyle(.plain)
+    ZStack {
+      // Track with a faint embossed inset for depth.
+      Circle()
+        .stroke(Color.primary.opacity(0.07), lineWidth: lineWidth)
+      Circle()
+        .inset(by: lineWidth * 0.78)
+        .fill(Color.primary.opacity(0.025))
+        .overlay {
+          Circle()
+            .inset(by: lineWidth * 0.78)
+            .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
         }
+
+      if !isPlaceholder {
+        Circle()
+          .trim(from: 0, to: animatedProgress)
+          .stroke(
+            AngularGradient(
+              gradient: Gradient(colors: [color.opacity(0.45), color]),
+              center: .center,
+              startAngle: .degrees(0),
+              endAngle: .degrees(360 * max(animatedProgress, 0.001))
+            ),
+            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+          )
+          .rotationEffect(.degrees(-90))
+          .shadow(color: color.opacity(0.38), radius: lineWidth * 0.55)
+      }
+    }
+    .onAppear {
+      withAnimation(.spring(response: 1.05, dampingFraction: 0.88).delay(0.12)) {
+        animatedProgress = progress
+      }
+    }
+    .onChange(of: progress) { _, newValue in
+      withAnimation(.spring(response: 0.7, dampingFraction: 0.9)) {
+        animatedProgress = newValue
+      }
+    }
+  }
+}
+
+// MARK: - Daily scores (Strain · Recovery · Sleep)
+
+struct HomeScoreTriRow: View {
+  let strain: HealthMetricSnapshot
+  let recovery: HealthMetricSnapshot
+  let sleep: HealthMetricSnapshot
+  let open: (HealthRoute) -> Void
+
+  var body: some View {
+    VStack(spacing: 16) {
+      HStack(alignment: .top, spacing: 12) {
+        HomeScoreDial(snapshot: strain) { open(.strain) }
+        HomeScoreDial(snapshot: recovery, overrideColor: recoveryColor) { open(.recovery) }
+        HomeScoreDial(snapshot: sleep) { open(.sleep) }
       }
       .frame(maxWidth: .infinity)
 
-      CoachTipCard(tip: displayCoachTip) {
-        openCoach(coachTip.prompt)
-      }
-      .padding(.top, 2)
+      Text(verdict)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
     }
+    .padding(.top, 6)
   }
 
-  private var displayCoachTip: CoachInlineTip {
-    guard coachTip.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return coachTip
+  private var recoveryScore: Int? {
+    guard recovery.source.kind != .unavailable,
+          let value = firstNumber(in: recovery.displayValue) else {
+      return nil
     }
-    return CoachInlineTip(
-      id: coachTip.id,
-      title: coachTip.title,
-      message: actionSummary,
-      source: coachTip.source,
-      prompt: coachTip.prompt,
-      systemImage: coachTip.systemImage,
-      tint: coachTip.tint
-    )
+    return min(max(Int(value.rounded()), 0), 100)
+  }
+
+  private var recoveryColor: Color? {
+    guard let score = recoveryScore else { return nil }
+    if score >= 67 { return .green }
+    if score >= 34 { return .yellow }
+    return .red
+  }
+
+  private var verdict: String {
+    guard let score = recoveryScore else {
+      return "Wear your band overnight to get your first Recovery score."
+    }
+    if score >= 67 { return "Recovered \u{2014} today can be a big day." }
+    if score >= 34 { return "Getting there \u{2014} train, but keep something in reserve." }
+    return "Run down \u{2014} make today about rest and recovery."
   }
 }
 
 struct HomeScoreDial: View {
   let snapshot: HealthMetricSnapshot
+  var overrideColor: Color?
+  let open: () -> Void
 
   var body: some View {
-    VStack(spacing: 9) {
-      ZStack {
-        Circle()
-          .stroke(snapshot.tint.opacity(0.14), lineWidth: 9)
-        Circle()
-          .trim(from: 0, to: progress)
-          .stroke(snapshot.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
-          .rotationEffect(.degrees(-90))
+    Button(action: open) {
+      VStack(spacing: 10) {
+        ZStack {
+          ScoreRing(
+            progress: progress,
+            color: dialColor,
+            lineWidth: 10,
+            isPlaceholder: !hasValue
+          )
+          HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(scoreText)
+              .font(.system(size: 26, weight: .bold, design: .rounded))
+              .monospacedDigit()
+              .foregroundStyle(hasValue ? .primary : .secondary)
+              .contentTransition(.numericText())
+            if hasValue {
+              Text("%")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            }
+          }
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+          .padding(12)
+        }
+        .frame(width: 96, height: 96)
 
-        Text(scoreText)
-          .font(.system(size: 24, weight: .bold, design: .rounded))
-          .monospacedDigit()
+        Text(snapshot.title)
+          .font(.subheadline.weight(.semibold))
           .foregroundStyle(.primary)
           .lineLimit(1)
-          .minimumScaleFactor(0.62)
-          .padding(8)
+          .minimumScaleFactor(0.75)
       }
-      .frame(width: 88, height: 88)
-
-      HStack(spacing: 4) {
-        Image(systemName: snapshot.systemImage)
-          .font(.caption.weight(.bold))
-          .foregroundStyle(snapshot.tint)
-        Text(snapshot.title)
-          .font(.caption.weight(.bold))
-          .foregroundStyle(.primary)
-      }
-      .lineLimit(1)
-      .minimumScaleFactor(0.75)
-      .padding(.top, 2)
+      .frame(maxWidth: .infinity)
     }
-    .frame(maxWidth: .infinity)
+    .buttonStyle(.plain)
     .accessibilityElement(children: .combine)
+    .accessibilityLabel(snapshot.title)
+    .accessibilityValue(hasValue ? "\(scoreText) percent" : "No data yet")
+  }
+
+  private var hasValue: Bool {
+    snapshot.source.kind != .unavailable && firstNumber(in: snapshot.displayValue) != nil
   }
 
   private var scoreText: String {
-    snapshot.displayValue
+    guard hasValue else { return "--" }
+    return snapshot.displayValue
       .replacingOccurrences(of: "%", with: "")
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var dialColor: Color {
+    overrideColor ?? snapshot.tint
   }
 
   private var progress: Double {
     let value = firstNumber(in: snapshot.displayValue) ?? 0
     return min(max(value / 100, 0), 1)
   }
+}
+
+/// Converts internal status strings into calm, human language for the Home
+/// surface. Plumbing detail belongs in the developer screens, not here.
+func humanizedHomeStatus(_ status: String) -> String {
+  let lowered = status.lowercased()
+  if lowered.contains("no run") || lowered.contains("not extracted")
+    || lowered.contains("unavailable") || lowered.contains("no data") {
+    return "No data yet"
+  }
+  return status
 }
 
 struct HomeStressEnergySection: View {
@@ -183,7 +272,7 @@ struct HomeStressEnergySection: View {
             VStack(spacing: 1) {
               Text(stress.value)
                 .font(.title3.bold())
-              Text(stress.status)
+              Text(humanizedHomeStatus(stress.status))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -200,7 +289,10 @@ struct HomeStressEnergySection: View {
       }
       .buttonStyle(.plain)
 
-      HomeEnergyBar(percent: Int(firstNumber(in: energy.displayValue) ?? 0), caption: energy.status)
+      HomeEnergyBar(
+        percent: Int(firstNumber(in: energy.displayValue) ?? 0),
+        caption: humanizedHomeStatus(energy.status)
+      )
     }
   }
 
