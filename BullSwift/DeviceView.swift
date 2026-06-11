@@ -297,11 +297,39 @@ private struct BatteryRail: View {
   }
 }
 
+// Compact horizontal battery level indicator for the battery pack tile
+// (visual parity with BatteryRail used for the main strap battery).
+private struct PackBatteryLevel: View {
+  let percent: Int
+  let isLow: Bool
+  let isCharging: Bool
+
+  var body: some View {
+    ZStack(alignment: .leading) {
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(deviceRailBackground)
+        .frame(width: 36, height: 8)
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(fillColor)
+        .frame(width: 36 * CGFloat(min(max(percent, 0), 100)) / 100, height: 8)
+    }
+    .accessibilityHidden(true)
+  }
+
+  private var fillColor: Color {
+    if isLow { return disconnectedRed }
+    if isCharging {
+      return batteryYellow // solid; gradient unnecessary at this size
+    }
+    return batteryYellow
+  }
+}
+
 private struct DeviceBatteryPackTile: View {
   @ObservedObject var ble: BullBLEClient
 
   private var present: Bool { ble.batteryPackPresent == true }
-  private var isCharging: Bool { ble.batteryIsCharging == true }
+  private var strapIsCharging: Bool { ble.batteryIsCharging == true }
   private var artBase: String {
     ble.batteryPackType == .penguin ? "PackPenguin" : "PackPuffin"
   }
@@ -309,7 +337,7 @@ private struct DeviceBatteryPackTile: View {
   var body: some View {
     HStack(spacing: 16) {
       ZStack {
-        if present && isCharging {
+        if present && strapIsCharging {
           PackFrameSequence(prefix: "\(artBase)Frame", frameCount: 25)
             .frame(width: 64, height: 73)
         } else {
@@ -331,7 +359,8 @@ private struct DeviceBatteryPackTile: View {
             Text("\(percent)%")
               .font(.system(size: 28, weight: .black, design: .default))
               .foregroundStyle(ble.batteryPackIsLow ? disconnectedRed : devicePrimaryText)
-            if isCharging {
+            PackBatteryLevel(percent: percent, isLow: ble.batteryPackIsLow, isCharging: strapIsCharging)
+            if strapIsCharging {
               Image(systemName: "bolt.fill")
                 .font(.system(size: 14, weight: .black))
                 .foregroundStyle(batteryYellow)
@@ -370,7 +399,7 @@ private struct DeviceBatteryPackTile: View {
     }
     if ble.batteryPackIsLow {
       parts.append("Low")
-    } else if isCharging {
+    } else if strapIsCharging {
       parts.append("Charging strap")
     }
     if let updatedAt = ble.batteryPackUpdatedAt, Date().timeIntervalSince(updatedAt) > 3600 {
