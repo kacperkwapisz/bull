@@ -4,6 +4,8 @@ struct RootView: View {
   @EnvironmentObject private var model: BullAppModel
   @AppStorage(OnboardingStorage.onboardingComplete) private var onboardingComplete = false
   @AppStorage(OnboardingStorage.onboardingRedoRequested) private var onboardingRedoRequested = false
+  @StateObject private var changelog = ChangelogStore()
+  @State private var showWhatsNew = false
 
   var body: some View {
     ZStack(alignment: .top) {
@@ -21,14 +23,35 @@ struct RootView: View {
       SyncToastHost(ble: model.ble)
     }
     .bullScreenBackground()
+    .sheet(isPresented: $showWhatsNew) {
+      WhatsNewView(entries: changelog.unseen) {
+        changelog.markAllSeen()
+      }
+      .presentationDetents([.large])
+    }
     .onAppear {
       mirrorCurrentOnboardingStateIfNeeded()
       restorePersistedOnboardingStateIfNeeded()
       syncModelOnboardingState()
+      presentWhatsNewIfNeeded()
     }
     .onChange(of: onboardingComplete) { _, _ in
       mirrorCurrentOnboardingStateIfNeeded()
       syncModelOnboardingState()
+      presentWhatsNewIfNeeded()
+    }
+  }
+
+  /// Show the changelog dialog once when there are unseen entries and the user
+  /// is past onboarding (never interrupt first-run).
+  private func presentWhatsNewIfNeeded() {
+    guard onboardingComplete, changelog.hasUnseen, !showWhatsNew else {
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+      if onboardingComplete, changelog.hasUnseen {
+        showWhatsNew = true
+      }
     }
   }
 
