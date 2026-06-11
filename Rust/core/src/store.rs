@@ -538,6 +538,22 @@ pub struct RespSampleRow {
     pub contact: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExerciseSessionRow {
+    pub device_id: String,
+    pub start_ts: f64,
+    pub end_ts: f64,
+    pub duration_s: f64,
+    pub avg_hr: f64,
+    pub peak_hr: f64,
+    pub strain: f64,
+    pub calories_kcal: f64,
+    pub zone_time_pct_json: String,
+    pub hrmax_source: String,
+    pub rhr_source: String,
+    pub avg_hrr_pct: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct MetricProvenanceInput<'a> {
     pub provenance_id: &'a str,
@@ -3869,6 +3885,113 @@ impl BullStore {
                 ts: row.get(1)?,
                 raw: row.get(2)?,
                 contact: row.get(3)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Insert one detected exercise session. Duplicate (device_id, start_ts)
+    /// rows are ignored. Returns true when a new row was written.
+    pub fn insert_exercise_session(&self, row: &ExerciseSessionRow) -> BullResult<bool> {
+        validate_required("device_id", &row.device_id)?;
+        self.immediate_transaction(|store| {
+            let changed = store.conn.execute(
+                "INSERT OR IGNORE INTO exercise_sessions \
+                 (device_id, start_ts, end_ts, duration_s, avg_hr, peak_hr, strain, \
+                  calories_kcal, zone_time_pct_json, hrmax_source, rhr_source, avg_hrr_pct) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    row.device_id,
+                    row.start_ts,
+                    row.end_ts,
+                    row.duration_s,
+                    row.avg_hr,
+                    row.peak_hr,
+                    row.strain,
+                    row.calories_kcal,
+                    row.zone_time_pct_json,
+                    row.hrmax_source,
+                    row.rhr_source,
+                    row.avg_hrr_pct
+                ],
+            )?;
+            Ok(changed > 0)
+        })
+    }
+
+    /// Insert multiple exercise sessions atomically. Returns the count of newly
+    /// inserted rows (duplicates skipped via INSERT OR IGNORE).
+    pub fn insert_exercise_sessions_batch(
+        &self,
+        rows: &[ExerciseSessionRow],
+    ) -> BullResult<usize> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        self.immediate_transaction(|store| {
+            let mut inserted = 0usize;
+            for row in rows {
+                validate_required("device_id", &row.device_id)?;
+                let changed = store.conn.execute(
+                    "INSERT OR IGNORE INTO exercise_sessions \
+                     (device_id, start_ts, end_ts, duration_s, avg_hr, peak_hr, strain, \
+                      calories_kcal, zone_time_pct_json, hrmax_source, rhr_source, avg_hrr_pct) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![
+                        row.device_id,
+                        row.start_ts,
+                        row.end_ts,
+                        row.duration_s,
+                        row.avg_hr,
+                        row.peak_hr,
+                        row.strain,
+                        row.calories_kcal,
+                        row.zone_time_pct_json,
+                        row.hrmax_source,
+                        row.rhr_source,
+                        row.avg_hrr_pct
+                    ],
+                )?;
+                if changed > 0 {
+                    inserted += 1;
+                }
+            }
+            Ok(inserted)
+        })
+    }
+
+    /// Return detected exercise sessions for a device in [ts_start, ts_end),
+    /// ordered by start_ts ascending.
+    pub fn exercise_sessions_between(
+        &self,
+        device_id: &str,
+        ts_start: f64,
+        ts_end: f64,
+    ) -> BullResult<Vec<ExerciseSessionRow>> {
+        validate_required("device_id", device_id)?;
+        if ts_end < ts_start {
+            return Err(BullError::message("ts_end must be >= ts_start"));
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT device_id, start_ts, end_ts, duration_s, avg_hr, peak_hr, strain, \
+             calories_kcal, zone_time_pct_json, hrmax_source, rhr_source, avg_hrr_pct \
+             FROM exercise_sessions WHERE device_id = ?1 AND start_ts >= ?2 AND start_ts < ?3 \
+             ORDER BY start_ts",
+        )?;
+        let rows = stmt.query_map(params![device_id, ts_start, ts_end], |row| {
+            Ok(ExerciseSessionRow {
+                device_id: row.get(0)?,
+                start_ts: row.get(1)?,
+                end_ts: row.get(2)?,
+                duration_s: row.get(3)?,
+                avg_hr: row.get(4)?,
+                peak_hr: row.get(5)?,
+                strain: row.get(6)?,
+                calories_kcal: row.get(7)?,
+                zone_time_pct_json: row.get(8)?,
+                hrmax_source: row.get(9)?,
+                rhr_source: row.get(10)?,
+                avg_hrr_pct: row.get(11)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)

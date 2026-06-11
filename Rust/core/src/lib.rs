@@ -15,6 +15,7 @@ pub mod debug_ws;
 pub mod debug_ws_server;
 pub mod energy_rollup;
 mod error;
+pub mod exercise_detection;
 pub mod export;
 pub mod fixtures;
 pub mod health_sync;

@@ -152,7 +152,7 @@ use crate::{
         ActivityIntervalInput, ActivityMetricInput, ActivityMetricRow, ActivitySessionInput,
         ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION,
         CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
-        CommandValidationRecord, DecodedFrameRow, ExternalSleepSessionInput,
+        CommandValidationRecord, DecodedFrameRow, ExerciseSessionRow, ExternalSleepSessionInput,
         ExternalSleepSessionRow, ExternalSleepStageInput, ExternalSleepStageRow, BullStore,
         GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
@@ -226,6 +226,8 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "debug.start_session",
     "diagnostics.perf_budget",
     "diagnostics.property_suite",
+    "exercise.detect_sessions",
+    "exercise.sessions_between",
     "export.raw_timeframe",
     "export.validate_bundle",
     "health_sync.activity_dry_run",
@@ -2652,6 +2654,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(gravity_rows_between_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "exercise.detect_sessions" => request_args::<DetectExerciseSessionsArgs>(&request)
+            .and_then(exercise_detect_sessions_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "exercise.sessions_between" => request_args::<ExerciseSessionsBetweenArgs>(&request)
+            .and_then(exercise_sessions_between_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "settings.apply_default_algorithm_preferences" => {
             request_args::<ApplyDefaultPreferencesArgs>(&request)
                 .and_then(apply_default_preferences_bridge)
@@ -3137,6 +3147,109 @@ fn gravity_rows_between_bridge(args: GravityRowsBetweenArgs) -> BullResult<serde
         .map(|r| json!({"ts": r.ts, "x": r.x, "y": r.y, "z": r.z}))
         .collect();
     Ok(json!({ "rows": json_rows }))
+}
+
+// ---------------------------------------------------------------------------
+// Exercise detection bridge (exercise.detect_sessions / exercise.sessions_between)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct HrSampleArg {
+    ts: f64,
+    bpm: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExerciseProfileArg {
+    resting_hr: Option<f64>,
+    max_hr: Option<f64>,
+    age: Option<u8>,
+    sex: Option<String>,
+    weight_kg: Option<f64>,
+    height_cm: Option<f64>,
+    daily_hr_p10: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetectExerciseSessionsArgs {
+    database_path: String,
+    device_id: String,
+    hr_samples: Vec<HrSampleArg>,
+    gravity_rows: Vec<GravityRow>,
+    profile: ExerciseProfileArg,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExerciseSessionsBetweenArgs {
+    database_path: String,
+    device_id: String,
+    ts_start: f64,
+    ts_end: f64,
+}
+
+fn exercise_detect_sessions_bridge(
+    args: DetectExerciseSessionsArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let hr: Vec<crate::exercise_detection::HrSample> = args
+        .hr_samples
+        .iter()
+        .map(|s| crate::exercise_detection::HrSample {
+            ts: s.ts,
+            bpm: s.bpm,
+        })
+        .collect();
+    let profile = crate::exercise_detection::ExerciseProfile {
+        resting_hr: args.profile.resting_hr,
+        max_hr: args.profile.max_hr,
+        age: args.profile.age,
+        sex: args.profile.sex.clone(),
+        weight_kg: args.profile.weight_kg,
+        height_cm: args.profile.height_cm,
+        daily_hr_p10: args.profile.daily_hr_p10,
+    };
+    let sessions =
+        crate::exercise_detection::detect_exercise_sessions(&hr, &args.gravity_rows, &profile);
+    let mut warnings: Vec<String> = Vec::new();
+
+    let rows: Vec<ExerciseSessionRow> = sessions
+        .iter()
+        .map(|session| ExerciseSessionRow {
+            device_id: args.device_id.clone(),
+            start_ts: session.start_ts,
+            end_ts: session.end_ts,
+            duration_s: session.duration_s,
+            avg_hr: session.avg_hr,
+            peak_hr: session.peak_hr,
+            strain: session.strain,
+            calories_kcal: session.calories_kcal,
+            zone_time_pct_json: serde_json::to_string(&session.zone_time_pct).unwrap_or_default(),
+            hrmax_source: session.hrmax_source.clone(),
+            rhr_source: session.rhr_source.clone(),
+            avg_hrr_pct: session.avg_hrr_pct,
+        })
+        .collect();
+
+    let inserted = store
+        .insert_exercise_sessions_batch(&rows)
+        .unwrap_or_else(|e| {
+            warnings.push(format!("batch insert failed: {e}"));
+            0
+        });
+
+    Ok(json!({
+        "sessions_detected": sessions.len(),
+        "sessions_inserted": inserted,
+        "warnings": warnings,
+    }))
+}
+
+fn exercise_sessions_between_bridge(
+    args: ExerciseSessionsBetweenArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let rows = store.exercise_sessions_between(&args.device_id, args.ts_start, args.ts_end)?;
+    Ok(json!({ "sessions": rows }))
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {
@@ -8341,6 +8454,58 @@ mod tests {
             "epochs must be empty for an empty gravity table"
         );
         assert!(result["stage_minutes"].is_object());
+    }
+
+    #[test]
+    fn exercise_detect_and_query_round_trip() {
+        let (_dir, db_path) = make_temp_db();
+        // Synthesize ~20 min of elevated HR with motion so a session is detected.
+        let mut hr = Vec::new();
+        let mut gravity = Vec::new();
+        let start = 1_000.0_f64;
+        for i in 0..1300 {
+            let ts = start + i as f64;
+            hr.push(json!({"ts": ts, "bpm": 150}));
+            // Alternating gravity vector to exceed the motion threshold.
+            let off = if i % 2 == 0 { 0.0 } else { 0.5 };
+            gravity.push(json!({"device_id": "dev-x", "ts": ts, "x": off, "y": 0.0, "z": 1.0}));
+        }
+        let detect = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ex-detect".to_string(),
+            method: "exercise.detect_sessions".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-x",
+                "hr_samples": hr,
+                "gravity_rows": gravity,
+                "profile": {"resting_hr": 55.0, "max_hr": 190.0, "age": 30, "sex": "male", "weight_kg": 75.0}
+            }),
+        };
+        let resp = handle_bridge_request(detect);
+        assert!(resp.ok, "detect must succeed: {:?}", resp.error);
+        let result = resp.result.expect("detect result");
+        // Plumbing contract: response carries the expected shape. The detection
+        // algorithm itself is covered by exercise_detection's inline tests.
+        assert!(result["sessions_detected"].is_number());
+        assert!(result["sessions_inserted"].is_number());
+        assert!(result["warnings"].is_array());
+
+        let query = BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-ex-query".to_string(),
+            method: "exercise.sessions_between".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-x",
+                "ts_start": 0.0,
+                "ts_end": 1_000_000.0
+            }),
+        };
+        let qresp = handle_bridge_request(query);
+        assert!(qresp.ok, "query must succeed: {:?}", qresp.error);
+        let sessions = qresp.result.expect("query result");
+        assert!(sessions["sessions"].is_array());
     }
 
     #[test]
