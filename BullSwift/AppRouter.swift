@@ -5,8 +5,7 @@ final class AppRouter: ObservableObject {
   @Published var selectedTab: BullAppTab = .home
   @Published var healthPath: [HealthRoute] = []
   @Published var morePath: [MoreRoute] = []
-  @Published var codexAuthCallbackURL: URL?
-  @Published var codexEmbeddedLoginRequestID = 0
+  @Published var coachSetupRequestID = 0
   @Published var coachPromptDraft = ""
   @Published var coachPromptRequestID = 0
   @Published var coachScrollToBottomRequestID = 0
@@ -53,16 +52,10 @@ final class AppRouter: ObservableObject {
 
   @discardableResult
   func handleDeepLink(_ url: URL) -> Bool {
-    if isCodexAuthCallback(url) {
-      selectedTab = .coach
-      codexAuthCallbackURL = url
-      return true
-    }
-
     if url.scheme == "bullswift", url.host == "coach" {
       selectedTab = .coach
-      if url.pathComponents.dropFirst().first == "embedded-login" {
-        codexEmbeddedLoginRequestID += 1
+      if url.pathComponents.dropFirst().first == "setup" {
+        coachSetupRequestID += 1
       }
       return true
     }
@@ -95,10 +88,4 @@ final class AppRouter: ObservableObject {
     return true
   }
 
-  private func isCodexAuthCallback(_ url: URL) -> Bool {
-    guard let scheme = url.scheme?.lowercased() else {
-      return false
-    }
-    return ["bullswift", "bull"].contains(scheme) && url.host == "codex-auth"
-  }
 }

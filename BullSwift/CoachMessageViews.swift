@@ -129,38 +129,32 @@ private struct CoachToolCallRow: View {
   let event: CoachToolEvent
   @State private var isExpanded = false
 
+  private var showDebugDetails: Bool {
+    #if DEBUG
+    return true
+    #else
+    return false
+    #endif
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Button {
-        withAnimation(.easeInOut(duration: 0.16)) {
-          isExpanded.toggle()
+      Group {
+        if showDebugDetails {
+          Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+              isExpanded.toggle()
+            }
+          } label: {
+            toolHeader
+          }
+          .buttonStyle(.plain)
+        } else {
+          toolHeader
         }
-      } label: {
-        HStack(spacing: 7) {
-          Image(systemName: "chevron.right")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(.secondary)
-            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            .frame(width: 10, height: 14)
-
-          Image(systemName: "wrench.and.screwdriver")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.blue)
-
-          Text(event.name)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-
-          Spacer(minLength: 8)
-
-          CoachToolStatusBadge(status: event.status)
-        }
-        .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
 
-      if isExpanded {
+      if showDebugDetails, isExpanded {
         VStack(alignment: .leading, spacing: 8) {
           if !event.arguments.isEmpty {
             CoachToolPayloadBlock(title: "Arguments", text: CoachToolPayloadFormatter.format(event.arguments))
@@ -180,6 +174,34 @@ private struct CoachToolCallRow: View {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
         .stroke(Color(.separator).opacity(0.16), lineWidth: 1)
     }
+  }
+
+  private var toolHeader: some View {
+    HStack(spacing: 7) {
+      if showDebugDetails {
+        Image(systemName: "chevron.right")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(.secondary)
+          .rotationEffect(.degrees(isExpanded ? 90 : 0))
+          .frame(width: 10, height: 14)
+      }
+
+      Image(systemName: "sparkles")
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.blue)
+
+      Text(event.name)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      if showDebugDetails {
+        CoachToolStatusBadge(status: event.status)
+      }
+    }
+    .contentShape(Rectangle())
   }
 }
 

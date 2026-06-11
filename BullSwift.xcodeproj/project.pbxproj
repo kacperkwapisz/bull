@@ -29,17 +29,22 @@
 		A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* HealthKitSleepImporter.swift */; };
 		A10000000000000000000019 /* OnboardingPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* OnboardingPersistence.swift */; };
 		A1000000000000000000001A /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* MoreView.swift */; };
-		A1000000000000000000001B /* CodexEmbeddedAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* CodexEmbeddedAuth.swift */; };
+
 		A10000000000000000000023 /* BullTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* BullTheme.swift */; };
-		A10000000000000000000025 /* CodexCoachSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* CodexCoachSupport.swift */; };
-		A10000000000000000000026 /* OpenAICoachChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* OpenAICoachChat.swift */; };
+
+		A10000000000000000000050 /* CoachAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000050 /* CoachAPIConfiguration.swift */; };
+		A10000000000000000000051 /* CoachAuthKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* CoachAuthKeychain.swift */; };
+		A10000000000000000000052 /* CoachConsentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* CoachConsentStore.swift */; };
+		A10000000000000000000053 /* CoachToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* CoachToolRegistry.swift */; };
+		A10000000000000000000054 /* CoachAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000054 /* CoachAPIClient.swift */; };
+		A10000000000000000000055 /* CoachChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000055 /* CoachChatModel.swift */; };
 		A10000000000000000000027 /* CoachTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* CoachTips.swift */; };
 		A10000000000000000000028 /* CoachSignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* CoachSignInScreen.swift */; };
 		A10000000000000000000029 /* CoachChatScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* CoachChatScreen.swift */; };
 		A1000000000000000000002A /* CoachMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002A /* CoachMessageViews.swift */; };
 		A1000000000000000000002B /* CoachComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002B /* CoachComposer.swift */; };
 		A1000000000000000000002C /* CoachChatTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* CoachChatTypes.swift */; };
-		A1000000000000000000002D /* OpenAICoachResponsesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002D /* OpenAICoachResponsesClient.swift */; };
+
 		A10000000000000000000040 /* CoachLocalToolContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* CoachLocalToolContext.swift */; };
 		B10000000000000000000001 /* WorkoutLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* WorkoutLiveActivityAttributes.swift */; };
 		B10000000000000000000002 /* WorkoutLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* WorkoutLiveActivityController.swift */; };
@@ -204,17 +209,22 @@
 		A2000000000000000000001B /* HealthKitSleepImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSleepImporter.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* OnboardingPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPersistence.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
-		A20000000000000000000021 /* CodexEmbeddedAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexEmbeddedAuth.swift; sourceTree = "<group>"; };
+
 		A20000000000000000000023 /* BullTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullTheme.swift; sourceTree = "<group>"; };
-		A20000000000000000000025 /* CodexCoachSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCoachSupport.swift; sourceTree = "<group>"; };
-		A20000000000000000000026 /* OpenAICoachChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICoachChat.swift; sourceTree = "<group>"; };
+
+		A20000000000000000000050 /* CoachAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIConfiguration.swift; sourceTree = "<group>"; };
+		A20000000000000000000051 /* CoachAuthKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAuthKeychain.swift; sourceTree = "<group>"; };
+		A20000000000000000000052 /* CoachConsentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachConsentStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000053 /* CoachToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachToolRegistry.swift; sourceTree = "<group>"; };
+		A20000000000000000000054 /* CoachAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000055 /* CoachChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachChatModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* CoachTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachTips.swift; sourceTree = "<group>"; };
 		A20000000000000000000028 /* CoachSignInScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachSignInScreen.swift; sourceTree = "<group>"; };
 		A20000000000000000000029 /* CoachChatScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachChatScreen.swift; sourceTree = "<group>"; };
 		A2000000000000000000002A /* CoachMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMessageViews.swift; sourceTree = "<group>"; };
 		A2000000000000000000002B /* CoachComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachComposer.swift; sourceTree = "<group>"; };
 		A2000000000000000000002C /* CoachChatTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachChatTypes.swift; sourceTree = "<group>"; };
-		A2000000000000000000002D /* OpenAICoachResponsesClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICoachResponsesClient.swift; sourceTree = "<group>"; };
+
 		A20000000000000000000040 /* CoachLocalToolContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachLocalToolContext.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* WorkoutLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivityAttributes.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* WorkoutLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivityController.swift; sourceTree = "<group>"; };
@@ -476,11 +486,13 @@
 				D2000000000000000000002F /* HealthStressCharts.swift */,
 				C2000000000000000000000E /* HealthPreviews.swift */,
 				A2000000000000000000001B /* HealthKitSleepImporter.swift */,
-				A20000000000000000000025 /* CodexCoachSupport.swift */,
-				A20000000000000000000021 /* CodexEmbeddedAuth.swift */,
 				A2000000000000000000002C /* CoachChatTypes.swift */,
-				A20000000000000000000026 /* OpenAICoachChat.swift */,
-				A2000000000000000000002D /* OpenAICoachResponsesClient.swift */,
+				A20000000000000000000050 /* CoachAPIConfiguration.swift */,
+				A20000000000000000000051 /* CoachAuthKeychain.swift */,
+				A20000000000000000000052 /* CoachConsentStore.swift */,
+				A20000000000000000000053 /* CoachToolRegistry.swift */,
+				A20000000000000000000054 /* CoachAPIClient.swift */,
+				A20000000000000000000055 /* CoachChatModel.swift */,
 				A20000000000000000000040 /* CoachLocalToolContext.swift */,
 				A20000000000000000000027 /* CoachTips.swift */,
 				B20000000000000000000001 /* WorkoutLiveActivityAttributes.swift */,
@@ -784,11 +796,13 @@
 				D10000000000000000000006 /* MoreRawExportViews.swift in Sources */,
 				D10000000000000000000007 /* MoreDebugViews.swift in Sources */,
 				D10000000000000000000008 /* MoreInfoViews.swift in Sources */,
-				A10000000000000000000025 /* CodexCoachSupport.swift in Sources */,
-				A1000000000000000000001B /* CodexEmbeddedAuth.swift in Sources */,
 				A1000000000000000000002C /* CoachChatTypes.swift in Sources */,
-				A10000000000000000000026 /* OpenAICoachChat.swift in Sources */,
-				A1000000000000000000002D /* OpenAICoachResponsesClient.swift in Sources */,
+				A10000000000000000000050 /* CoachAPIConfiguration.swift in Sources */,
+				A10000000000000000000051 /* CoachAuthKeychain.swift in Sources */,
+				A10000000000000000000052 /* CoachConsentStore.swift in Sources */,
+				A10000000000000000000053 /* CoachToolRegistry.swift in Sources */,
+				A10000000000000000000054 /* CoachAPIClient.swift in Sources */,
+				A10000000000000000000055 /* CoachChatModel.swift in Sources */,
 				A10000000000000000000040 /* CoachLocalToolContext.swift in Sources */,
 				A10000000000000000000027 /* CoachTips.swift in Sources */,
 				A10000000000000000000023 /* BullTheme.swift in Sources */,

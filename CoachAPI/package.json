@@ -1,0 +1,19 @@
+{
+  "name": "bull-coach-api",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot src/app.ts",
+    "start": "bun src/app.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@usehyper/cli": "^0.1.1",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
