@@ -7,7 +7,10 @@ final class BullAppModel: ObservableObject {
   @Published var onboardingComplete = false
   @Published var rustStatus = "Rust bridge not checked"
   @Published var helloSummary = "Client hello not prepared"
-  @Published var packetImportRevision = 0
+  // Not @Published: no view observes this counter, but as a @Published it fired
+  // BullAppModel.objectWillChange (re-rendering all dashboards) every ~5s during
+  // import. Kept as a plain counter for diagnostics/future wiring.
+  var packetImportRevision = 0
   @Published var packetImportStatus = "No packet import"
   @Published var activityPersistenceStatus = "No activity stored"
   @Published var homeActivityTimelineItems: [ActivityTimelineItem] = []

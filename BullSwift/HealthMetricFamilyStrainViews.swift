@@ -401,10 +401,16 @@ struct StrainV2OverviewPage: View {
   @State private var showingDatePicker = false
   @State private var showingInsightsSheet = false
   @State private var selectedTrend: HealthMetricSnapshot?
+  // Cached per data change instead of recomputed on every body pass — the page
+  // otherwise re-renders (and re-queries the store) on every model publish.
+  @State private var cachedData: StrainV2PageData?
+  @State private var lastLiveRefresh = Date.distantPast
 
   private let heroHeight: CGFloat = 320
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
+    let data = cachedData ?? pageData()
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: SleepV2PaletteTheme.strain)
 
     ZStack(alignment: .top) {
@@ -424,8 +430,8 @@ struct StrainV2OverviewPage: View {
 
             StrainV2Hero(
               palette: palette,
-              score: store.strainScore0To100(for: selectedDate),
-              status: store.strainStatusText(for: selectedDate),
+              score: data.score,
+              status: data.status,
               dateLabel: dateLabel,
               onDateTap: { showingDatePicker = true }
             )
@@ -439,13 +445,13 @@ struct StrainV2OverviewPage: View {
                 palette: palette,
                 systemImage: "target",
                 label: "Target Strain",
-                value: store.strainTargetDisplayText()
+                value: data.targetText
               )
               SleepV2StatCard(
                 palette: palette,
                 systemImage: "timer",
                 label: "Duration",
-                value: store.strainDurationDisplayText()
+                value: data.durationText
               )
             }
             .frame(height: 96)
@@ -455,18 +461,18 @@ struct StrainV2OverviewPage: View {
                 palette: palette,
                 systemImage: "flame.fill",
                 label: "Total Energy",
-                value: store.strainEnergyDisplayText(for: selectedDate)
+                value: data.energyText
               )
               SleepV2StatCard(
                 palette: palette,
                 systemImage: "shoeprints.fill",
                 label: "Steps",
-                value: store.strainActivityCountText(for: selectedDate)
+                value: data.stepsText
               )
             }
             .frame(height: 96)
 
-            SleepV2CoachingCard(palette: palette, tip: coachTip) {
+            SleepV2CoachingCard(palette: palette, tip: data.coachTip) {
               openCoachTip()
             }
 
@@ -479,10 +485,10 @@ struct StrainV2OverviewPage: View {
 
             StrainV2DailyLoadCard(
               palette: palette,
-              scoreText: store.strainScoreDisplayText(for: selectedDate),
-              targetText: store.strainTargetDisplayText(),
-              durationText: store.strainDurationDisplayText(),
-              energyText: store.strainEnergyDisplayText(for: selectedDate)
+              scoreText: data.scoreText,
+              targetText: data.targetText,
+              durationText: data.durationText,
+              energyText: data.energyText
             )
 
             SleepV2SectionHeader(title: "Activities", palette: palette)
@@ -490,11 +496,11 @@ struct StrainV2OverviewPage: View {
               palette: palette,
               systemImage: "figure.run.circle",
               title: "No activities",
-              message: store.strainEmptyStateSummary()
+              message: data.emptyStateSummary
             )
 
             SleepV2SectionHeader(title: "Trends", palette: palette)
-            if trendRows.isEmpty {
+            if data.trendRows.isEmpty {
               StrainV2EmptyStateCard(
                 palette: palette,
                 systemImage: "chart.line.uptrend.xyaxis",
@@ -503,7 +509,7 @@ struct StrainV2OverviewPage: View {
               )
             } else {
               VStack(spacing: 14) {
-                ForEach(trendRows) { snapshot in
+                ForEach(data.trendRows) { snapshot in
                   SleepV2TrendRow(palette: palette, snapshot: snapshot) {
                     selectedTrend = snapshot
                   }
@@ -548,6 +554,19 @@ struct StrainV2OverviewPage: View {
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
+    .onAppear {
+      refreshData()
+    }
+    .onChange(of: selectedDate) { _, _ in
+      refreshData()
+    }
+    .onChange(of: store.catalogStatus) { _, _ in
+      refreshData()
+    }
+    .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
+      guard Date().timeIntervalSince(lastLiveRefresh) > 5 else { return }
+      refreshData()
+    }
   }
 
   private var dateLabel: String {
@@ -556,18 +575,45 @@ struct StrainV2OverviewPage: View {
     return "\(prefix), \(suffix)"
   }
 
-  private var coachTip: CoachInlineTip {
-    CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model)
+  private func refreshData() {
+    cachedData = pageData()
+    lastLiveRefresh = Date()
   }
 
-  private var trendRows: [HealthMetricSnapshot] {
-    store.trendRows(for: .strain)
+  private func pageData() -> StrainV2PageData {
+    StrainV2PageData(
+      score: store.strainScore0To100(for: selectedDate),
+      status: store.strainStatusText(for: selectedDate),
+      scoreText: store.strainScoreDisplayText(for: selectedDate),
+      targetText: store.strainTargetDisplayText(),
+      durationText: store.strainDurationDisplayText(),
+      energyText: store.strainEnergyDisplayText(for: selectedDate),
+      stepsText: store.strainActivityCountText(for: selectedDate),
+      emptyStateSummary: store.strainEmptyStateSummary(),
+      trendRows: store.trendRows(for: .strain),
+      coachTip: CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model)
+    )
   }
 
   private func openCoachTip() {
-    router.openCoach(prompt: coachTip.prompt)
+    let tip = cachedData?.coachTip
+      ?? CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model)
+    router.openCoach(prompt: tip.prompt)
     model.recordUIAction("coach.opened", detail: "strain inline tip")
   }
+}
+
+private struct StrainV2PageData {
+  let score: Double
+  let status: String
+  let scoreText: String
+  let targetText: String
+  let durationText: String
+  let energyText: String
+  let stepsText: String
+  let emptyStateSummary: String
+  let trendRows: [HealthMetricSnapshot]
+  let coachTip: CoachInlineTip
 }
 
 struct StrainV2Hero: View {

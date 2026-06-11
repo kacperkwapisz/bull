@@ -17,6 +17,9 @@ struct SleepV2OverviewPage: View {
 	  @State private var selectedPrimarySleep: PrimarySleepDetail?
 	  @State private var scrollOffsetY: CGFloat = 0
     @State private var autoBandSyncRequested = false
+    // Cached per data change instead of recomputed on every body pass; this page
+    // re-renders while the parallax header scrolls.
+    @State private var cachedData: SleepV2PageData?
 	  private let heroHeight: CGFloat = 320
 	  private let heroBackgroundHeight: CGFloat = 560
     private var autoBandSleepSyncEnabled: Bool {
@@ -26,6 +29,8 @@ struct SleepV2OverviewPage: View {
     }
 
 	  var body: some View {
+	    let _ = Self.bullPrintChangesIfEnabled()
+	    let data = cachedData ?? pageData()
 	    let palette = SleepV2Palette(colorScheme: colorScheme)
 		    ScrollViewReader { _ in
 	      ZStack(alignment: .top) {
@@ -46,7 +51,7 @@ struct SleepV2OverviewPage: View {
 	              palette: palette,
 	              title: "Sleep",
 	              dateLabel: dateLabel,
-	              score: sleepScore,
+	              score: data.score,
 	              onDateTap: { showingDatePicker = true }
 	            )
 	            .frame(height: heroHeight)
@@ -57,19 +62,19 @@ struct SleepV2OverviewPage: View {
                   palette: palette,
                   systemImage: "bed.double.fill",
                   label: "Time in Bed",
-                  value: primarySleep?.timeInBedText ?? "No data"
+                  value: data.primarySleep?.timeInBedText ?? "No data"
                 )
                 SleepV2StatCard(
                   palette: palette,
                   systemImage: "clock.fill",
                   label: "Time Asleep",
-                  value: primarySleep?.durationText ?? "No data"
+                  value: data.primarySleep?.durationText ?? "No data"
                 )
               }
               .frame(height: 96)
 
-              SleepV2CoachingCard(palette: palette, tip: coachTip) {
-                router.openCoach(prompt: coachTip.prompt)
+              SleepV2CoachingCard(palette: palette, tip: data.coachTip) {
+                router.openCoach(prompt: data.coachTip.prompt)
               }
 
 	              SleepV2ActionRow(
@@ -93,9 +98,9 @@ struct SleepV2OverviewPage: View {
 
               SleepV2TimelineRow(
                 palette: palette,
-                session: primarySleep,
+                session: data.primarySleep,
                 action: {
-                  if let primarySleep {
+                  if let primarySleep = data.primarySleep {
                     selectedPrimarySleep = primarySleep
                   }
                 }
@@ -104,7 +109,7 @@ struct SleepV2OverviewPage: View {
               SleepV2SectionHeader(title: "Trends", palette: palette)
 
               VStack(spacing: 14) {
-                ForEach(store.trendRows(for: .sleep)) { snapshot in
+                ForEach(data.trendRows) { snapshot in
                   SleepV2TrendRow(palette: palette, snapshot: snapshot) {
                     selectedTrend = snapshot
                   }
@@ -117,7 +122,10 @@ struct SleepV2OverviewPage: View {
 	        }
 	        .coordinateSpace(name: SleepV2ScrollOffsetProbe.coordinateSpaceName)
 	        .onPreferenceChange(SleepV2ScrollOffsetPreferenceKey.self) { value in
-	          scrollOffsetY = value
+	          let clamped = max(min(value, 0), -heroBackgroundHeight).rounded()
+	          if clamped != scrollOffsetY {
+	            scrollOffsetY = clamped
+	          }
 	        }
 	      }
 	    }
@@ -142,6 +150,13 @@ struct SleepV2OverviewPage: View {
     .onAppear {
       store.loadBridgeCatalogsIfNeeded()
       startBandSleepSyncIfReady()
+      refreshData()
+    }
+    .onChange(of: selectedDate) { _, _ in
+      refreshData()
+    }
+    .onChange(of: store.catalogStatus) { _, _ in
+      refreshData()
     }
     .onChange(of: ble.canSyncHistorical) { _, _ in
       startBandSleepSyncIfReady()
@@ -149,6 +164,7 @@ struct SleepV2OverviewPage: View {
     .onChange(of: ble.historicalSyncStatus) { _, newValue in
       if newValue == "synced" {
         store.refreshSleepAfterBandSync(packetCount: ble.historicalPacketCount)
+        refreshData()
       } else if newValue == "failed" {
         store.markBandSleepSyncFailed(ble.historicalSyncStatus)
       }
@@ -178,31 +194,31 @@ struct SleepV2OverviewPage: View {
     }
   }
 
-  private var selectedSnapshot: HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(
-      from: store.snapshot(for: .sleep),
-      date: selectedDate
-    )
-  }
-
-  private var primarySleep: PrimarySleepDetail? {
-    store.primarySleep()
-  }
-
-  private var sleepScore: Int {
-    SleepV2Numbers.firstInt(in: selectedSnapshot.value)
-      ?? SleepV2Numbers.firstInt(in: primarySleep?.scoreText ?? "")
-      ?? 92
-  }
-
   private var dateLabel: String {
     let suffix = selectedDate.formatted(.dateTime.day().month(.abbreviated))
     let prefix = ScoreDateTimeline.dateLabel(for: selectedDate)
     return "\(prefix), \(suffix)"
   }
 
-  private var coachTip: CoachInlineTip {
-    CoachTipFactory.sleepTip(healthStore: store, ble: ble)
+  private func refreshData() {
+    cachedData = pageData()
+  }
+
+  private func pageData() -> SleepV2PageData {
+    let selectedSnapshot = ScoreDateTimeline.datedSnapshot(
+      from: store.snapshot(for: .sleep),
+      date: selectedDate
+    )
+    let primarySleep = store.primarySleep()
+    let score = SleepV2Numbers.firstInt(in: selectedSnapshot.value)
+      ?? SleepV2Numbers.firstInt(in: primarySleep?.scoreText ?? "")
+      ?? 92
+    return SleepV2PageData(
+      score: score,
+      primarySleep: primarySleep,
+      trendRows: store.trendRows(for: .sleep),
+      coachTip: CoachTipFactory.sleepTip(healthStore: store, ble: ble)
+    )
   }
 
   private func startBandSleepSyncIfReady() {
@@ -236,5 +252,12 @@ struct SleepV2OverviewPage: View {
     ble.syncHistoricalPackets(rangeFirst: true)
   }
 
+}
+
+private struct SleepV2PageData {
+  let score: Int
+  let primarySleep: PrimarySleepDetail?
+  let trendRows: [HealthMetricSnapshot]
+  let coachTip: CoachInlineTip
 }
 

@@ -12,6 +12,10 @@ struct RecoveryV2OverviewPage: View {
   @State private var showingDatePicker = false
   @State private var selectedTrend: HealthMetricSnapshot?
   @State private var scrollOffsetY: CGFloat = 0
+  // Cached per data change instead of recomputed on every body pass; this page
+  // re-renders while the parallax header scrolls.
+  @State private var cachedData: RecoveryV2PageData?
+  @State private var lastLiveRefresh = Date.distantPast
 
   private let heroHeight: CGFloat = 320
   private let heroBackgroundHeight: CGFloat = 560
@@ -21,6 +25,8 @@ struct RecoveryV2OverviewPage: View {
   ]
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
+    let data = cachedData ?? pageData()
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .recovery)
     ScrollViewReader { _ in
       ZStack(alignment: .top) {
@@ -41,7 +47,7 @@ struct RecoveryV2OverviewPage: View {
               palette: palette,
               title: "Recovery",
               dateLabel: dateLabel,
-              score: recoveryScore,
+              score: data.score,
               gaugeLabel: "Recovery",
               onDateTap: { showingDatePicker = true }
             )
@@ -53,7 +59,7 @@ struct RecoveryV2OverviewPage: View {
                   palette: palette,
                   systemImage: "waveform.path.ecg",
                   label: "Resting HRV",
-                  value: store.recoveryHRVDisplayText(for: selectedDate)
+                  value: data.hrvText
                 )
                 .frame(height: 96)
 
@@ -61,7 +67,7 @@ struct RecoveryV2OverviewPage: View {
                   palette: palette,
                   systemImage: "heart.fill",
                   label: "Resting HR",
-                  value: store.recoveryRestingHRDisplayText(for: selectedDate)
+                  value: data.restingHRText
                 )
                 .frame(height: 96)
 
@@ -69,7 +75,7 @@ struct RecoveryV2OverviewPage: View {
                   palette: palette,
                   systemImage: "lungs.fill",
                   label: "Respiratory Rate",
-                  value: store.recoveryRespiratoryRateDisplayText(for: selectedDate)
+                  value: data.respiratoryText
                 )
                 .frame(height: 96)
 
@@ -77,7 +83,7 @@ struct RecoveryV2OverviewPage: View {
                   palette: palette,
                   systemImage: "drop.fill",
                   label: "Oxygen Saturation",
-                  value: store.recoveryOxygenSaturationDisplayText(for: selectedDate)
+                  value: data.oxygenText
                 )
                 .frame(height: 96)
               }
@@ -86,11 +92,11 @@ struct RecoveryV2OverviewPage: View {
                 palette: palette,
                 systemImage: "thermometer.medium",
                 label: "Wrist Temperature",
-                value: store.recoveryWristTemperatureDisplayText(for: selectedDate)
+                value: data.temperatureText
               )
               .frame(height: 96)
 
-              SleepV2CoachingCard(palette: palette, tip: coachTip) {
+              SleepV2CoachingCard(palette: palette, tip: data.coachTip) {
                 openCoachTip()
               }
 
@@ -115,7 +121,7 @@ struct RecoveryV2OverviewPage: View {
               SleepV2SectionHeader(title: "Trends", palette: palette)
 
               VStack(spacing: 14) {
-                ForEach(recoveryTrendRows) { snapshot in
+                ForEach(data.trendRows) { snapshot in
                   RecoveryV2TrendCard(palette: palette, snapshot: snapshot) {
                     selectedTrend = snapshot
                   }
@@ -128,7 +134,10 @@ struct RecoveryV2OverviewPage: View {
         }
         .coordinateSpace(name: SleepV2ScrollOffsetProbe.coordinateSpaceName)
         .onPreferenceChange(SleepV2ScrollOffsetPreferenceKey.self) { value in
-          scrollOffsetY = value
+          let clamped = max(min(value, 0), -heroBackgroundHeight).rounded()
+          if clamped != scrollOffsetY {
+            scrollOffsetY = clamped
+          }
         }
       }
     }
@@ -153,30 +162,19 @@ struct RecoveryV2OverviewPage: View {
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
-  }
-
-  private var selectedSnapshot: HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(
-      from: store.snapshot(for: .recovery),
-      date: selectedDate
-    )
-  }
-
-  private var recoveryScore: Int {
-    if let selectedScore = SleepV2Numbers.firstInt(in: selectedSnapshot.value) {
-      return selectedScore
+    .onAppear {
+      refreshData()
     }
-    return Calendar.current.isDate(selectedDate, inSameDayAs: Date())
-      ? store.recoveryScoreDisplayValue()
-      : 0
-  }
-
-  private var isSelectedDateToday: Bool {
-    Calendar.current.isDate(selectedDate, inSameDayAs: Date())
-  }
-
-  private var recoveryTrendRows: [HealthMetricSnapshot] {
-    store.recoveryTrendOverviewRows()
+    .onChange(of: selectedDate) { _, _ in
+      refreshData()
+    }
+    .onChange(of: store.catalogStatus) { _, _ in
+      refreshData()
+    }
+    .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
+      guard Date().timeIntervalSince(lastLiveRefresh) > 5 else { return }
+      refreshData()
+    }
   }
 
   private var dateLabel: String {
@@ -185,14 +183,53 @@ struct RecoveryV2OverviewPage: View {
     return "\(prefix), \(suffix)"
   }
 
-  private var coachTip: CoachInlineTip {
-    CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model)
+  private func refreshData() {
+    cachedData = pageData()
+    lastLiveRefresh = Date()
+  }
+
+  private func pageData() -> RecoveryV2PageData {
+    let selectedSnapshot = ScoreDateTimeline.datedSnapshot(
+      from: store.snapshot(for: .recovery),
+      date: selectedDate
+    )
+    let score: Int
+    if let selectedScore = SleepV2Numbers.firstInt(in: selectedSnapshot.value) {
+      score = selectedScore
+    } else {
+      score = Calendar.current.isDate(selectedDate, inSameDayAs: Date())
+        ? store.recoveryScoreDisplayValue()
+        : 0
+    }
+    return RecoveryV2PageData(
+      score: score,
+      hrvText: store.recoveryHRVDisplayText(for: selectedDate),
+      restingHRText: store.recoveryRestingHRDisplayText(for: selectedDate),
+      respiratoryText: store.recoveryRespiratoryRateDisplayText(for: selectedDate),
+      oxygenText: store.recoveryOxygenSaturationDisplayText(for: selectedDate),
+      temperatureText: store.recoveryWristTemperatureDisplayText(for: selectedDate),
+      trendRows: store.recoveryTrendOverviewRows(),
+      coachTip: CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model)
+    )
   }
 
   private func openCoachTip() {
-    router.openCoach(prompt: coachTip.prompt)
+    let tip = cachedData?.coachTip
+      ?? CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model)
+    router.openCoach(prompt: tip.prompt)
     model.recordUIAction("coach.opened", detail: "recovery v2 inline tip")
   }
+}
+
+private struct RecoveryV2PageData {
+  let score: Int
+  let hrvText: String
+  let restingHRText: String
+  let respiratoryText: String
+  let oxygenText: String
+  let temperatureText: String
+  let trendRows: [HealthMetricSnapshot]
+  let coachTip: CoachInlineTip
 }
 
 struct StressV2OverviewPage: View {
@@ -204,12 +241,21 @@ struct StressV2OverviewPage: View {
   @State private var showingDatePicker = false
   @State private var selectedTrend: HealthMetricSnapshot?
   @State private var scrollOffsetY: CGFloat = 0
+  // Cached once per data change instead of recomputed on every body pass —
+  // stressAlgorithmSummary buckets a full day of heart-rate samples, and this
+  // page re-renders on scroll for the parallax header.
+  @State private var cachedSummary: StressAlgorithmSummary?
+  @State private var cachedTrendRows: [HealthMetricSnapshot] = []
+  @State private var cachedCoachTip: CoachInlineTip?
+  @State private var lastLiveRefresh = Date.distantPast
 
   private let heroHeight: CGFloat = 334
   private let heroBackgroundHeight: CGFloat = 560
 
   var body: some View {
+    let _ = Self.bullPrintChangesIfEnabled()
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .stress)
+    let summary = cachedSummary ?? store.stressAlgorithmSummary(for: selectedDate)
     ZStack(alignment: .top) {
       palette.background
         .ignoresSafeArea()
@@ -228,7 +274,7 @@ struct StressV2OverviewPage: View {
             palette: palette,
             title: "Stress",
             dateLabel: dateLabel,
-            score: stressScore,
+            score: Int((summary.score ?? 0).rounded()),
             status: summary.status,
             onDateTap: { showingDatePicker = true }
           )
@@ -240,13 +286,13 @@ struct StressV2OverviewPage: View {
                 palette: palette,
                 systemImage: "checkmark.seal.fill",
                 label: "Confidence",
-                value: stressConfidenceText
+                value: Self.confidenceText(summary)
               )
               SleepV2StatCard(
                 palette: palette,
                 systemImage: "heart.fill",
                 label: "Average HR",
-                value: averageHeartRateText
+                value: Self.averageHeartRateText(summary)
               )
             }
             .frame(height: 96)
@@ -265,7 +311,7 @@ struct StressV2OverviewPage: View {
 
             SleepV2SectionHeader(title: "Trends", palette: palette)
 
-            if trendRows.isEmpty {
+            if cachedTrendRows.isEmpty {
               StrainV2EmptyStateCard(
                 palette: palette,
                 systemImage: "chart.line.uptrend.xyaxis",
@@ -274,7 +320,7 @@ struct StressV2OverviewPage: View {
               )
             } else {
               VStack(spacing: 14) {
-                ForEach(trendRows) { snapshot in
+                ForEach(cachedTrendRows) { snapshot in
                   RecoveryV2TrendCard(palette: palette, snapshot: snapshot) {
                     selectedTrend = snapshot
                   }
@@ -288,7 +334,12 @@ struct StressV2OverviewPage: View {
       }
       .coordinateSpace(name: SleepV2ScrollOffsetProbe.coordinateSpaceName)
       .onPreferenceChange(SleepV2ScrollOffsetPreferenceKey.self) { value in
-        scrollOffsetY = value
+        // The parallax layer only uses offsets within the hero band; clamping and
+        // quantizing keeps deep scrolling from invalidating the whole page per pixel.
+        let clamped = max(min(value, 0), -heroBackgroundHeight).rounded()
+        if clamped != scrollOffsetY {
+          scrollOffsetY = clamped
+        }
       }
     }
     .navigationTitle("Stress")
@@ -315,25 +366,39 @@ struct StressV2OverviewPage: View {
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
+    .onAppear {
+      refreshData()
+    }
+    .onChange(of: selectedDate) { _, _ in
+      refreshData()
+    }
+    .onChange(of: store.catalogStatus) { _, _ in
+      refreshData()
+    }
+    .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
+      // New samples arrive roughly once a second; recomputing the day summary
+      // that often is wasted work, so refresh on a coarse cadence.
+      guard Date().timeIntervalSince(lastLiveRefresh) > 5 else { return }
+      refreshData()
+    }
   }
 
-  private var summary: StressAlgorithmSummary {
-    store.stressAlgorithmSummary(for: selectedDate)
-  }
-
-  private var stressScore: Int {
-    Int((summary.score ?? 0).rounded())
-  }
-
-  private var trendRows: [HealthMetricSnapshot] {
-    Calendar.current.isDate(selectedDate, inSameDayAs: Date()) ? store.trendRows(for: .stress) : []
+  private var coachTip: CoachInlineTip {
+    cachedCoachTip ?? CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model)
   }
 
   private var dateLabel: String {
     selectedDate.formatted(.dateTime.day().month(.wide).year())
   }
 
-  private var averageHeartRateText: String {
+  private func refreshData() {
+    cachedSummary = store.stressAlgorithmSummary(for: selectedDate)
+    cachedTrendRows = Calendar.current.isDate(selectedDate, inSameDayAs: Date()) ? store.trendRows(for: .stress) : []
+    cachedCoachTip = CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model)
+    lastLiveRefresh = Date()
+  }
+
+  private static func averageHeartRateText(_ summary: StressAlgorithmSummary) -> String {
     guard let value = summary.averageHeartRate,
           let text = HealthDataStore.numberText(value, fractionDigits: 0) else {
       return "No data"
@@ -341,16 +406,12 @@ struct StressV2OverviewPage: View {
     return "\(text) bpm"
   }
 
-  private var stressConfidenceText: String {
+  private static func confidenceText(_ summary: StressAlgorithmSummary) -> String {
     guard let confidence = summary.confidence,
           let text = HealthDataStore.numberText(confidence, fractionDigits: 2) else {
       return "No data"
     }
     return text
-  }
-
-  private var coachTip: CoachInlineTip {
-    CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model)
   }
 
   private func openCoachTip() {
@@ -413,6 +474,7 @@ struct StressV2Hero: View {
       .buttonStyle(.plain)
 
       StressV2ScoreGauge(palette: palette, score: score, status: status)
+        .equatable()
         .frame(width: 206, height: 206)
         .padding(.top, 18)
     }
@@ -420,7 +482,7 @@ struct StressV2Hero: View {
   }
 }
 
-struct StressV2ScoreGauge: View {
+struct StressV2ScoreGauge: View, Equatable {
   let palette: SleepV2Palette
   let score: Int
   let status: String

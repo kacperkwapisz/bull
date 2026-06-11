@@ -1,75 +1,35 @@
 import SwiftUI
 
 struct HomeTimelineSection: View {
-  let sleep: HealthMetricSnapshot
-  let activity: HealthMetricSnapshot
-  let recovery: HealthMetricSnapshot
   let activities: [ActivityTimelineItem]
-  let openSleep: () -> Void
   let openActivity: () -> Void
-  let openRecovery: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HomeSectionHeader(title: "Timeline")
 
-      VStack(spacing: 8) {
-        ForEach(timelineEntries) { entry in
-          HomeTimelineRow(
-            time: entry.time,
-            title: entry.title,
-            subtitle: entry.subtitle,
-            systemImage: entry.systemImage,
-            tint: entry.tint,
-            action: { perform(entry.action) }
-          )
-          .equatable()
+      if activities.isEmpty {
+        HomeTimelineEmptyRow()
+      } else {
+        VStack(spacing: 8) {
+          ForEach(timelineEntries) { entry in
+            HomeTimelineRow(
+              time: entry.time,
+              title: entry.title,
+              subtitle: entry.subtitle,
+              systemImage: entry.systemImage,
+              tint: entry.tint,
+              action: { perform(entry.action) }
+            )
+            .equatable()
+          }
         }
       }
     }
   }
 
   private var timelineEntries: [HomeTimelineEntry] {
-    var entries = [
-      HomeTimelineEntry(
-        id: "sleep",
-        sortMinutes: 6 * 60 + 34,
-        time: "06:34",
-        title: "Sleep summary",
-        subtitle: summary(for: sleep),
-        systemImage: "moon.fill",
-        tint: sleep.tint,
-        action: .sleep
-      ),
-      HomeTimelineEntry(
-        id: "recovery",
-        sortMinutes: 17 * 60,
-        time: "17:00",
-        title: "Recovery update",
-        subtitle: summary(for: recovery),
-        systemImage: "battery.25",
-        tint: recovery.tint,
-        action: .recovery
-      ),
-    ]
-
-    if activities.isEmpty {
-      entries.append(
-        HomeTimelineEntry(
-          id: "activity-load",
-          sortMinutes: 12 * 60 + 30,
-          time: "12:30",
-          title: "Activity load",
-          subtitle: summary(for: activity),
-          systemImage: "arrow.triangle.2.circlepath",
-          tint: activity.tint,
-          action: .activity
-        )
-      )
-    } else {
-      entries.append(contentsOf: activities.map(activityEntry))
-    }
-    return entries.sorted { $0.sortMinutes > $1.sortMinutes }
+    activities.map(activityEntry).sorted { $0.sortMinutes > $1.sortMinutes }
   }
 
   private func activityEntry(_ item: ActivityTimelineItem) -> HomeTimelineEntry {
@@ -88,10 +48,6 @@ struct HomeTimelineSection: View {
     )
   }
 
-  private func summary(for snapshot: HealthMetricSnapshot) -> String {
-    "\(snapshot.displayValue) - \(snapshot.status)"
-  }
-
   private func activitySummary(for item: ActivityTimelineItem) -> String {
     var parts: [String] = []
     if let distanceMeters = item.distanceMeters, distanceMeters > 0 {
@@ -106,12 +62,8 @@ struct HomeTimelineSection: View {
 
   private func perform(_ action: HomeTimelineAction) {
     switch action {
-    case .sleep:
-      openSleep()
-    case .activity:
+    case .sleep, .activity, .recovery:
       openActivity()
-    case .recovery:
-      openRecovery()
     }
   }
 
@@ -141,7 +93,7 @@ struct HomeTimelineSection: View {
     case "strength":
       return .red
     default:
-      return activity.tint
+      return .mint
     }
   }
 
@@ -167,6 +119,31 @@ struct HomeTimelineSection: View {
     formatter.dateFormat = "HH:mm"
     return formatter
   }()
+}
+
+struct HomeTimelineEmptyRow: View {
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "sparkles")
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .frame(width: 36, height: 36)
+        .background(Color.primary.opacity(0.06), in: Circle())
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Nothing here yet")
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(.primary)
+        Text("Activities you record show up here.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(14)
+    .cardSurface(tint: .gray)
+  }
 }
 
 struct HomeTimelineEntry: Identifiable, Equatable {
