@@ -174,7 +174,7 @@ struct SleepV2Hero: View {
   let palette: SleepV2Palette
   let title: String
   let dateLabel: String
-  let score: Int
+  let score: Int?
   var gaugeLabel: String = "Quality"
   let onDateTap: () -> Void
 
@@ -248,74 +248,88 @@ struct SleepV2ScenicBackground: View {
 
 struct SleepV2ScoreGauge: View, Equatable {
   let palette: SleepV2Palette
-  let score: Int
+  let score: Int?
   let label: String
 
-  private var progress: CGFloat {
-    CGFloat(min(max(score, 0), 100)) / 100
+  private var progress: CGFloat? {
+    guard let score else {
+      return nil
+    }
+    return CGFloat(min(max(score, 0), 100)) / 100
   }
 
-	  var body: some View {
-	    GeometryReader { proxy in
-	      let side = min(proxy.size.width, proxy.size.height)
-	      let lineWidth = max(13, side * 0.078)
-	      let radius = side / 2 - 18
-	      let end = progressPoint(side: side, radius: radius)
+  var body: some View {
+    GeometryReader { proxy in
+      let side = min(proxy.size.width, proxy.size.height)
+      let lineWidth = max(13, side * 0.078)
+      let radius = side / 2 - 18
+      let progressValue = progress
+      let end = progressValue.map { progressPoint(side: side, radius: radius, progress: $0) }
 
-	      ZStack {
-	        Circle()
-	          .fill(palette.surface.opacity(palette.light ? 0.94 : 0.84))
-	          .shadow(color: palette.shadow.opacity(0.48), radius: 18, x: 0, y: 8)
-	        Circle()
-	          .stroke(.white.opacity(palette.light ? 0.88 : 0.12), lineWidth: 10)
-	          .padding(6)
-	        Circle()
-	          .inset(by: 18)
-	          .stroke(palette.separator.opacity(palette.light ? 0.72 : 0.62), lineWidth: lineWidth)
-	        Circle()
-	          .inset(by: 18)
-	          .trim(from: 0, to: progress)
-	          .stroke(
-	            LinearGradient(
-	              colors: [palette.accentAlt, palette.accent],
-	              startPoint: .topLeading,
-	              endPoint: .bottomTrailing
-	            ),
-	            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-	          )
-	          .rotationEffect(.degrees(-90))
+      ZStack {
+        Circle()
+          .fill(palette.surface.opacity(palette.light ? 0.94 : 0.84))
+          .shadow(color: palette.shadow.opacity(0.48), radius: 18, x: 0, y: 8)
+        Circle()
+          .stroke(.white.opacity(palette.light ? 0.88 : 0.12), lineWidth: 10)
+          .padding(6)
+        Circle()
+          .inset(by: 18)
+          .stroke(palette.separator.opacity(palette.light ? 0.72 : 0.62), lineWidth: lineWidth)
+        if let progressValue {
+          Circle()
+            .inset(by: 18)
+            .trim(from: 0, to: progressValue)
+            .stroke(
+              LinearGradient(
+                colors: [palette.accentAlt, palette.accent],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              ),
+              style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-90))
 
-	        Circle()
-	          .fill(palette.accent)
-	          .frame(width: lineWidth * 0.95, height: lineWidth * 0.95)
-	          .shadow(color: palette.accent.opacity(0.32), radius: 6, x: 0, y: 2)
-	          .position(end)
+          if let end {
+            Circle()
+              .fill(palette.accent)
+              .frame(width: lineWidth * 0.95, height: lineWidth * 0.95)
+              .shadow(color: palette.accent.opacity(0.32), radius: 6, x: 0, y: 2)
+              .position(end)
+          }
+        }
 
-	        VStack(spacing: 4) {
-	          HStack(alignment: .firstTextBaseline, spacing: 1) {
-	            Text("\(score)")
-	              .font(.system(size: 45, weight: .semibold, design: .rounded))
-	            Text("%")
-	              .font(.system(size: 18, weight: .semibold, design: .rounded))
-	          }
-	          .foregroundStyle(palette.text)
-	          Text(label)
-	            .font(.footnote.weight(.semibold))
-	            .foregroundStyle(palette.secondaryText)
-	        }
-	      }
-	      .frame(width: side, height: side)
-	      .frame(maxWidth: .infinity, maxHeight: .infinity)
-	    }
-	  }
+        VStack(spacing: 4) {
+          if let score {
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+              Text("\(score)")
+                .font(.system(size: 45, weight: .semibold, design: .rounded))
+              Text("%")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(palette.text)
+          } else {
+            Text("--")
+              .font(.system(size: 45, weight: .semibold, design: .rounded))
+              .foregroundStyle(palette.secondaryText)
+          }
+          Text(label)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(palette.secondaryText)
+        }
+      }
+      .frame(width: side, height: side)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
 
-	  private func progressPoint(side: CGFloat, radius: CGFloat) -> CGPoint {
-	    let angle = Double(progress) * 2 * Double.pi - Double.pi / 2
-	    let center = side / 2
-	    return CGPoint(
-	      x: center + CGFloat(cos(angle)) * radius,
-	      y: center + CGFloat(sin(angle)) * radius
-	    )
-	  }
-	}
+  private func progressPoint(side: CGFloat, radius: CGFloat, progress: CGFloat) -> CGPoint {
+    let angle = Double(progress) * 2 * Double.pi - Double.pi / 2
+    let center = side / 2
+    return CGPoint(
+      x: center + CGFloat(cos(angle)) * radius,
+      y: center + CGFloat(sin(angle)) * radius
+    )
+  }
+}
 

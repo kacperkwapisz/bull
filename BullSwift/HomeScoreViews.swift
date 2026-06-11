@@ -101,6 +101,8 @@ struct HomeScoreTriRow: View {
   let strain: HealthMetricSnapshot
   let recovery: HealthMetricSnapshot
   let sleep: HealthMetricSnapshot
+  /// When set (user calibration), replaces the recovery-led verdict line.
+  var calibrationVerdict: String?
   let open: (HealthRoute) -> Void
 
   var body: some View {
@@ -112,7 +114,7 @@ struct HomeScoreTriRow: View {
       }
       .frame(maxWidth: .infinity)
 
-      Text(verdict)
+      Text(calibrationVerdict ?? verdict)
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
@@ -215,15 +217,47 @@ struct HomeScoreDial: View {
   }
 }
 
-/// Converts internal status strings into calm, human language for the Home
-/// surface. Plumbing detail belongs in the developer screens, not here.
+/// Converts internal / bridge status strings into calm, human language.
+/// Developer screens can show raw `status`; consumer surfaces should call this.
 func humanizedHomeStatus(_ status: String) -> String {
-  let lowered = status.lowercased()
-  if lowered.contains("no run") || lowered.contains("not extracted")
-    || lowered.contains("unavailable") || lowered.contains("no data") {
+  let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard !trimmed.isEmpty else { return "No data yet" }
+  let lowered = trimmed.lowercased()
+
+  if lowered.contains("needs whoop packet extract")
+    || lowered.contains("packet extract")
+    || lowered.contains("packet-derived")
+    || lowered.contains("not extracted")
+    || lowered.contains("extraction pending")
+    || lowered.contains("rollup blocked")
+    || lowered.contains("ingest blocked")
+    || lowered.contains("estimator blocked")
+    || lowered.contains("no run") {
+    return "Sync your band — data will show up after the next sync."
+  }
+  if lowered.contains("whoop motion")
+    || lowered.contains("counter candidates")
+    || lowered.contains("daily delta pending")
+    || lowered.contains("step metric pending") {
+    return "Steps are still syncing from your band."
+  }
+  if lowered.contains("no today")
+    || lowered.contains("latest stored") {
+    return "Nothing for today yet — wear your band and check back."
+  }
+  if lowered.contains("unavailable") || lowered.contains("no data")
+    || lowered.contains("no strain") || lowered.contains("no recovery")
+    || lowered.contains("no sleep") || lowered.contains("waiting") {
     return "No data yet"
   }
-  return status
+  if lowered.contains("packet") || lowered.contains("bridge")
+    || lowered.contains("decoded") || lowered.contains("metrics.") {
+    return "Updating from your band…"
+  }
+  if lowered == "live" || lowered.hasPrefix("updated") {
+    return trimmed
+  }
+  return trimmed
 }
 
 struct HomeStressEnergySection: View {

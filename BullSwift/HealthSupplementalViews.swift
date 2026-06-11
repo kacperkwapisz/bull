@@ -154,7 +154,7 @@ struct CalibrationHealthView: View {
       }
     }
     .bullListBackground()
-    .navigationTitle("Calibration")
+    .navigationTitle("Algorithm Calibration")
   }
 }
 

@@ -18,6 +18,7 @@ private enum DevicePanel {
 private struct DeviceContentView: View {
   @EnvironmentObject private var model: BullAppModel
   @EnvironmentObject private var packetMonitor: PacketMonitorModel
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var ble: BullBLEClient
   @State private var selectedPanel: DevicePanel = .status
 
@@ -74,6 +75,10 @@ private struct DeviceContentView: View {
       ble.refreshBatteryLevel()
       ble.refreshDeviceInformation()
       ble.requestBatteryPackInfo(reason: "device_view_appear")
+      calibration.ensureStarted(connectedAt: ble.connectedAt)
+    }
+    .onChange(of: ble.connectedAt) { _, connectedAt in
+      calibration.ensureStarted(connectedAt: connectedAt)
     }
     .task {
       while !Task.isCancelled {

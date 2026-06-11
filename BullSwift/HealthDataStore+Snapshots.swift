@@ -488,17 +488,17 @@ extension HealthDataStore {
     }
 
     if let report = packetInputReports["step_counter_rollup"] {
-      return firstPacketAction(in: report) ?? "WHOOP step counter rollup blocked"
+      return humanizedHomeStatus(firstPacketAction(in: report) ?? "Steps still syncing from your band")
     }
 
     if let report = packetInputReports["step_counter_ingest"] {
       let persisted = Self.intValue(report["persisted_sample_count"]) ?? 0
       let candidates = Self.intValue(report["counter_candidate_count"]) ?? 0
       if persisted > 0 {
-        return "\(persisted) WHOOP counter samples stored; daily delta pending"
+        return "Steps are syncing — check back after your band finishes syncing."
       }
       if candidates > 0 {
-        return "\(candidates) WHOOP counter candidates found; ingest blocked"
+        return "Steps are syncing from your band."
       }
     }
 
@@ -506,15 +506,15 @@ extension HealthDataStore {
       let total = Self.intValue(motionReport["feature_count"]) ?? 0
       let trusted = Self.intValue(motionReport["trusted_feature_count"]) ?? 0
       if total > 0 {
-        return "WHOOP motion ready | \(trusted)/\(total) trusted inputs"
+        return "Steps are updating from your band."
       }
-      return "WHOOP motion captured; step metric pending"
+      return "Steps will appear after your band syncs."
     }
 
     if packetInputStatus == "No run" {
-      return "Needs WHOOP packet extract"
+      return "Sync your band to load steps"
     }
-    return packetInputStatus
+    return humanizedHomeStatus(packetInputStatus)
   }
 
   func whoopStepsSource(for date: Date = Date(), calendar: Calendar = .current) -> HealthDataSource {
@@ -554,15 +554,15 @@ extension HealthDataStore {
         return "No today calorie metric | latest stored \(dateKey)"
       }
       if packetInputStatus == "No run" {
-        return "Needs WHOOP packet extract"
+        return "Sync your band to load active calories"
       }
-      return packetInputStatus
+      return humanizedHomeStatus(packetInputStatus)
     }
     if Self.boolValue(report["pass"]) == true,
        let confidence = Self.numberText(report["confidence"], fractionDigits: 2) {
       return "Local estimate | confidence \(confidence)"
     }
-    return firstPacketAction(in: report) ?? "Calorie estimator blocked"
+    return humanizedHomeStatus(firstPacketAction(in: report) ?? "Active calories still syncing from your band")
   }
 
   func whoopActiveCaloriesSource(

@@ -122,7 +122,7 @@ struct HealthActivityOverviewSection: View {
           HealthDashboardMetricCard(
             title: "Steps",
             value: steps,
-            subtitle: stepsFreshness,
+            subtitle: humanizedHomeStatus(stepsFreshness),
             systemImage: "shoeprints.fill",
             tint: .green,
             source: stepsSource
@@ -134,7 +134,7 @@ struct HealthActivityOverviewSection: View {
           HealthDashboardMetricCard(
             title: "Active Calories",
             value: activeEnergy,
-            subtitle: activeEnergyFreshness,
+            subtitle: humanizedHomeStatus(activeEnergyFreshness),
             systemImage: "flame.fill",
             tint: .orange,
             source: activeEnergySource
@@ -146,7 +146,7 @@ struct HealthActivityOverviewSection: View {
           HealthDashboardMetricCard(
             title: "Heart Rate",
             value: heartRateValue,
-            subtitle: heartRateStatus,
+            subtitle: humanizedHomeStatus(heartRateStatus),
             systemImage: "heart.fill",
             tint: .red,
             source: heartRateSource
@@ -175,7 +175,6 @@ struct HealthDashboardMetricCard: View {
           .frame(width: 30, height: 30)
           .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         Spacer()
-        HealthSourceBadge(source: source)
       }
 
       VStack(alignment: .leading, spacing: 4) {
@@ -302,20 +301,27 @@ struct HealthRouteShortcutCard: View {
         Text(snapshot.title)
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(.primary)
-        Text("\(snapshot.displayValue) | \(snapshot.status)")
+        Text(shortcutSubtitle(for: snapshot))
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .minimumScaleFactor(0.78)
       }
       Spacer()
-      HealthSourceBadge(source: snapshot.source)
       Image(systemName: "chevron.right")
         .font(.caption.weight(.bold))
         .foregroundStyle(.tertiary)
     }
     .padding(14)
     .healthDashboardSurface(tint: snapshot.tint, tintOpacity: 0.04)
+  }
+
+  private func shortcutSubtitle(for snapshot: HealthMetricSnapshot) -> String {
+    let status = humanizedHomeStatus(snapshot.status)
+    if snapshot.displayValue.isEmpty || snapshot.displayValue == "--" {
+      return status
+    }
+    return "\(snapshot.displayValue) · \(status)"
   }
 }
 
