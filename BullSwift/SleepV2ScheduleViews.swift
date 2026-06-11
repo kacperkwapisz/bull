@@ -81,6 +81,50 @@ struct SleepV2SleepWindowCard: View {
   }
 }
 
+/// Consumer sleep page: one-line sync status (detailed debugger UI is on Device / Developer).
+struct SleepV2BandSyncStatusLine: View {
+  @ObservedObject var ble: BullBLEClient
+  let palette: SleepV2Palette
+  let onSync: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Band data")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(palette.text)
+        Text(statusLine)
+          .font(.caption)
+          .foregroundStyle(palette.secondaryText)
+      }
+      Spacer()
+      if ble.canSyncHistorical {
+        Button("Sync", action: onSync)
+          .font(.caption.weight(.semibold))
+          .buttonStyle(.bordered)
+      }
+    }
+    .padding(14)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(palette.surface.opacity(0.9))
+    )
+  }
+
+  private var statusLine: String {
+    switch ble.historicalSyncStatus.lowercased() {
+    case "syncing", "syncing…":
+      return "Syncing sleep from your band…"
+    case "synced":
+      return "Last sync succeeded. Open Sleep again if you need a refresh."
+    default:
+      return ble.canSyncHistorical
+        ? "Tap Sync to pull the latest overnight data."
+        : "Connect your band and wait until it’s ready."
+    }
+  }
+}
+
 struct SleepV2BandSyncCard: View {
   @ObservedObject var store: HealthDataStore
   @ObservedObject var ble: BullBLEClient

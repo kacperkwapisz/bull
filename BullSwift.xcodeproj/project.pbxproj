@@ -112,6 +112,8 @@
 		D10000000000000000000025 /* HomeTimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000025 /* HomeTimelineViews.swift */; };
 		D10000000000000000000026 /* HomeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000026 /* HomeFormatting.swift */; };
 		D10000000000000000000027 /* SleepV2PaletteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000027 /* SleepV2PaletteViews.swift */; };
+		D10000000000000000000061 /* CalibrationPhaseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000061 /* CalibrationPhaseViews.swift */; };
+		C1000000000000000000010B /* HealthDataStore+Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000010B /* HealthDataStore+Calibration.swift */; };
 		D10000000000000000000028 /* SleepV2InsightViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000028 /* SleepV2InsightViews.swift */; };
 		D10000000000000000000029 /* SleepV2ScheduleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000029 /* SleepV2ScheduleViews.swift */; };
 		D1000000000000000000002A /* SleepV2TimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002A /* SleepV2TimelineViews.swift */; };
@@ -120,6 +122,7 @@
 		D1000000000000000000002D /* SleepDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002D /* SleepDetailViews.swift */; };
 		D1000000000000000000002E /* HealthChartPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002E /* HealthChartPrimitives.swift */; };
 		D10000000000000000000060 /* BullPerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000060 /* BullPerformanceInstrumentation.swift */; };
+		D10000000000000000000062 /* BullFeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000062 /* BullFeatureFlags.swift */; };
 		D1000000000000000000002F /* HealthStressCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002F /* HealthStressCharts.swift */; };
 		D10000000000000000000030 /* SleepV2BevelTrendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000030 /* SleepV2BevelTrendViews.swift */; };
 		D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */; };
@@ -289,6 +292,8 @@
 		D20000000000000000000025 /* HomeTimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTimelineViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000026 /* HomeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFormatting.swift; sourceTree = "<group>"; };
 		D20000000000000000000027 /* SleepV2PaletteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2PaletteViews.swift; sourceTree = "<group>"; };
+		D20000000000000000000061 /* CalibrationPhaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPhaseViews.swift; sourceTree = "<group>"; };
+		C2000000000000000000010B /* HealthDataStore+Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Calibration.swift"; sourceTree = "<group>"; };
 		D20000000000000000000028 /* SleepV2InsightViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2InsightViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000029 /* SleepV2ScheduleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2ScheduleViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002A /* SleepV2TimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2TimelineViews.swift; sourceTree = "<group>"; };
@@ -297,6 +302,7 @@
 		D2000000000000000000002D /* SleepDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002E /* HealthChartPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthChartPrimitives.swift; sourceTree = "<group>"; };
 		D20000000000000000000060 /* BullPerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPerformanceInstrumentation.swift; sourceTree = "<group>"; };
+		D20000000000000000000062 /* BullFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFeatureFlags.swift; sourceTree = "<group>"; };
 		D2000000000000000000002F /* HealthStressCharts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStressCharts.swift; sourceTree = "<group>"; };
 		D20000000000000000000030 /* SleepV2BevelTrendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelTrendViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelAnalysisViews.swift; sourceTree = "<group>"; };
@@ -454,11 +460,13 @@
 				C20000000000000000000108 /* HealthDataStore+Sleep.swift */,
 				C20000000000000000000109 /* HealthDataStore+Utilities.swift */,
 				C2000000000000000000010A /* HealthDataStore+StaticSnapshots.swift */,
+				C2000000000000000000010B /* HealthDataStore+Calibration.swift */,
 				C20000000000000000000005 /* HealthDashboardViews.swift */,
 				C20000000000000000000006 /* HealthRecoveryStressViews.swift */,
 				C20000000000000000000007 /* HealthMetricFamilyStrainViews.swift */,
 				C20000000000000000000008 /* HealthRecoveryWidgets.swift */,
 				C20000000000000000000009 /* HealthSleepOverviewViews.swift */,
+				D20000000000000000000061 /* CalibrationPhaseViews.swift */,
 				D20000000000000000000027 /* SleepV2PaletteViews.swift */,
 				D20000000000000000000028 /* SleepV2InsightViews.swift */,
 				D20000000000000000000029 /* SleepV2ScheduleViews.swift */,
@@ -474,6 +482,7 @@
 				D2000000000000000000002D /* SleepDetailViews.swift */,
 				D2000000000000000000002E /* HealthChartPrimitives.swift */,
 				D20000000000000000000060 /* BullPerformanceInstrumentation.swift */,
+				D20000000000000000000062 /* BullFeatureFlags.swift */,
 				D2000000000000000000002F /* HealthStressCharts.swift */,
 				C2000000000000000000000E /* HealthPreviews.swift */,
 				A2000000000000000000001B /* HealthKitSleepImporter.swift */,
@@ -740,11 +749,13 @@
 				C10000000000000000000108 /* HealthDataStore+Sleep.swift in Sources */,
 				C10000000000000000000109 /* HealthDataStore+Utilities.swift in Sources */,
 				C1000000000000000000010A /* HealthDataStore+StaticSnapshots.swift in Sources */,
+				C1000000000000000000010B /* HealthDataStore+Calibration.swift in Sources */,
 				C10000000000000000000005 /* HealthDashboardViews.swift in Sources */,
 				C10000000000000000000006 /* HealthRecoveryStressViews.swift in Sources */,
 				C10000000000000000000007 /* HealthMetricFamilyStrainViews.swift in Sources */,
 				C10000000000000000000008 /* HealthRecoveryWidgets.swift in Sources */,
 				C10000000000000000000009 /* HealthSleepOverviewViews.swift in Sources */,
+				D10000000000000000000061 /* CalibrationPhaseViews.swift in Sources */,
 				D10000000000000000000027 /* SleepV2PaletteViews.swift in Sources */,
 				D10000000000000000000028 /* SleepV2InsightViews.swift in Sources */,
 				D10000000000000000000029 /* SleepV2ScheduleViews.swift in Sources */,
@@ -754,6 +765,7 @@
 				D1000000000000000000002D /* SleepDetailViews.swift in Sources */,
 				D1000000000000000000002E /* HealthChartPrimitives.swift in Sources */,
 				D10000000000000000000060 /* BullPerformanceInstrumentation.swift in Sources */,
+				D10000000000000000000062 /* BullFeatureFlags.swift in Sources */,
 				D1000000000000000000002F /* HealthStressCharts.swift in Sources */,
 				D10000000000000000000030 /* SleepV2BevelTrendViews.swift in Sources */,
 				D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */,

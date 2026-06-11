@@ -3,6 +3,7 @@ import SwiftUI
 struct CoachView: View {
   @EnvironmentObject private var model: BullAppModel
   @EnvironmentObject private var router: AppRouter
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var healthStore: HealthDataStore
   @StateObject private var chat = CoachChatModel()
   @State private var promptDraft = ""
@@ -22,6 +23,7 @@ struct CoachView: View {
       openChat: { openChat(prompt: nil) },
       openHealth: router.openHealth,
       openMore: router.openMore,
+      openHomeTab: { router.selectedTab = .home },
       openChatPrompt: openChat(prompt:)
     )
     .bullScreenBackground()
@@ -109,10 +111,16 @@ struct CoachView: View {
   }
 
   private var coachSnapshot: CoachOverviewSnapshot {
-    CoachOverviewSnapshot.make(healthStore: healthStore, appModel: model)
+    CoachOverviewSnapshot.make(
+      healthStore: healthStore,
+      appModel: model,
+      calibrationSnapshot: calibration.uiSnapshot
+    )
   }
 
   private func refreshCoachSnapshot() {
+    calibration.ensureStarted(connectedAt: model.ble.connectedAt)
+    calibration.refreshUISnapshot(store: healthStore, isBandConnected: model.ble.isConnectedForUserBaseline)
     cachedCoachSnapshot = coachSnapshot
   }
 
@@ -155,7 +163,11 @@ private struct CoachOverviewSnapshot {
   )
 
   @MainActor
-  static func make(healthStore: HealthDataStore, appModel: BullAppModel) -> CoachOverviewSnapshot {
+  static func make(
+    healthStore: HealthDataStore,
+    appModel: BullAppModel,
+    calibrationSnapshot: CalibrationUISnapshot
+  ) -> CoachOverviewSnapshot {
     let _signpost = bullSignpostBegin(BullSignpost.ui, "CoachOverviewSnapshot.make")
     defer { bullSignpostEnd(_signpost) }
     let homeTip = CoachTipFactory.homeTip(healthStore: healthStore, appModel: appModel)
@@ -176,11 +188,18 @@ private struct CoachOverviewSnapshot {
     ]
 
     let recommendation = CoachRecommendation(
-      title: primaryFocusTitle(inputNextAction: inputNextAction, scoreNextAction: scoreNextAction, snapshots: snapshots),
-      message: firstUseful(
-        inputNextAction,
-        scoreNextAction,
-        "Review the freshest local metrics before changing training or sleep plans."
+      title: primaryFocusTitle(
+        inputNextAction: inputNextAction,
+        scoreNextAction: scoreNextAction,
+        snapshots: snapshots,
+        calibrationSnapshot: calibrationSnapshot
+      ),
+      message: consumerRecommendationMessage(
+        calibrationSnapshot: calibrationSnapshot,
+        inputNextAction: inputNextAction,
+        scoreNextAction: scoreNextAction,
+        snapshots: snapshots,
+        isBandConnected: appModel.ble.isConnectedForUserBaseline
       ),
       evidence: [
         "Readiness: \(readiness)",
@@ -196,9 +215,9 @@ private struct CoachOverviewSnapshot {
         id: snapshot.route.rawValue,
         title: snapshot.title,
         value: snapshot.displayValue.isEmpty ? "--" : snapshot.displayValue,
-        status: snapshot.status,
+        status: humanizedHomeStatus(snapshot.status),
         freshness: snapshot.freshness,
-        provenance: snapshot.source.label,
+        provenance: "",
         systemImage: snapshot.systemImage,
         tint: snapshot.tint,
         route: snapshot.route
@@ -209,9 +228,9 @@ private struct CoachOverviewSnapshot {
         id: "hrv",
         title: "HRV",
         value: healthStore.hrvFeatureSummary(),
-        status: "Packet HRV",
+        status: "HRV",
         freshness: healthStore.packetInputStatus,
-        provenance: healthStore.hrvFeatureProvenanceSummary(),
+        provenance: "",
         systemImage: "waveform.path.ecg",
         tint: .blue,
         route: .healthMonitor
@@ -222,9 +241,9 @@ private struct CoachOverviewSnapshot {
         id: "live-hr",
         title: "Live HR",
         value: liveHeartRate,
-        status: appModel.ble.liveHeartRateSource,
+        status: "Live",
         freshness: HealthDataStore.relativeText(for: appModel.ble.liveHeartRateUpdatedAt) ?? "Waiting",
-        provenance: healthStore.latestHeartRateProvenanceSummary(source: appModel.ble.liveHeartRateSource),
+        provenance: "",
         systemImage: "heart.fill",
         tint: .red,
         route: .healthMonitor
@@ -239,7 +258,8 @@ private struct CoachOverviewSnapshot {
         snapshots: snapshots,
         inputNextAction: inputNextAction,
         featureNextAction: featureNextAction,
-        scoreNextAction: scoreNextAction
+        scoreNextAction: scoreNextAction,
+        calibrationSnapshot: calibrationSnapshot
       )
     )
   }
@@ -247,16 +267,17 @@ private struct CoachOverviewSnapshot {
   private static func primaryFocusTitle(
     inputNextAction: String,
     scoreNextAction: String,
-    snapshots: [HealthMetricSnapshot]
+    snapshots: [HealthMetricSnapshot],
+    calibrationSnapshot: CalibrationUISnapshot
   ) -> String {
+    if calibrationSnapshot.showConnectBandPrompt {
+      return "Connect your band"
+    }
+    if calibrationSnapshot.isInUserBaselinePhase {
+      return "Getting to know you"
+    }
     if snapshots.contains(where: { $0.source.kind == .unavailable }) {
-      return "Close the data gaps first"
-    }
-    if !inputNextAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return "Refresh trusted inputs"
-    }
-    if !scoreNextAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return "Refresh score outputs"
+      return "A few scores are still missing"
     }
     return "Review today"
   }
@@ -267,67 +288,70 @@ private struct CoachOverviewSnapshot {
     snapshots: [HealthMetricSnapshot],
     inputNextAction: String,
     featureNextAction: String,
-    scoreNextAction: String
+    scoreNextAction: String,
+    calibrationSnapshot: CalibrationUISnapshot
   ) -> [CoachDataGap] {
     var gaps: [CoachDataGap] = []
 
-    appendGap(
-      &gaps,
-      id: "readiness",
-      title: "Input readiness",
-      detail: inputNextAction,
-      systemImage: "square.stack.3d.up",
-      tint: .blue,
-      actionTitle: "Review Inputs",
-      action: .health(.packetInputs)
-    )
-
-    appendGap(
-      &gaps,
-      id: "features",
-      title: "Packet features",
-      detail: featureNextAction,
-      systemImage: "dot.radiowaves.left.and.right",
-      tint: .cyan,
-      actionTitle: "Review Inputs",
-      action: .health(.packetInputs)
-    )
-
-    appendGap(
-      &gaps,
-      id: "scores",
-      title: "Score outputs",
-      detail: scoreNextAction,
-      systemImage: "function",
-      tint: .purple,
-      actionTitle: "Review Algorithms",
-      action: .health(.algorithms)
-    )
+    if BullFeatureFlags.showCoachDevGaps {
+      appendGap(
+        &gaps,
+        id: "readiness",
+        title: "Input readiness",
+        detail: inputNextAction,
+        systemImage: "square.stack.3d.up",
+        tint: .blue,
+        actionTitle: "Review Inputs",
+        action: .health(.packetInputs)
+      )
+      appendGap(
+        &gaps,
+        id: "features",
+        title: "Packet features",
+        detail: featureNextAction,
+        systemImage: "dot.radiowaves.left.and.right",
+        tint: .cyan,
+        actionTitle: "Review Inputs",
+        action: .health(.packetInputs)
+      )
+      appendGap(
+        &gaps,
+        id: "scores",
+        title: "Score outputs",
+        detail: scoreNextAction,
+        systemImage: "function",
+        tint: .purple,
+        actionTitle: "Review Algorithms",
+        action: .health(.algorithms)
+      )
+    }
 
     for snapshot in snapshots where snapshot.source.kind == .unavailable {
-      let action: CoachOverviewAction = snapshot.route == .sleep ? .more(.healthSync) : .more(.capture)
+      let action: CoachOverviewAction = consumerMissingMetricAction(for: snapshot.route)
       appendGap(
         &gaps,
         id: "missing-\(snapshot.route.rawValue)",
-        title: "\(snapshot.title) missing",
-        detail: snapshot.source.detail,
+        title: "\(snapshot.title) not ready yet",
+        detail: consumerMissingMetricDetail(for: snapshot.route),
         systemImage: snapshot.systemImage,
         tint: snapshot.tint,
-        actionTitle: snapshot.route == .sleep ? "Open Health Sync" : "Open Capture",
+        actionTitle: "Open \(snapshot.title)",
         action: action
       )
     }
 
-    appendGap(
-      &gaps,
-      id: "calibration",
-      title: "Calibration",
-      detail: healthStore.calibrationNextActionSummary(),
-      systemImage: "slider.horizontal.3",
-      tint: .mint,
-      actionTitle: "Open Calibration",
-      action: .health(.calibration)
-    )
+    if calibrationSnapshot.isInUserBaselinePhase {
+      appendGap(
+        &gaps,
+        id: "user-calibration",
+        title: "Building your baseline",
+        detail: "Day \(calibrationSnapshot.dayIndex) of \(calibrationSnapshot.daysRequired). \(calibrationSnapshot.homeActionLine)",
+        systemImage: "figure.wave",
+        tint: .mint,
+        actionTitle: "Open Home",
+        action: .homeTab
+      )
+    }
 
     return Array(gaps.prefix(5))
   }
@@ -362,10 +386,61 @@ private struct CoachOverviewSnapshot {
     )
   }
 
+  private static func consumerRecommendationMessage(
+    calibrationSnapshot: CalibrationUISnapshot,
+    inputNextAction: String,
+    scoreNextAction: String,
+    snapshots: [HealthMetricSnapshot],
+    isBandConnected: Bool
+  ) -> String {
+    if calibrationSnapshot.showConnectBandPrompt {
+      return "Pair your band in Device to start building your baseline."
+    }
+    if calibrationSnapshot.isInUserBaselinePhase, !calibrationSnapshot.homeActionLine.isEmpty {
+      return calibrationSnapshot.homeActionLine
+    }
+    if !isBandConnected {
+      return "Connect your band to see today's scores."
+    }
+    if snapshots.contains(where: { $0.source.kind == .unavailable }) {
+      return "Wear your band and check back — a few scores need more time on your wrist."
+    }
+    return firstUseful(
+      inputNextAction,
+      scoreNextAction,
+      "Ask Coach how to spend today based on your latest scores."
+    )
+  }
+
+  private static func consumerMissingMetricAction(for route: HealthRoute) -> CoachOverviewAction {
+    switch route {
+    case .sleep: .health(.sleep)
+    case .recovery: .health(.recovery)
+    case .strain: .health(.strain)
+    case .stress: .health(.stress)
+    default: .homeTab
+    }
+  }
+
+  private static func consumerMissingMetricDetail(for route: HealthRoute) -> String {
+    switch route {
+    case .sleep:
+      return "Wear your band overnight, then open Sleep."
+    case .recovery:
+      return "Keep the band on through the morning for Recovery."
+    case .strain:
+      return "Move with the band on — Strain fills in from your day."
+    case .stress:
+      return "Heart-rate history builds Stress over a few days."
+    default:
+      return "Check Home after your band has more time on your wrist."
+    }
+  }
+
   private static func firstUseful(_ values: String...) -> String {
     values
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .first { !$0.isEmpty } ?? "Review the freshest local metrics before changing training or sleep plans."
+      .first { !$0.isEmpty } ?? "Ask Coach how to spend today based on your latest scores."
   }
 }
 
@@ -402,6 +477,7 @@ private enum CoachOverviewAction: Hashable {
   case health(HealthRoute)
   case more(MoreRoute)
   case chat(String)
+  case homeTab
 }
 
 private struct CoachOverviewScreen: View {
@@ -411,6 +487,7 @@ private struct CoachOverviewScreen: View {
   let openChat: () -> Void
   let openHealth: (HealthRoute?) -> Void
   let openMore: (MoreRoute?) -> Void
+  let openHomeTab: () -> Void
   let openChatPrompt: (String) -> Void
 
   var body: some View {
@@ -457,6 +534,8 @@ private struct CoachOverviewScreen: View {
 
   private func handle(_ action: CoachOverviewAction) {
     switch action {
+    case .homeTab:
+      openHomeTab()
     case .health(let route):
       openHealth(route)
     case .more(let route):
@@ -577,11 +656,6 @@ private struct CoachMetricHighlightCard: View {
           .font(.caption2)
           .foregroundStyle(.secondary)
           .lineLimit(1)
-        Text(highlight.provenance)
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
-          .lineLimit(2)
-          .fixedSize(horizontal: false, vertical: true)
       }
 
       Spacer(minLength: 0)

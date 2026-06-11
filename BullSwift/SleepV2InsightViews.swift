@@ -106,11 +106,13 @@ struct SleepV2CoachingCard: View {
         }
 
         HStack(spacing: 8) {
-          Text(tip.source)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(palette.mutedText)
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
+          if !tip.source.isEmpty {
+            Text(tip.source)
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(palette.mutedText)
+              .lineLimit(1)
+              .minimumScaleFactor(0.78)
+          }
           Spacer(minLength: 8)
           Button(action: action) {
             Label("Ask Coach", systemImage: "bubble.left.and.bubble.right")

@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeDashboardView: View {
   @EnvironmentObject private var model: BullAppModel
   @EnvironmentObject private var router: AppRouter
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var healthStore: HealthDataStore
   @Binding var selectedDate: Date
   let openHealthRoute: (HealthRoute) -> Void
@@ -12,6 +13,9 @@ struct HomeDashboardView: View {
   @State private var cachedLandingSnapshots: [HealthMetricSnapshot] = []
   @State private var cachedCardioLoadDays: [CardioLoadDay] = []
   @State private var cachedHealthMonitorSnapshots: [HealthMetricSnapshot] = []
+  @State private var lastLiveRefresh = Date.distantPast
+  @State private var showingBaselineCompletion = false
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     let _ = Self.bullPrintChangesIfEnabled()
@@ -20,10 +24,22 @@ struct HomeDashboardView: View {
     let cached = cachedLandingSnapshots
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
+        if calibration.uiSnapshot.showConnectBandPrompt {
+          ConnectBandBaselinePrompt(palette: SleepV2Palette(colorScheme: colorScheme))
+        } else if calibration.uiSnapshot.shouldShowBanner {
+          CalibrationBanner(
+            snapshot: calibration.uiSnapshot,
+            palette: SleepV2Palette(colorScheme: colorScheme)
+          ) {
+            calibration.bannerDismissed = true
+          }
+        }
+
         HomeScoreTriRow(
           strain: datedHomeSnapshot(for: .strain, in: cached),
           recovery: datedHomeSnapshot(for: .recovery, in: cached),
           sleep: datedHomeSnapshot(for: .sleep, in: cached),
+          calibrationVerdict: calibration.uiSnapshot.homeTriVerdict,
           open: openHealth
         )
 
@@ -98,6 +114,7 @@ struct HomeDashboardView: View {
     }
     .onAppear {
       model.recordUIAction("page.opened", detail: "Home")
+      calibration.ensureStarted(connectedAt: model.ble.connectedAt)
       refreshSnapshots()
     }
     .task {
@@ -110,10 +127,17 @@ struct HomeDashboardView: View {
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
+      guard Date().timeIntervalSince(lastLiveRefresh) > 5 else { return }
       refreshSnapshots()
     }
     .onChange(of: healthStore.catalogStatus) { _, _ in
       refreshSnapshots()
+    }
+    .onChange(of: model.ble.connectedAt) { _, connectedAt in
+      calibration.ensureStarted(connectedAt: connectedAt)
+      if connectedAt != nil {
+        refreshSnapshots()
+      }
     }
     .sheet(isPresented: $showingScoreDatePicker) {
       let cached = cachedLandingSnapshots
@@ -129,6 +153,12 @@ struct HomeDashboardView: View {
     }
     .sheet(item: $selectedHealthMonitorTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
+    }
+    .sheet(isPresented: $showingBaselineCompletion) {
+      BaselineCompletionSheet {
+        showingBaselineCompletion = false
+        calibration.markCompletionCelebrated()
+      }
     }
   }
 
@@ -161,6 +191,25 @@ struct HomeDashboardView: View {
   /// the hero already carries the single next action, and the alpha screen should
   /// stay calm rather than repeat itself.
   private func homeCoachTip(using cached: [HealthMetricSnapshot]) -> CoachInlineTip? {
+    let snap = calibration.uiSnapshot
+    if snap.showConnectBandPrompt {
+      return nil
+    }
+    if snap.isInUserBaselinePhase, !snap.homeActionLine.isEmpty {
+      if snap.shouldShowBanner {
+        return nil
+      }
+      let line = snap.homeActionLine
+      return CoachInlineTip(
+        id: "home-baseline",
+        title: "Coach",
+        message: line,
+        source: "",
+        prompt: "I'm still building my baseline in Bull (day \(snap.dayIndex) of \(snap.daysRequired)). \(line) Give one concrete action.",
+        systemImage: "sparkles",
+        tint: .mint
+      )
+    }
     let recovery = homeSnapshot(for: .recovery, in: cached)
     guard recovery.source.kind != .unavailable else {
       return nil
@@ -180,6 +229,11 @@ struct HomeDashboardView: View {
   }
 
   private func refreshSnapshots() {
+    calibration.refreshUISnapshot(store: healthStore, isBandConnected: model.ble.isConnectedForUserBaseline)
+    if calibration.uiSnapshot.shouldCelebrateCompletion {
+      showingBaselineCompletion = true
+    }
+    lastLiveRefresh = Date()
     cachedLandingSnapshots = healthStore.landingSnapshots(
       liveHeartRateBPM: model.ble.liveHeartRateBPM,
       liveHeartRateSource: model.ble.liveHeartRateSource,

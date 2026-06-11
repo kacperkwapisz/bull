@@ -5,14 +5,24 @@ import UIKit
 
 struct HealthView: View {
   @EnvironmentObject private var model: BullAppModel
+  @EnvironmentObject private var calibration: CalibrationManager
   @ObservedObject var store: HealthDataStore
+  @Environment(\.colorScheme) private var colorScheme
   @State private var cachedLandingSnapshots: [HealthMetricSnapshot] = []
   @State private var cachedVitalSnapshots: [HealthMetricSnapshot] = []
+  @State private var lastLiveRefresh = Date.distantPast
 
   var body: some View {
     let _ = Self.bullPrintChangesIfEnabled()
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 22) {
+        if calibration.uiSnapshot.shouldShowBanner {
+          CalibrationBanner(
+            snapshot: calibration.uiSnapshot,
+            palette: SleepV2Palette(colorScheme: colorScheme)
+          )
+        }
+
         HealthActivityOverviewSection(
           steps: store.whoopStepsDisplayText(),
           activeEnergy: store.whoopActiveCaloriesDisplayText(),
@@ -40,25 +50,26 @@ struct HealthView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
     .navigationDestination(for: HealthRoute.self) { route in
-      HealthRouteContentView(route: route, store: store)
-    }
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          refreshDashboard()
-        } label: {
-          Image(systemName: "arrow.clockwise")
-        }
-        .accessibilityLabel("Refresh Health")
+      if route.isUserFacing {
+        HealthRouteContentView(route: route, store: store)
+      } else {
+        Text("This screen is available from More → Developer.")
+          .foregroundStyle(.secondary)
+          .padding()
       }
+    }
+    .refreshable {
+      await refreshUserData()
     }
     .onAppear {
       model.recordUIAction("page.opened", detail: "Health")
+      calibration.ensureStarted(connectedAt: model.ble.connectedAt)
       store.loadBridgeCatalogsIfNeeded()
       store.refreshHeartRateTimeline()
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
+      guard Date().timeIntervalSince(lastLiveRefresh) > 5 else { return }
       refreshSnapshots()
     }
     .onChange(of: store.catalogStatus) { _, _ in
@@ -67,6 +78,8 @@ struct HealthView: View {
   }
 
   private func refreshSnapshots() {
+    calibration.refreshUISnapshot(store: store, isBandConnected: model.ble.isConnectedForUserBaseline)
+    lastLiveRefresh = Date()
     cachedLandingSnapshots = store.landingSnapshots(
       liveHeartRateBPM: model.ble.liveHeartRateBPM,
       liveHeartRateSource: model.ble.liveHeartRateSource,
@@ -84,7 +97,7 @@ struct HealthView: View {
 
   private var liveHeartRateStatus: String {
     guard model.ble.liveHeartRateBPM != nil else {
-      return store.heartRateTimelineStatus
+      return humanizedHomeStatus(store.heartRateTimelineStatus)
     }
     return HealthDataStore.relativeText(for: model.ble.liveHeartRateUpdatedAt) ?? "Live"
   }
@@ -102,9 +115,9 @@ struct HealthView: View {
   }
 
   @MainActor
-  private func refreshDashboard() {
-    store.refreshBridgeCatalogs()
+  private func refreshUserData() async {
+    store.loadBridgeCatalogsIfNeeded()
     store.refreshHeartRateTimeline()
-    store.refreshPacketInputsIfNeeded()
+    refreshSnapshots()
   }
 }
