@@ -42,6 +42,8 @@ private struct DeviceContentView: View {
               batteryPercent: ble.batteryLevelPercent,
               isCharging: ble.batteryIsCharging == true
             )
+            DeviceBatteryPackTile(ble: ble)
+              .padding(.top, 10)
           } else {
             DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
           }
@@ -60,6 +62,7 @@ private struct DeviceContentView: View {
         Button {
           ble.refreshBatteryLevel()
           ble.refreshDeviceInformation()
+          ble.requestBatteryPackInfo(reason: "toolbar_refresh")
         } label: {
           Image(systemName: "battery.75percent")
         }
@@ -70,6 +73,7 @@ private struct DeviceContentView: View {
     .onAppear {
       ble.refreshBatteryLevel()
       ble.refreshDeviceInformation()
+      ble.requestBatteryPackInfo(reason: "device_view_appear")
     }
     .task {
       while !Task.isCancelled {
@@ -293,6 +297,116 @@ private struct BatteryRail: View {
   }
 }
 
+private struct DeviceBatteryPackTile: View {
+  @ObservedObject var ble: BullBLEClient
+
+  private var present: Bool { ble.batteryPackPresent == true }
+  private var isCharging: Bool { ble.batteryIsCharging == true }
+  private var artBase: String {
+    ble.batteryPackType == .penguin ? "PackPenguin" : "PackPuffin"
+  }
+
+  var body: some View {
+    HStack(spacing: 16) {
+      ZStack {
+        if present && isCharging {
+          PackFrameSequence(prefix: "\(artBase)Frame", frameCount: 25)
+            .frame(width: 64, height: 73)
+        } else {
+          Image("\(artBase)Glyph")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 64, height: 73)
+            .opacity(present ? 1 : 0.35)
+        }
+      }
+      .frame(width: 64, height: 73)
+
+      VStack(alignment: .leading, spacing: 5) {
+        Text("BATTERY PACK")
+          .font(deviceLabelFont)
+          .foregroundStyle(secondaryText)
+        if present, let percent = ble.batteryPackPercent {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(percent)%")
+              .font(.system(size: 28, weight: .black, design: .default))
+              .foregroundStyle(ble.batteryPackIsLow ? disconnectedRed : devicePrimaryText)
+            if isCharging {
+              Image(systemName: "bolt.fill")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(batteryYellow)
+                .accessibilityHidden(true)
+            }
+          }
+          Text(subtitle)
+            .font(deviceBodyFont)
+            .foregroundStyle(secondaryText)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        } else {
+          Text("Attach your battery pack to see its charge")
+            .font(deviceBodyFont)
+            .foregroundStyle(secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .fill(deviceRailBackground.opacity(0.45))
+    )
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(accessibilitySummary)
+  }
+
+  private var subtitle: String {
+    var parts: [String] = []
+    let typeName = ble.batteryPackType.displayName
+    if !typeName.isEmpty {
+      parts.append(typeName)
+    }
+    if ble.batteryPackIsLow {
+      parts.append("Low")
+    } else if isCharging {
+      parts.append("Charging strap")
+    }
+    if let updatedAt = ble.batteryPackUpdatedAt, Date().timeIntervalSince(updatedAt) > 3600 {
+      parts.append("stale")
+    }
+    return parts.isEmpty ? "Connected" : parts.joined(separator: " \u{00B7} ")
+  }
+
+  private var accessibilitySummary: String {
+    guard present, let percent = ble.batteryPackPercent else {
+      return "Battery pack not attached"
+    }
+    let charging = isCharging ? ", charging the strap" : ""
+    return "Battery pack \(percent) percent\(charging)"
+  }
+}
+
+// Plays a WHOOP battery-pack charging animation as a native frame sequence
+// (the source .lottie assets are 25-frame, 15fps image sequences).
+private struct PackFrameSequence: View {
+  let prefix: String
+  let frameCount: Int
+  @State private var index = 0
+  private let timer = Timer.publish(every: 1.0 / 15.0, on: .main, in: .common).autoconnect()
+
+  var body: some View {
+    Image("\(prefix)\(String(format: "%02d", index))")
+      .resizable()
+      .scaledToFit()
+      .onReceive(timer) { _ in
+        index = frameCount > 0 ? (index + 1) % frameCount : 0
+      }
+      .accessibilityHidden(true)
+  }
+}
+
 private struct DeviceAdvancedPanel: View {
   @EnvironmentObject private var messageStore: BullMessageStore
   @ObservedObject var model: BullAppModel
@@ -305,6 +419,7 @@ private struct DeviceAdvancedPanel: View {
         DeviceFactRow(systemName: "gearshape", label: "Firmware", value: firmwareSummary)
         DeviceFactRow(systemName: "battery.25percent", label: "Battery", value: batterySummary)
         DeviceFactRow(systemName: ble.batteryIsCharging == true ? "bolt.fill" : "powerplug", label: "Charging", value: ble.batteryChargeDisplayStatus)
+        DeviceFactRow(systemName: "bolt.batteryblock", label: "Battery pack", value: ble.batteryPackDisplaySummary)
         DeviceFactRow(systemName: "arrow.2.circlepath", label: "Last sync", value: relativeSummary(for: ble.lastSyncAt) ?? "Not synced")
         DeviceFactRow(systemName: "clock.arrow.circlepath", label: "Strap clock", value: clockSummary)
       }

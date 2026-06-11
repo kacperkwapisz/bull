@@ -31,6 +31,11 @@ final class BullBLEClient: NSObject, ObservableObject {
   @Published var batteryUpdatedAt: Date?
   @Published var batteryIsCharging: Bool?
   @Published var batteryPowerStatus = "Unknown"
+  @Published var batteryPackPercent: Int?
+  @Published var batteryPackPresent: Bool?
+  @Published var batteryPackType: BatteryPackInfo.PackType = .unknown
+  @Published var batteryPackColorway: String?
+  @Published var batteryPackUpdatedAt: Date?
   @Published var firmwareVersion: String?
   @Published var modelNumber: String?
   @Published var hardwareRevision: String?
@@ -320,6 +325,10 @@ final class BullBLEClient: NSObject, ObservableObject {
     static let lastBatteryPercent = "bull.swift.lastBatteryPercent"
     static let lastBatteryCapturedAt = "bull.swift.lastBatteryCapturedAt"
     static let inferredBatteryChargingUntil = "bull.swift.inferredBatteryChargingUntil"
+    static let lastBatteryPackPercent = "bull.swift.lastBatteryPackPercent"
+    static let lastBatteryPackType = "bull.swift.lastBatteryPackType"
+    static let lastBatteryPackColorway = "bull.swift.lastBatteryPackColorway"
+    static let lastBatteryPackCapturedAt = "bull.swift.lastBatteryPackCapturedAt"
     static let restingHeartRateEstimateBPM = "bull.swift.restingHeartRateEstimateBPM"
     static let restingHeartRateEstimateSampleCount = "bull.swift.restingHeartRateEstimateSampleCount"
     static let restingHeartRateEstimateUpdatedAt = "bull.swift.restingHeartRateEstimateUpdatedAt"
@@ -933,6 +942,24 @@ final class BullBLEClient: NSObject, ObservableObject {
     return "\(batteryLevelPercent)% | \(status) | \(batteryPowerStatus)"
   }
 
+  var batteryPackIsLow: Bool {
+    guard let batteryPackPercent else {
+      return false
+    }
+    return batteryPackPercent < 20
+  }
+
+  var batteryPackDisplaySummary: String {
+    guard batteryPackPresent == true, let batteryPackPercent else {
+      return batteryPackPresent == false ? "Not attached" : "Unknown"
+    }
+    let typeName = batteryPackType.displayName
+    if typeName.isEmpty {
+      return "\(batteryPackPercent)%"
+    }
+    return "\(batteryPackPercent)% | \(typeName)"
+  }
+
   var canReconnectRemembered: Bool {
     central?.state == .poweredOn && activePeripheral == nil && rememberedDeviceID != nil
   }
@@ -950,6 +977,7 @@ final class BullBLEClient: NSObject, ObservableObject {
     }
     loadRememberedDevice()
     loadPersistedBatterySample()
+    loadPersistedBatteryPackSample()
     loadPersistedRestingHeartRateEstimate()
     loadPersistedHRVSample()
     record(source: "app", title: "ble.init", body: "startCentral=\(startCentral)")

@@ -269,6 +269,7 @@ extension BullBLEClient: CBPeripheralDelegate {
     handleDebugCommandValue(value, characteristic: characteristic)
     handleHistoricalSyncValue(value, characteristic: characteristic)
     handleAlarmValue(value, characteristic: characteristic)
+    handleBatteryPackValue(value, characteristic: characteristic)
     handleSensorStreamValue(value, characteristic: characteristic)
     handleClockValue(value, characteristic: characteristic)
 

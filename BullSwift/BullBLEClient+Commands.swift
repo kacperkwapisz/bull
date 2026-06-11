@@ -576,6 +576,56 @@ extension BullBLEClient {
     }
   }
 
+  func loadPersistedBatteryPackSample() {
+    guard defaults.object(forKey: DefaultsKey.lastBatteryPackPercent) != nil else {
+      return
+    }
+    let percent = min(max(defaults.integer(forKey: DefaultsKey.lastBatteryPackPercent), 0), 100)
+    batteryPackPercent = percent
+    batteryPackPresent = true
+    batteryPackUpdatedAt = defaults.object(forKey: DefaultsKey.lastBatteryPackCapturedAt) as? Date
+    batteryPackColorway = defaults.string(forKey: DefaultsKey.lastBatteryPackColorway)
+    switch defaults.string(forKey: DefaultsKey.lastBatteryPackType) {
+    case "puffin":
+      batteryPackType = .puffin
+    case "penguin":
+      batteryPackType = .penguin
+    default:
+      batteryPackType = .unknown
+    }
+  }
+
+  func persistBatteryPackSample(_ info: BatteryPackInfo, capturedAt: Date) {
+    if let percent = info.percent {
+      defaults.set(percent, forKey: DefaultsKey.lastBatteryPackPercent)
+    }
+    defaults.set(capturedAt, forKey: DefaultsKey.lastBatteryPackCapturedAt)
+    let typeKey: String?
+    switch info.type {
+    case .puffin:
+      typeKey = "puffin"
+    case .penguin:
+      typeKey = "penguin"
+    case .unknown:
+      typeKey = nil
+    }
+    if let typeKey {
+      defaults.set(typeKey, forKey: DefaultsKey.lastBatteryPackType)
+    }
+    if let colorway = info.colorway {
+      defaults.set(colorway, forKey: DefaultsKey.lastBatteryPackColorway)
+    } else {
+      defaults.removeObject(forKey: DefaultsKey.lastBatteryPackColorway)
+    }
+  }
+
+  func persistBatteryPackRemoved() {
+    defaults.removeObject(forKey: DefaultsKey.lastBatteryPackPercent)
+    defaults.removeObject(forKey: DefaultsKey.lastBatteryPackType)
+    defaults.removeObject(forKey: DefaultsKey.lastBatteryPackColorway)
+    defaults.removeObject(forKey: DefaultsKey.lastBatteryPackCapturedAt)
+  }
+
   func clearRememberedDevice(reason: String, source: String = "ble") {
     let previous = rememberedDeviceDescription
     defaults.removeObject(forKey: DefaultsKey.rememberedDeviceID)
@@ -890,6 +940,7 @@ extension BullBLEClient {
       updateConnectionState("ready")
       sendClientHelloIfNeeded(reason: cached ? "cached_gatt" : "gatt_discovery")
       scheduleDebugSkinTemperatureCommandIfNeeded(reason: cached ? "cached_ready" : "ready")
+      scheduleBatteryPackInfoRequestIfNeeded(reason: cached ? "cached_ready" : "ready")
       scheduleAutomaticHistoricalSyncIfNeeded()
       scheduleAutomaticPhysiologyCaptureIfNeeded()
     } else if connectionState == "discovering" {

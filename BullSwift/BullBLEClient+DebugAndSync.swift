@@ -89,6 +89,9 @@ extension BullBLEClient {
     if debugCommandResponses.count > 50 {
       debugCommandResponses.removeLast(debugCommandResponses.count - 50)
     }
+    if pending.id == "get_battery_pack_info" {
+      handleBatteryPackCommandCompletion(status: status, responseBody: responseBody)
+    }
     setDebugCommandStatus("\(pending.title) seq \(pending.sequence) \(status): \(result)")
     let level: BullLogLevel = status == "ok" ? .info : .warn
     record(
@@ -211,6 +214,33 @@ extension BullBLEClient {
         responsePayload: [],
         responseBody: []
       )
+    }
+  }
+
+  func handleBatteryPackCommandCompletion(status: String, responseBody: [UInt8]) {
+    switch status {
+    case "ok":
+      if let info = Self.parseBatteryPackCommandResponseBody(responseBody) {
+        applyBatteryPackInfo(info, source: "ble.battery_pack", capturedAt: Date())
+      } else {
+        record(
+          level: .warn,
+          source: "ble.battery_pack",
+          title: "battery_pack.parse_failed",
+          body: Data(responseBody).hexString
+        )
+      }
+    case "failed":
+      // Strap returns a non-success result when no pack is attached.
+      markBatteryPackRemoved(source: "ble.battery_pack.command")
+    default:
+      break
+    }
+  }
+
+  func scheduleBatteryPackInfoRequestIfNeeded(reason: String) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+      self?.requestBatteryPackInfo(reason: reason)
     }
   }
 
