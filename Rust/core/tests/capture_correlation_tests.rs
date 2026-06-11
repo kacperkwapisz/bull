@@ -53,17 +53,29 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
     assert!(k21_motion.blocker_reasons.is_empty());
     assert!(k21_motion.next_capture_actions.is_empty());
 
+    // Reclassifying packet_k==24 frames from NormalHistory to V24History moves the
+    // 2 user-owned K24 fixtures into v24_history; only the synthetic K18 remains
+    // normal_history.
     let normal_history = report
         .summaries
         .iter()
         .find(|summary| summary.body_summary_kind == "normal_history")
         .unwrap();
-    assert_eq!(normal_history.observation_count, 3);
-    assert_eq!(normal_history.owned_capture_count, 2);
+    assert_eq!(normal_history.observation_count, 1);
+    assert_eq!(normal_history.owned_capture_count, 0);
     assert_eq!(normal_history.synthetic_count, 1);
-    assert!(normal_history.trusted_metric_ready);
-    assert!(normal_history.blocker_reasons.is_empty());
-    assert!(normal_history.next_capture_actions.is_empty());
+    assert!(!normal_history.trusted_metric_ready); // 0 owned < 2 required
+
+    // V24History captures (2 user-owned K24 packets).
+    let v24_history = report
+        .summaries
+        .iter()
+        .find(|summary| summary.body_summary_kind == "v24_history")
+        .unwrap();
+    assert_eq!(v24_history.observation_count, 2);
+    assert_eq!(v24_history.owned_capture_count, 2);
+    assert_eq!(v24_history.synthetic_count, 0);
+    assert!(v24_history.trusted_metric_ready); // 2 owned >= 2 required
 
     let temperature = report
         .summaries
@@ -101,8 +113,13 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
             "android_btsnoop_live_identity_check_20260528T2002Z".to_string(),
         ])
     );
+    // K24 owned sources moved to v24_history; normal_history now has none.
     assert_eq!(
         owned_sources_for(&report, "normal_history"),
+        BTreeSet::new()
+    );
+    assert_eq!(
+        owned_sources_for(&report, "v24_history"),
         BTreeSet::from([
             "android_btsnoop_full_snoop_history_complete_20260528T1748Z".to_string(),
             "android_btsnoop_live_identity_check_20260528T2002Z".to_string(),
@@ -115,7 +132,7 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
             .iter()
             .all(|action| action.scope != "raw_motion_k10"
                 && action.scope != "raw_motion_k21"
-                && action.scope != "normal_history"),
+                && action.scope != "v24_history"),
         "{:?}",
         report.next_capture_actions
     );
@@ -154,7 +171,7 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
     }));
     assert!(report.observations.iter().any(|observation| {
         observation.evidence_id == "owned.live_identity.k24_normal_history_payload"
-            && observation.body_summary_kind == "normal_history"
+            && observation.body_summary_kind == "v24_history" // reclassified from normal_history
             && observation.owned_capture
     }));
     assert!(report.observations.iter().any(|observation| {
@@ -169,7 +186,7 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
     }));
     assert!(report.observations.iter().any(|observation| {
         observation.evidence_id == "owned.history_complete.k24_normal_history_payload"
-            && observation.body_summary_kind == "normal_history"
+            && observation.body_summary_kind == "v24_history" // reclassified from normal_history
             && observation.owned_capture
             && observation.warning_count == 0
     }));

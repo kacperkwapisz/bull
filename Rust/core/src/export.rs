@@ -2390,6 +2390,10 @@ fn export_sensor_samples(
                     )?;
                 }
             }
+            DataPacketBodySummary::V24History { .. } => {
+                // V24 biometric streams are persisted via dedicated sample tables,
+                // not the generic sensor-sample export path — skip gracefully.
+            }
         }
     }
     Ok(rows)

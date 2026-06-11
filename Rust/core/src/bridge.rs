@@ -2930,6 +2930,7 @@ fn body_summary_kind(summary: Option<&DataPacketBodySummary>) -> &'static str {
         }
         Some(DataPacketBodySummary::RawMotionK10 { .. }) => "raw_motion_k10",
         Some(DataPacketBodySummary::RawMotionK21 { .. }) => "raw_motion_k21",
+        Some(DataPacketBodySummary::V24History { .. }) => "v24_history",
         None => "none",
     }
 }

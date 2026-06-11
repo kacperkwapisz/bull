@@ -25,10 +25,7 @@
       "domain": "normal_history_with_hr_marker",
       "hr_present_marker": 51,
       "body_summary": {
-        "kind": "normal_history",
-        "hr_present": true,
-        "marker_offset": 17,
-        "marker_value": 51
+        "kind": "v24_history"
       }
     }
   }
