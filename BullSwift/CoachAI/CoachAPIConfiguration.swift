@@ -1,7 +1,7 @@
 import Foundation
 
 enum CoachAPIConfiguration {
-  private static let productionDefault = "https://coach.bull.local"
+  private static let productionDefault = "https://bull-api.kwapisz.co"
 
   static var baseURL: URL {
     if let override = ProcessInfo.processInfo.environment["COACH_API_BASE_URL"],
