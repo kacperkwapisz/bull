@@ -16,7 +16,9 @@ import {
 
 const DOWNLOAD_URL_TTL_SECONDS = 15 * 60
 
-const MAX_BUNDLE_BYTES = 64 * 1024 * 1024 // 64 MB
+// Sized for compressed overnight spool archives uploaded by the app; raw
+// JSONL compresses ~10x, so a heavy night stays well under this.
+const MAX_BUNDLE_BYTES = 128 * 1024 * 1024 // 128 MB
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
