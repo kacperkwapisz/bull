@@ -79,23 +79,16 @@ final class CoachChatModel: ObservableObject {
 
   func setupCoach() {
     errorMessage = nil
-    loginStatus = "Connecting"
-    Task { [weak self] in
-      guard let self else {
-        return
-      }
-      do {
-        let deviceID = UIDeviceIdentifier.coachDeviceID
-        let token = try await client.fetchDevToken(deviceID: deviceID)
-        try CoachAuthKeychain.save(token: token)
-        accessToken = token
-        isSignedIn = true
-        loginStatus = "Ready"
-        seedAssistantPromptIfNeeded()
-      } catch {
-        loginStatus = "Setup failed"
-        errorMessage = describe(error)
-      }
+    // Real accounts only: the session JWT is issued by Sign in with Apple at
+    // the launch gate and stored in the Keychain. Coach just adopts it.
+    if let token = CoachAuthKeychain.load() {
+      accessToken = token
+      isSignedIn = true
+      loginStatus = "Ready"
+      seedAssistantPromptIfNeeded()
+    } else {
+      loginStatus = "Signed out"
+      errorMessage = "Sign in with Apple to use Coach."
     }
   }
 

@@ -5,12 +5,15 @@ struct RootView: View {
   @AppStorage(OnboardingStorage.onboardingComplete) private var onboardingComplete = false
   @AppStorage(OnboardingStorage.onboardingRedoRequested) private var onboardingRedoRequested = false
   @StateObject private var changelog = ChangelogStore()
+  @StateObject private var account = BullAccountSession()
   @State private var showWhatsNew = false
 
   var body: some View {
     ZStack(alignment: .top) {
       Group {
-        if onboardingComplete {
+        if !account.isSignedIn {
+          SignInGateView(session: account)
+        } else if onboardingComplete {
           AppShellView()
         } else {
           OnboardingView {

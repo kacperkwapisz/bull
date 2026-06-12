@@ -24,7 +24,7 @@ enum CoachAPIConfiguration {
     baseURL.appendingPathComponent("v1/coach/responses")
   }
 
-  static var devTokenURL: URL {
-    baseURL.appendingPathComponent("v1/auth/dev-token")
+  static var appleAuthURL: URL {
+    baseURL.appendingPathComponent("v1/auth/apple")
   }
 }

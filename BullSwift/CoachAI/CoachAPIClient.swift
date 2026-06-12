@@ -93,12 +93,19 @@ enum CoachAPIRequestBuilder {
   }
 }
 
+struct BullAppleSession {
+  let accessToken: String
+  let userID: String
+  let isNewUser: Bool
+}
+
 struct CoachAPIClient {
-  func fetchDevToken(deviceID: String?) async throws -> String {
-    var request = URLRequest(url: CoachAPIConfiguration.devTokenURL)
+  /// Exchange a device-issued Apple identity token for a BullAPI session JWT.
+  func exchangeAppleIdentityToken(_ identityToken: String, deviceID: String?) async throws -> BullAppleSession {
+    var request = URLRequest(url: CoachAPIConfiguration.appleAuthURL)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    var payload: [String: Any] = [:]
+    var payload: [String: Any] = ["identity_token": identityToken]
     if let deviceID, !deviceID.isEmpty {
       payload["device_id"] = deviceID
     }
@@ -111,10 +118,15 @@ struct CoachAPIClient {
       throw CoachAuthError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
     }
     guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let token = json["access_token"] as? String else {
+          let token = json["access_token"] as? String,
+          let userID = json["user_id"] as? String else {
       throw CoachAuthError.invalidResponse
     }
-    return token
+    return BullAppleSession(
+      accessToken: token,
+      userID: userID,
+      isNewUser: json["is_new_user"] as? Bool ?? false
+    )
   }
 
   func stream(

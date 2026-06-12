@@ -15,7 +15,7 @@
 
 ## Auth (alpha)
 
-Dev JWT via `POST /v1/auth/dev-token` when `COACH_DEV_AUTH_BYPASS=1`. Token in Keychain (`com.bull.swift.coach`). Consent gate: `CoachConsentStore`.
+Session JWT via Sign in with Apple (`POST /v1/auth/apple`); real accounts only. Token in Keychain (`com.bull.swift.coach`). Consent gate: `CoachConsentStore`.
 
 ## Configuration
 

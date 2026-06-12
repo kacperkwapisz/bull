@@ -42,15 +42,14 @@ Web app (future)   ──► BullAPI read endpoints (user session JWT)
 
 See `BullAPI/README.md` for request/response shapes and env.
 
-## iOS client follow-up (not yet wired)
+## iOS client
 
-The current app uses `/v1/auth/dev-token` + `/v1/coach/*` (unchanged, still
-working). To add accounts + upload:
+The app is real-accounts-only: Sign in with Apple gates the app on launch.
 
-1. **Sign in with Apple** — add the capability/entitlement; use
-   `ASAuthorizationAppleIDProvider`; POST the `identityToken` to `/v1/auth/apple`;
-   store the returned session JWT in the Keychain (alongside the existing
-   `CoachAuthKeychain`).
+1. **Sign in with Apple** (wired) — the app uses
+   `ASAuthorizationAppleIDProvider`, POSTs the `identityToken` to
+   `/v1/auth/apple`, and stores the returned session JWT in the Keychain
+   (`CoachAuthKeychain`). That JWT is the Bearer token for coach + data routes.
 2. **Uploader** — build an export bundle via the Rust core
    (`export_raw_timeframe`, already exposed through the bridge), derive the
    `summary` JSON from the same store accessors the app UI uses, and
