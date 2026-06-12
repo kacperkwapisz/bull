@@ -135,6 +135,10 @@ path = "src/bin/bull-property-test-suite.rs"
 name = "bull-perf-budget"
 path = "src/bin/bull-perf-budget.rs"
 
+[[bin]]
+name = "bull-rr-hr-consistency"
+path = "src/bin/bull-rr-hr-consistency.rs"
+
 [dependencies]
 crc32fast = "1.4"
 hex = "0.4"
