@@ -687,7 +687,9 @@ fn algorithm_metamorphic_properties(cases: usize) -> PropertyGroupReport {
             end_time: "2026-05-28T00:01:00Z".to_string(),
             rr_intervals_ms: vec![800.0, 800.0, 800.0, 800.0],
             input_ids: Vec::new(),
-        })
+                    rr_timestamps_s: None,
+            stage_segments: None,
+})
         .output
         .expect("valid HRV input");
         group.check(
@@ -733,7 +735,9 @@ fn check_hrv_bounds(group: &mut GroupBuilder, rng: &mut DeterministicRng, case_i
         end_time: "2026-05-28T00:05:00Z".to_string(),
         rr_intervals_ms: intervals,
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
     let Some(output) = result.output else {
         group.fail(
             case_index,

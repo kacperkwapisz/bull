@@ -35,6 +35,15 @@ pub struct HrvInput {
     pub rr_intervals_ms: Vec<f64>,
     #[serde(default)]
     pub input_ids: Vec<String>,
+    /// Optional per-interval capture timestamps (seconds). When present and the
+    /// same length as `rr_intervals_ms`, enables gap-aware RMSSD segmentation so
+    /// non-contiguous beats are not differenced across recording gaps.
+    #[serde(default)]
+    pub rr_timestamps_s: Option<Vec<f64>>,
+    /// Optional sleep-stage segmentation. When present, RMSSD is computed over the
+    /// most representative deep-sleep window for a more stable nightly baseline.
+    #[serde(default)]
+    pub stage_segments: Option<Vec<SleepStageSegment>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -48,6 +57,11 @@ pub struct HrvOutput {
     pub rmssd_ms: f64,
     pub sdnn_ms: f64,
     pub pnn50_fraction: f64,
+    /// Fraction of beats rejected by the ectopic-beat filter, in [0, 1].
+    pub ectopic_filter_removal_fraction: f64,
+    /// Deep-sleep window tier used for RMSSD: 1 = single long deep segment,
+    /// 2 = concatenated short deep segments, 3 = all intervals (legacy/fallback).
+    pub window_tier_used: u8,
     pub components: Vec<MetricComponent>,
 }
 
@@ -785,15 +799,209 @@ fn stress_definition() -> AlgorithmDefinitionRecord {
     }
 }
 
+// Deep-sleep window selection (ALG-HRV-03) constants.
+const SWS_STAGE_KIND: &str = "deep";
+const SWS_MIN_DURATION_MINUTES: f64 = 5.0;
+// Lipponen-Tarvainen-style ectopic beat filter (ALG-HRV-02) constants.
+const ECTOPIC_WINDOW: usize = 5;
+const ECTOPIC_THRESHOLD: f64 = 0.20;
+
+// Map a stage segment onto the interval index range [start_idx, end_idx) using
+// index-proportional mapping when rr_timestamps_s is absent.
+fn segment_interval_range(
+    seg_start_minutes: f64,
+    seg_duration_minutes: f64,
+    total_duration_minutes: f64,
+    n_intervals: usize,
+) -> (usize, usize) {
+    if total_duration_minutes <= 0.0 || n_intervals == 0 {
+        return (0, n_intervals);
+    }
+    let n = n_intervals as f64;
+    let start_frac = (seg_start_minutes / total_duration_minutes).clamp(0.0, 1.0);
+    let end_frac =
+        ((seg_start_minutes + seg_duration_minutes) / total_duration_minutes).clamp(0.0, 1.0);
+    let start_idx = (start_frac * n).round() as usize;
+    let end_idx = (end_frac * n).round() as usize;
+    (start_idx.min(n_intervals), end_idx.min(n_intervals))
+}
+
+// Choose the deep-sleep RMSSD window tier and the segment indices it covers.
+//   tier 1: last deep segment with duration >= SWS_MIN_DURATION_MINUTES
+//   tier 2: deep segments exist but all are shorter than the threshold
+//   tier 3: no stage segments / no deep segments (legacy whole-night path)
+fn select_sws_window(stage_segments: Option<&[SleepStageSegment]>) -> (u8, Vec<usize>) {
+    let Some(segs) = stage_segments else {
+        return (3, Vec::new());
+    };
+    let deep_indices: Vec<usize> = segs
+        .iter()
+        .enumerate()
+        .filter(|(_, seg)| seg.stage_kind == SWS_STAGE_KIND)
+        .map(|(i, _)| i)
+        .collect();
+    if deep_indices.is_empty() {
+        return (3, Vec::new());
+    }
+    if let Some(&last_long_idx) = deep_indices
+        .iter()
+        .rev()
+        .find(|&&i| segs[i].duration_minutes >= SWS_MIN_DURATION_MINUTES)
+    {
+        return (1, vec![last_long_idx]);
+    }
+    (2, deep_indices)
+}
+
+// Split RR intervals into contiguous segments wherever the gap between successive
+// capture timestamps exceeds `gap_threshold_s`, so RMSSD never differences beats
+// across a recording gap (ALG-HRV-01).
+fn segment_rr_by_gaps(
+    intervals: &[f64],
+    timestamps: &[f64],
+    gap_threshold_s: f64,
+) -> Vec<Vec<f64>> {
+    if intervals.is_empty() || timestamps.len() != intervals.len() {
+        return vec![intervals.to_vec()];
+    }
+    let mut segments: Vec<Vec<f64>> = Vec::new();
+    let mut current: Vec<f64> = Vec::new();
+    current.push(intervals[0]);
+    for i in 1..intervals.len() {
+        if timestamps[i] - timestamps[i - 1] > gap_threshold_s {
+            segments.push(current);
+            current = Vec::new();
+        }
+        current.push(intervals[i]);
+    }
+    segments.push(current);
+    segments
+}
+
+// Lipponen-Tarvainen median-relative ectopic-beat rejection over a centred window,
+// excluding the candidate beat from its own window before taking the median.
+fn lipponen_tarvainen_filter(segment: &[f64]) -> Vec<f64> {
+    if segment.len() <= 1 {
+        return segment.to_vec();
+    }
+    let mut result = Vec::with_capacity(segment.len());
+    for i in 0..segment.len() {
+        let half = ECTOPIC_WINDOW / 2;
+        let start = i.saturating_sub(half);
+        let end = (i + half + 1).min(segment.len());
+        let mut window: Vec<f64> = segment[start..end].to_vec();
+        let candidate_local_idx = i - start;
+        if candidate_local_idx < window.len() {
+            window.remove(candidate_local_idx);
+        }
+        if window.is_empty() {
+            result.push(segment[i]);
+            continue;
+        }
+        window.sort_by(|a, b| a.total_cmp(b));
+        let median = window[window.len() / 2];
+        if (segment[i] - median).abs() <= ECTOPIC_THRESHOLD * median {
+            result.push(segment[i]);
+        }
+    }
+    result
+}
+
+// Apply the ectopic filter per segment; report total beats before/after.
+fn apply_ectopic_filter(segments: &[Vec<f64>]) -> (Vec<Vec<f64>>, usize, usize) {
+    let mut filtered = Vec::with_capacity(segments.len());
+    let mut total_before = 0usize;
+    let mut total_after = 0usize;
+    for seg in segments {
+        total_before += seg.len();
+        let clean = lipponen_tarvainen_filter(seg);
+        total_after += clean.len();
+        filtered.push(clean);
+    }
+    (filtered, total_before, total_after)
+}
+
+// RMSSD computed only over successive pairs that lie within the same segment, so
+// gaps between segments are never differenced.
+fn rmssd_segmented(segments: &[Vec<f64>]) -> f64 {
+    let mut sum_sq = 0.0f64;
+    let mut pair_count = 0usize;
+    for segment in segments {
+        for pair in segment.windows(2) {
+            let diff = pair[1] - pair[0];
+            sum_sq += diff * diff;
+            pair_count += 1;
+        }
+    }
+    if pair_count > 0 {
+        (sum_sq / pair_count as f64).sqrt()
+    } else {
+        0.0
+    }
+}
+
 pub fn bull_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
     let mut quality_flags = Vec::new();
     let mut errors = Vec::new();
     let mut valid = Vec::new();
+    let mut valid_timestamps: Vec<f64> = Vec::new();
     let mut invalid_interval_count = 0usize;
 
-    for interval in &input.rr_intervals_ms {
+    // Deep-sleep window selection (ALG-HRV-03): narrow the working interval slice
+    // before the physiological range gate so RMSSD reflects the most representative
+    // window. Tier 3 (no stage segments) uses all intervals unchanged.
+    let (window_tier_used, sws_indices) = select_sws_window(input.stage_segments.as_deref());
+
+    let (working_intervals, working_timestamps_opt): (Vec<f64>, Option<Vec<f64>>) =
+        if window_tier_used < 3 && !sws_indices.is_empty() {
+            let segs = input.stage_segments.as_deref().unwrap_or(&[]);
+            let total_duration_minutes: f64 = segs.iter().map(|s| s.duration_minutes).sum();
+            let mut chosen: Vec<f64> = Vec::new();
+            let mut chosen_ts: Vec<f64> = Vec::new();
+            let has_aligned_ts = input
+                .rr_timestamps_s
+                .as_ref()
+                .is_some_and(|ts| ts.len() == input.rr_intervals_ms.len());
+            let raw_ts = input.rr_timestamps_s.as_deref().unwrap_or(&[]);
+            let n_raw = input.rr_intervals_ms.len();
+            for &seg_idx in &sws_indices {
+                let seg_start_minutes: f64 =
+                    segs[..seg_idx].iter().map(|s| s.duration_minutes).sum();
+                let (start_idx, end_idx) = segment_interval_range(
+                    seg_start_minutes,
+                    segs[seg_idx].duration_minutes,
+                    total_duration_minutes,
+                    n_raw,
+                );
+                for i in start_idx..end_idx {
+                    chosen.push(input.rr_intervals_ms[i]);
+                    if has_aligned_ts {
+                        chosen_ts.push(raw_ts[i]);
+                    }
+                }
+            }
+            let ts_opt = if has_aligned_ts && !chosen_ts.is_empty() {
+                Some(chosen_ts)
+            } else {
+                None
+            };
+            (chosen, ts_opt)
+        } else {
+            (input.rr_intervals_ms.clone(), input.rr_timestamps_s.clone())
+        };
+
+    // Physiological range gate (300-2000 ms), keeping timestamps aligned.
+    let has_timestamps = working_timestamps_opt.is_some();
+    let timestamps_aligned = working_timestamps_opt
+        .as_ref()
+        .is_some_and(|ts| ts.len() == working_intervals.len());
+
+    for (i, interval) in working_intervals.iter().enumerate() {
         if interval.is_finite() && (300.0..=2000.0).contains(interval) {
             valid.push(*interval);
+            if timestamps_aligned {
+                valid_timestamps.push(working_timestamps_opt.as_ref().unwrap()[i]);
+            }
         } else {
             invalid_interval_count += 1;
         }
@@ -809,9 +1017,43 @@ pub fn bull_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
         errors.push("not_enough_valid_rr_intervals".to_string());
     }
 
+    let segment_count_outer: usize = if !errors.is_empty() {
+        1
+    } else if has_timestamps && timestamps_aligned {
+        segment_rr_by_gaps(&valid, &valid_timestamps, 3.0).len()
+    } else {
+        1
+    };
+
     let output = if errors.is_empty() {
         let mean_nn_ms = mean(&valid);
-        let rmssd_ms = rmssd(&valid);
+
+        // Gap-aware segmentation (ALG-HRV-01): segment on timestamp gaps when aligned
+        // timestamps are present, otherwise treat all valid intervals as one segment.
+        let (segments, segment_count) = if has_timestamps && timestamps_aligned {
+            let segs = segment_rr_by_gaps(&valid, &valid_timestamps, 3.0);
+            let count = segs.len();
+            (segs, count)
+        } else {
+            (vec![valid.clone()], 1)
+        };
+        if segment_count > 1 {
+            quality_flags.push("rr_segment_gap_detected".to_string());
+        }
+
+        // Ectopic beat filter (ALG-HRV-02) before RMSSD, applied per segment.
+        let (filtered_segments, total_before, total_after) = apply_ectopic_filter(&segments);
+        let removed = total_before - total_after;
+        let ectopic_filter_removal_fraction = if total_before > 0 {
+            removed as f64 / total_before as f64
+        } else {
+            0.0
+        };
+        if removed > 0 {
+            quality_flags.push("ectopic_beats_removed".to_string());
+        }
+
+        let rmssd_ms = rmssd_segmented(&filtered_segments);
         let sdnn_ms = sample_sd(&valid, mean_nn_ms);
         let pnn50_fraction = pnn50(&valid);
         let interval_count = input.rr_intervals_ms.len();
@@ -826,6 +1068,8 @@ pub fn bull_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
             rmssd_ms,
             sdnn_ms,
             pnn50_fraction,
+            ectopic_filter_removal_fraction,
+            window_tier_used,
             components: vec![
                 MetricComponent {
                     name: "mean_nn".to_string(),
@@ -862,12 +1106,29 @@ pub fn bull_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
         output,
         quality_flags,
         errors,
-        provenance: json!({
-            "input_ids": input.input_ids,
-            "input_interval_count": input.rr_intervals_ms.len(),
-            "valid_rr_range_ms": [300.0, 2000.0],
-            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
-        }),
+        provenance: {
+            let sws_selected_segment = if window_tier_used == 1 {
+                let segs = input.stage_segments.as_deref().unwrap_or(&[]);
+                sws_indices.first().map(|&i| {
+                    json!({
+                        "index": i,
+                        "duration_minutes": segs.get(i).map(|s| s.duration_minutes)
+                    })
+                })
+            } else {
+                None
+            };
+            json!({
+                "input_ids": input.input_ids,
+                "input_interval_count": input.rr_intervals_ms.len(),
+                "valid_rr_range_ms": [300.0, 2000.0],
+                "expected_values_policy": "hand-derived-tests-and-versioned-bull-output",
+                "gap_segmentation_threshold_s": 3.0,
+                "segment_count": segment_count_outer,
+                "sws_window_tier": window_tier_used,
+                "sws_selected_segment": sws_selected_segment
+            })
+        },
     }
 }
 
@@ -2206,18 +2467,6 @@ pub fn hrv_run_record(
 
 fn mean(values: &[f64]) -> f64 {
     values.iter().sum::<f64>() / values.len() as f64
-}
-
-fn rmssd(values: &[f64]) -> f64 {
-    let mean_square = values
-        .windows(2)
-        .map(|pair| {
-            let diff = pair[1] - pair[0];
-            diff * diff
-        })
-        .sum::<f64>()
-        / (values.len() - 1) as f64;
-    mean_square.sqrt()
 }
 
 fn sample_sd(values: &[f64], mean_value: f64) -> f64 {

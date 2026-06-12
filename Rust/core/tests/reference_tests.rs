@@ -19,7 +19,9 @@ fn reference_hrv_time_domain_matches_hand_derived_values() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
         input_ids: vec!["hand-derived".to_string()],
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     let output = result.output.unwrap();
     assert_eq!(result.algorithm_id, REFERENCE_HRV_TIME_DOMAIN_ID);
@@ -39,7 +41,9 @@ fn reference_hrv_time_domain_flags_invalid_intervals() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, f64::NAN, 810.0, 2501.0, 790.0],
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     let output = result.output.unwrap();
     assert_eq!(output.valid_interval_count, 3);
@@ -58,7 +62,9 @@ fn reference_hrv_time_domain_reports_insufficient_data_without_output() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![100.0, 800.0],
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     assert!(result.output.is_none());
     assert!(
@@ -75,7 +81,9 @@ fn bull_hrv_v0_matches_internal_reference_for_shared_policy() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
         input_ids: Vec::new(),
-    };
+            rr_timestamps_s: None,
+        stage_segments: None,
+};
 
     let bull = bull_hrv_v0(&input).output.unwrap();
     let reference = reference_hrv_time_domain(&input).output.unwrap();
@@ -247,7 +255,9 @@ fn reference_definition_and_run_persist_to_sqlite() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
         input_ids: vec!["fixture.synthetic".to_string()],
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
     let hrv_record = hrv_reference_run_record("reference-hrv-run-1", &hrv_result).unwrap();
     assert!(store.insert_algorithm_run(&hrv_record).unwrap());
 

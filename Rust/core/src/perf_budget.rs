@@ -662,6 +662,8 @@ fn hrv_input(index: usize) -> HrvInput {
             .map(|offset| 780.0 + ((index + offset) % 40) as f64)
             .collect(),
         input_ids: Vec::new(),
+        rr_timestamps_s: None,
+        stage_segments: None,
     }
 }
 

@@ -23,7 +23,9 @@ fn bull_hrv_v0_computes_hand_derived_time_domain_metrics() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
         input_ids: vec!["hand-derived".to_string()],
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     let output = result.output.unwrap();
     assert_eq!(output.algorithm_id, BULL_HRV_V0_ID);
@@ -48,7 +50,9 @@ fn bull_hrv_v0_pnn50_uses_strictly_greater_than_50_ms() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 850.0, 901.0],
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     let output = result.output.unwrap();
     assert_close(output.pnn50_fraction, 0.5);
@@ -61,7 +65,9 @@ fn bull_hrv_v0_drops_nonphysiological_intervals_and_flags_quality() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 100.0, 810.0, 2500.0, 790.0],
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     let output = result.output.unwrap();
     assert_eq!(output.interval_count, 5);
@@ -82,7 +88,9 @@ fn bull_hrv_v0_reports_insufficient_data_without_output() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0],
         input_ids: Vec::new(),
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
 
     assert!(result.output.is_none());
     assert!(
@@ -90,6 +98,93 @@ fn bull_hrv_v0_reports_insufficient_data_without_output() {
             .errors
             .contains(&"not_enough_valid_rr_intervals".to_string())
     );
+}
+
+#[test]
+fn bull_hrv_v0_ectopic_filter_removes_outlier_beat() {
+    // One in-range but physiologically implausible beat (1300 ms among ~800 ms),
+    // centred with padding so boundary windows don't flag legitimate beats, must be
+    // rejected by the ectopic filter before RMSSD.
+    let result = bull_hrv_v0(&HrvInput {
+        start_time: "2026-05-27T00:00:00Z".to_string(),
+        end_time: "2026-05-27T00:01:00Z".to_string(),
+        rr_intervals_ms: vec![
+            800.0, 800.0, 800.0, 800.0, 1300.0, 800.0, 800.0, 800.0, 800.0,
+        ],
+        input_ids: Vec::new(),
+        rr_timestamps_s: None,
+        stage_segments: None,
+    });
+
+    let output = result.output.unwrap();
+    // All nine beats are inside the 300-2000 ms range gate.
+    assert_eq!(output.valid_interval_count, 9);
+    // Exactly one of nine beats removed by the ectopic filter.
+    assert_close(output.ectopic_filter_removal_fraction, 1.0 / 9.0);
+    // With the outlier gone the remaining beats are all 800 ms -> zero RMSSD.
+    assert_close(output.rmssd_ms, 0.0);
+    assert!(
+        result
+            .quality_flags
+            .contains(&"ectopic_beats_removed".to_string())
+    );
+}
+
+#[test]
+fn bull_hrv_v0_segments_rmssd_across_capture_gaps() {
+    // A large gap between successive capture timestamps must split the series so
+    // RMSSD never differences beats across the gap.
+    let result = bull_hrv_v0(&HrvInput {
+        start_time: "2026-05-27T00:00:00Z".to_string(),
+        end_time: "2026-05-27T00:01:00Z".to_string(),
+        rr_intervals_ms: vec![800.0, 805.0, 802.0, 808.0],
+        input_ids: Vec::new(),
+        // Gap of 19 s between the 2nd and 3rd beats (> 3 s threshold).
+        rr_timestamps_s: Some(vec![0.0, 1.0, 20.0, 21.0]),
+        stage_segments: None,
+    });
+
+    let output = result.output.unwrap();
+    // Only within-segment pairs (5 ms and 6 ms diffs) contribute to RMSSD.
+    assert_close(output.rmssd_ms, ((25.0 + 36.0) / 2.0_f64).sqrt());
+    assert!(
+        result
+            .quality_flags
+            .contains(&"rr_segment_gap_detected".to_string())
+    );
+}
+
+#[test]
+fn bull_hrv_v0_selects_deep_sleep_window_tier() {
+    // A deep segment >= 5 min selects tier 1 and RMSSD is computed over that window.
+    let result = bull_hrv_v0(&HrvInput {
+        start_time: "2026-05-27T00:00:00Z".to_string(),
+        end_time: "2026-05-27T00:20:00Z".to_string(),
+        rr_intervals_ms: (0..10).map(|i| 800.0 + (i % 2) as f64 * 10.0).collect(),
+        input_ids: Vec::new(),
+        rr_timestamps_s: None,
+        stage_segments: Some(vec![
+            SleepStageSegment {
+                stage_kind: "light".to_string(),
+                start_time: "2026-05-27T00:00:00Z".to_string(),
+                end_time: "2026-05-27T00:10:00Z".to_string(),
+                duration_minutes: 10.0,
+                confidence_0_to_1: 0.9,
+                stage_probabilities: BTreeMap::new(),
+            },
+            SleepStageSegment {
+                stage_kind: "deep".to_string(),
+                start_time: "2026-05-27T00:10:00Z".to_string(),
+                end_time: "2026-05-27T00:20:00Z".to_string(),
+                duration_minutes: 10.0,
+                confidence_0_to_1: 0.9,
+                stage_probabilities: BTreeMap::new(),
+            },
+        ]),
+    });
+
+    let output = result.output.unwrap();
+    assert_eq!(output.window_tier_used, 1);
 }
 
 #[test]
@@ -110,7 +205,9 @@ fn hrv_definition_and_run_persist_to_sqlite() {
         end_time: "2026-05-27T00:01:00Z".to_string(),
         rr_intervals_ms: vec![800.0, 810.0, 790.0, 800.0],
         input_ids: vec!["fixture.synthetic".to_string()],
-    });
+            rr_timestamps_s: None,
+        stage_segments: None,
+});
     let record = hrv_run_record("hrv-run-1", &result).unwrap();
     assert!(store.insert_algorithm_run(&record).unwrap());
     assert!(!store.insert_algorithm_run(&record).unwrap());
@@ -119,7 +216,7 @@ fn hrv_definition_and_run_persist_to_sqlite() {
     assert_eq!(saved_run.algorithm_id, BULL_HRV_V0_ID);
     assert!(saved_run.output_json.contains("\"rmssd_ms\""));
     let metric_values = store.metric_values_for_run("hrv-run-1").unwrap();
-    assert_eq!(metric_values.len(), 7);
+    assert_eq!(metric_values.len(), 9);
     assert!(metric_values.iter().any(|row| {
         row.metric_value_id == "hrv-run-1.rmssd_ms"
             && row.metric_family == "hrv"
