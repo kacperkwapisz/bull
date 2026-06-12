@@ -43,8 +43,10 @@ final class MoreDataStore: ObservableObject {
   @Published var rawMetricFamilies = "heart_rate,hrv,activity"
   @Published var rawAlgorithmIDs = ""
   @Published var rawAlgorithmVersions = ""
-  @Published var includeRawBytes = true
-  @Published var selectedRawFamilies: Set<String> = ["raw_evidence", "decoded_frames", "packet_timeline", "sensor_samples", "metric_features", "metric_outputs", "algorithm_runs", "local_health_metrics", "sqlite"]
+  @Published var includeRawBytes = false
+  // Light defaults: the heaviest families (full sqlite copy + all raw bytes) are
+  // opt-in so the default export stays well under the CPU watchdog budget.
+  @Published var selectedRawFamilies: Set<String> = ["decoded_frames", "packet_timeline", "sensor_samples", "metric_features", "metric_outputs", "algorithm_runs", "local_health_metrics"]
   @Published var rawExportStatus = "No export yet"
   @Published var rawExportInProgress = false
   @Published var rawBundlePath = "No bundle"
@@ -118,11 +120,13 @@ final class MoreDataStore: ObservableObject {
     supportBundlePath = documentsDirectory.appendingPathComponent("Support", isDirectory: true).path
 
     let now = Date()
-    let start = Self.fullExportStart
     let end = now.moreISO8601String()
-    healthBackfillStart = start
+    healthBackfillStart = Self.fullExportStart
     healthBackfillEnd = end
-    rawExportStart = start
+    // Default the raw-export window to the last 48h. Exporting the entire history
+    // by default copies/zips the whole on-device database in one synchronous pass,
+    // which pegs the CPU long enough for the OS watchdog to terminate the app.
+    rawExportStart = now.addingTimeInterval(-48 * 3600).moreISO8601String()
     rawExportEnd = end
   }
 
@@ -395,6 +399,24 @@ final class MoreDataStore: ObservableObject {
     return nil
   }
 
+  /// Guard against on-device exports large enough to trip the CPU watchdog
+  /// (`cpu_resource_fatal`). Heavy families (full sqlite copy, raw bytes) over a
+  /// wide window are the trigger; ask the operator to narrow before running.
+  func rawExportWorkloadGuardSummary() -> String? {
+    guard let start = Self.parseISO8601(rawExportStart),
+          let end = Self.parseISO8601(rawExportEnd) else {
+      return nil
+    }
+    let days = end.timeIntervalSince(start) / 86_400
+    let heavy = includeRawBytes
+      || selectedRawFamilies.contains("sqlite")
+      || selectedRawFamilies.contains("raw_evidence")
+    if heavy && days > 3 {
+      return "Window spans \(Int(days.rounded())) days with raw bytes/sqlite selected. Narrow to ≤ 3 days or deselect sqlite/raw bytes to avoid the export being killed."
+    }
+    return nil
+  }
+
   func rawExportScopeSummary() -> String {
     if selectedRawFamilies.isEmpty {
       return "No data families selected"
@@ -422,6 +444,11 @@ final class MoreDataStore: ObservableObject {
 
     guard !rawExportInProgress else {
       rawExportStatus = "Export already running"
+      return
+    }
+
+    if let guardMessage = rawExportWorkloadGuardSummary() {
+      rawExportStatus = guardMessage
       return
     }
 

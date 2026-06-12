@@ -9,6 +9,9 @@ struct MoreRawExportView: View {
         MoreInfoRow(title: "Export Window", value: store.rawExportWindowSummary(), systemImage: "calendar", status: store.rawExportWindowIssueSummary() == nil ? .ready : .blocked)
         MoreInfoRow(title: "Window Issue", value: store.rawExportWindowIssueSummary() ?? "Window is valid", systemImage: "checkmark.seal", status: store.rawExportWindowIssueSummary() == nil ? .ready : .blocked)
         MoreInfoRow(title: "Scope", value: store.rawExportScopeSummary(), systemImage: "square.stack.3d.up", status: store.selectedRawFamilies.isEmpty ? .blocked : .ready)
+        if let workloadIssue = store.rawExportWorkloadGuardSummary() {
+          MoreInfoRow(title: "Workload", value: workloadIssue, systemImage: "exclamationmark.triangle", status: .blocked)
+        }
         TextField("Start", text: $store.rawExportStart)
           .textInputAutocapitalization(.never)
           .keyboardType(.numbersAndPunctuation)
