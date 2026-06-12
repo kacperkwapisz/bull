@@ -1,17 +1,17 @@
-name: Coach API Docker Publish
+name: Bull API Docker Publish
 
-# Builds and pushes the Coach API image to GitHub Container Registry (GHCR).
-# Configure runtime secrets (JWT_SECRET, COACH_UPSTREAM_API_KEY, …) in your
-# host platform — never bake them into the image.
+# Builds and pushes the Bull API image to GitHub Container Registry (GHCR).
+# Configure runtime secrets (JWT_SECRET, BULL_UPSTREAM_API_KEY, DATABASE_URL,
+# APPLE_BUNDLE_ID, …) in your host platform — never bake them into the image.
 
 on:
   push:
     branches: ["main"]
     paths:
-      - "CoachAPI/**"
-      - ".github/workflows/coach-api-docker.yml"
+      - "BullAPI/**"
+      - ".github/workflows/bull-api-docker.yml"
     tags:
-      - "coach-api-v*"
+      - "bull-api-v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -21,7 +21,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: coach-api
+  IMAGE_NAME: bull-api
 
 jobs:
   publish:
@@ -54,16 +54,16 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/coach-api-v') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/coach-api-v') }}
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/bull-api-v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/bull-api-v') }}
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
 
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: CoachAPI
-          file: CoachAPI/Dockerfile
+          context: BullAPI
+          file: BullAPI/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

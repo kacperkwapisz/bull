@@ -25,7 +25,7 @@ async function hmacSign(secret: string, data: string): Promise<string> {
 
 export async function signCoachJwt(
   secret: string,
-  claims: { sub: string; scope?: string; ttlSeconds?: number },
+  claims: { sub: string; scope?: string; userId?: string; ttlSeconds?: number },
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const ttl = claims.ttlSeconds ?? 60 * 60 * 24 * 30
@@ -33,6 +33,7 @@ export async function signCoachJwt(
   const payload = {
     sub: claims.sub,
     scope: claims.scope ?? "coach",
+    ...(claims.userId !== undefined ? { user_id: claims.userId } : {}),
     iat: now,
     exp: now + ttl,
   }

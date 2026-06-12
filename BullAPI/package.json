@@ -1,19 +1,25 @@
 {
-  "name": "bull-coach-api",
+  "name": "bull-api",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "bun --hot src/app.ts",
     "start": "bun src/app.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun src/db/migrate.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@usehyper/cli": "^0.1.1",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "jose": "^5.9.6",
+    "postgres": "^3.4.9",
     "zod": "^4.4.3"
   }
 }

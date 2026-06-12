@@ -34,7 +34,7 @@ const coachBody = z.object({
 export function coachRoutes(env: Env) {
   const jwt = authJwt({
     secret: env.JWT_SECRET,
-    allowShortSecret: env.COACH_DEV_AUTH_BYPASS,
+    allowShortSecret: env.BULL_DEV_AUTH_BYPASS,
   })
 
   const responses = route

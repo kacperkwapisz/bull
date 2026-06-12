@@ -25,7 +25,7 @@ export interface UpstreamChatRequest {
 }
 
 function resolveModel(env: Env, tier: ModelTier): string {
-  return tier === "deep" ? env.COACH_MODEL_DEEP : env.COACH_MODEL_DEFAULT
+  return tier === "deep" ? env.BULL_MODEL_DEEP : env.BULL_MODEL_DEFAULT
 }
 
 function isZen(baseURL: string): boolean {
@@ -100,7 +100,7 @@ export async function* streamUpstreamChat(
   env: Env,
   request: UpstreamChatRequest,
 ): AsyncGenerator<string> {
-  const base = env.COACH_UPSTREAM_BASE_URL.replace(/\/$/, "")
+  const base = env.BULL_UPSTREAM_BASE_URL.replace(/\/$/, "")
   const url = `${base}/chat/completions`
   const model = resolveModel(env, request.modelTier)
 
@@ -120,12 +120,12 @@ export async function* streamUpstreamChat(
   }
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${env.COACH_UPSTREAM_API_KEY}`,
+    Authorization: `Bearer ${env.BULL_UPSTREAM_API_KEY}`,
     "Content-Type": "application/json",
     Accept: "text/event-stream",
   }
   if (isGroq(base) || isOrai(base)) {
-    headers["User-Agent"] = "bull-coach-api/1"
+    headers["User-Agent"] = "bull-api/1"
   }
   if (isZen(base)) {
     headers.originator = "bull-swift"
