@@ -48,7 +48,7 @@ export function dataRoutes(env: Env) {
   const upload = route
     .post("/v1/data/uploads")
     .use(jwt)
-    .handle(async ({ req, ctx }) => {
+    .handle(async ({ body, ctx }) => {
       const db = getDb(env)
       if (!db) return json(503, { error: "persistence_unavailable" })
       const store = getObjectStore(env)
@@ -56,12 +56,9 @@ export function dataRoutes(env: Env) {
       const userId = userIdFrom(ctx)
       if (!userId) return json(403, { error: "user_scope_required" })
 
-      let form: FormData
-      try {
-        form = await req.formData()
-      } catch {
-        return json(400, { error: "expected_multipart_form" })
-      }
+      // Hyper pre-parses the request body; a multipart upload arrives as FormData.
+      if (!(body instanceof FormData)) return json(400, { error: "expected_multipart_form" })
+      const form = body
       const file = form.get("bundle")
       if (!(file instanceof File)) return json(400, { error: "missing_bundle_file" })
       if (file.size > MAX_BUNDLE_BYTES) return json(413, { error: "bundle_too_large" })
