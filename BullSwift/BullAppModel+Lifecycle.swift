@@ -3,6 +3,71 @@ import UIKit
 
 
 extension BullAppModel {
+  /// Launch-time storage hygiene: remove stale export artifacts, age out
+  /// finished overnight spools, and compact the Rust store's raw payload
+  /// copies (curated metrics are untouched). Runs on the serial Rust startup
+  /// queue so it finishes before other launch work contends for the store.
+  func performLaunchStorageMaintenance() {
+    let databasePath = HealthDataStore.defaultDatabasePath()
+    rustStartupQueue.async { [weak self] in
+      let cleanup = BullStorageJanitor.cleanUpLaunchArtifacts()
+
+      var maintenanceBody: String
+      do {
+        let rust = BullRustBridge()
+        let report = try rust.request(
+          method: "store.maintain",
+          args: ["database_path": databasePath]
+        )
+        let fileBefore = Self.lifecycleInt64Value(report["file_bytes_before"]) ?? 0
+        let fileAfter = Self.lifecycleInt64Value(report["file_bytes_after"]) ?? 0
+        let vacuumed = (report["vacuumed"] as? Bool) ?? false
+        let rawCompacted = Self.lifecycleInt64Value(
+          (report["raw_evidence"] as? [String: Any])?["compacted_rows"]
+        ) ?? 0
+        let decodedCompacted = Self.lifecycleInt64Value(
+          (report["decoded_frames"] as? [String: Any])?["compacted_rows"]
+        ) ?? 0
+        maintenanceBody = String(
+          format: "db=%.1fMB->%.1fMB vacuumed=%@ raw_compacted=%lld decoded_compacted=%lld",
+          Double(fileBefore) / 1_000_000,
+          Double(fileAfter) / 1_000_000,
+          vacuumed ? "true" : "false",
+          rawCompacted,
+          decodedCompacted
+        )
+      } catch {
+        maintenanceBody = "store.maintain failed: \(String(describing: error))"
+      }
+
+      DispatchQueue.main.async { [weak self] in
+        guard let self else {
+          return
+        }
+        self.ble.record(
+          source: "storage.janitor",
+          title: "launch.cleanup",
+          body: cleanup.bodyText
+        )
+        self.ble.record(
+          source: "storage.janitor",
+          title: "launch.maintenance",
+          body: maintenanceBody
+        )
+      }
+    }
+  }
+
+  private static func lifecycleInt64Value(_ value: Any?) -> Int64? {
+    if let number = value as? NSNumber {
+      return number.int64Value
+    }
+    if let text = value as? String {
+      return Int64(text)
+    }
+    return nil
+  }
+
   func handleAppLifecycleChange(_ phase: String) {
     let power = Self.currentOvernightPowerState()
     ble.record(source: "app.lifecycle", title: "scene_phase", body: "\(phase) | \(power.summary)")

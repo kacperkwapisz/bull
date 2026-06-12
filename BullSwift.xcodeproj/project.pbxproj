@@ -13,6 +13,7 @@
 		A10000000000000000000060 /* WhatsNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* WhatsNew.swift */; };
 		A10000000000000000000070 /* SignInGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* SignInGateView.swift */; };
 		A10000000000000000000071 /* BullAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* BullAccountSession.swift */; };
+		A10000000000000000000072 /* BullStorageJanitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000072 /* BullStorageJanitor.swift */; };
 		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
 		A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* RrHrConsistencyDebugView.swift */; };
 		A10000000000000000000004 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* OnboardingView.swift */; };
@@ -193,6 +194,7 @@
 		A20000000000000000000060 /* WhatsNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNew.swift; sourceTree = "<group>"; };
 		A20000000000000000000070 /* SignInGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInGateView.swift; sourceTree = "<group>"; };
 		A20000000000000000000071 /* BullAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/BullAccountSession.swift; sourceTree = "<group>"; };
+		A20000000000000000000072 /* BullStorageJanitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullStorageJanitor.swift; sourceTree = "<group>"; };
 		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
 		A20000000000000000000062 /* RrHrConsistencyDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RrHrConsistencyDebugView.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -413,6 +415,7 @@
 				A20000000000000000000003 /* RootView.swift */,
 				A20000000000000000000060 /* WhatsNew.swift */,
 				A20000000000000000000070 /* SignInGateView.swift */,
+				A20000000000000000000072 /* BullStorageJanitor.swift */,
 				A20000000000000000000061 /* BiometricEnginePreview.swift */,
 				A20000000000000000000062 /* RrHrConsistencyDebugView.swift */,
 				A20000000000000000000023 /* BullTheme.swift */,
@@ -729,6 +732,7 @@
 				A10000000000000000000003 /* RootView.swift in Sources */,
 				A10000000000000000000060 /* WhatsNew.swift in Sources */,
 				A10000000000000000000070 /* SignInGateView.swift in Sources */,
+				A10000000000000000000072 /* BullStorageJanitor.swift in Sources */,
 				A10000000000000000000071 /* BullAccountSession.swift in Sources */,
 				A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */,
 				A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */,

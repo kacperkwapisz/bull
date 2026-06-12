@@ -370,6 +370,7 @@ final class BullAppModel: ObservableObject {
     refreshHeartRateHourlyRanges()
     ble.record(source: "app", title: "model.init")
     prepareClientHello()
+    performLaunchStorageMaintenance()
     cleanupOrphanedActivityCaptureSessions()
     refreshActivityTimeline()
     scheduleAutoStartHealthPacketCaptureIfNeeded()
