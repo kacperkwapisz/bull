@@ -1503,6 +1503,47 @@ fn sleep_feature_score_report_segments_to_most_recent_night() {
 }
 
 #[test]
+fn sleep_feature_score_report_rejects_sub_sleep_length_clusters() {
+    let store = BullStore::open_in_memory().unwrap();
+    // A lone ~9 minute still cluster (e.g. the band resting on a counter
+    // during a bath) must never be reported as a sleep window.
+    let cluster_start: u32 = 1_767_304_800; // 2026-01-01T22:00:00Z
+    for step in 0..4u32 {
+        import_motion_frame_at_value_with_device_timestamp(
+            &store,
+            "user-owned-live-notification",
+            "2026-01-01T20:00:00Z",
+            1000,
+            cluster_start + step * 180,
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 240.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 30.0,
+        },
+    )
+    .unwrap();
+
+    assert!(report.sleep_window.is_none());
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "sleep_window_missing")
+    );
+}
+
+#[test]
 fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
     let store = BullStore::open_in_memory().unwrap();
     for (captured_at, sample_value) in [

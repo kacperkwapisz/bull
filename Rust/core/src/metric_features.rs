@@ -4960,6 +4960,11 @@ const SLEEP_CLUSTER_GAP_MINUTES: i64 = 120;
 /// Minimum span (in minutes) for a motion cluster to qualify as a plausible
 /// overnight window rather than a short daytime capture.
 const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
+/// Absolute floor (in minutes) below which a motion cluster can never become
+/// a sleep window. Brief still periods (band on a counter, a short rest) are
+/// not scoreable sleep; reporting them as sleep is dishonest. Windows between
+/// this floor and the overnight span are kept but flagged as short.
+const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
 
 struct SleepClusterSelection {
     start_minute: i64,
@@ -4970,15 +4975,13 @@ struct SleepClusterSelection {
 /// features. Clusters are split wherever consecutive motion samples are more
 /// than `SLEEP_CLUSTER_GAP_MINUTES` apart; the most recent cluster spanning at
 /// least `SLEEP_CLUSTER_MIN_SPAN_MINUTES` is preferred, otherwise the most
-/// recent cluster is kept so a single short capture is not discarded.
+/// recent cluster spanning at least `SLEEP_WINDOW_MIN_SPAN_MINUTES` is kept
+/// (flagged short by the caller). Clusters under the floor are never windows:
+/// a few still minutes are not sleep, and claiming otherwise is dishonest.
 fn select_most_recent_sleep_cluster(
     timed_features: &[(i64, &MotionFeature)],
-) -> SleepClusterSelection {
-    let first_minute = timed_features.first().map(|(minute, _)| *minute).unwrap_or(0);
-    let last_minute = timed_features
-        .last()
-        .map(|(minute, _)| *minute)
-        .unwrap_or(first_minute);
+) -> Option<SleepClusterSelection> {
+    let first_minute = timed_features.first().map(|(minute, _)| *minute)?;
 
     let mut clusters: Vec<(i64, i64)> = Vec::new();
     let mut cluster_start = first_minute;
@@ -4997,20 +5000,20 @@ fn select_most_recent_sleep_cluster(
         .rev()
         .find(|(start, end)| end - start >= SLEEP_CLUSTER_MIN_SPAN_MINUTES)
     {
-        return SleepClusterSelection {
+        return Some(SleepClusterSelection {
             start_minute: *start,
             end_minute: *end,
-        };
+        });
     }
 
-    let (start, end) = clusters
-        .last()
-        .copied()
-        .unwrap_or((first_minute, last_minute));
-    SleepClusterSelection {
-        start_minute: start,
-        end_minute: end,
-    }
+    clusters
+        .iter()
+        .rev()
+        .find(|(start, end)| end - start >= SLEEP_WINDOW_MIN_SPAN_MINUTES)
+        .map(|(start, end)| SleepClusterSelection {
+            start_minute: *start,
+            end_minute: *end,
+        })
 }
 
 fn sleep_window_feature(
@@ -5061,7 +5064,7 @@ fn sleep_window_feature(
     // Restrict the window to the most recent overnight cluster so multi-night
     // history (for example several days pulled in a single sync) does not
     // collapse into one window spanning every captured sample.
-    let segmentation = select_most_recent_sleep_cluster(&timed_features);
+    let segmentation = select_most_recent_sleep_cluster(&timed_features)?;
     timed_features.retain(|(minute, _)| {
         *minute >= segmentation.start_minute && *minute <= segmentation.end_minute
     });
@@ -5075,6 +5078,9 @@ fn sleep_window_feature(
     quality_flags.insert("stage_estimates_require_personal_calibration".to_string());
     if window_segmented {
         quality_flags.insert("sleep_window_segmented_to_most_recent_night".to_string());
+    }
+    if segmentation.end_minute - segmentation.start_minute < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+        quality_flags.insert("sleep_window_below_overnight_span".to_string());
     }
     if parsed_motion_count < motion_features.len() {
         quality_flags.insert("unparseable_motion_timestamps_dropped".to_string());
