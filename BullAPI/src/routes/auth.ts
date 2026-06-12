@@ -6,10 +6,6 @@ import { getDb } from "../db/client.ts"
 import { verifyAppleIdentityToken, AppleAuthError } from "../lib/apple-auth.ts"
 import { upsertUserFromApple } from "../services/accounts.ts"
 
-const devTokenBody = z.object({
-  device_id: z.string().min(8).max(128).optional(),
-})
-
 const appleBody = z.object({
   identity_token: z.string().min(20),
   device_id: z.string().min(8).max(128).optional(),
@@ -25,23 +21,6 @@ function json(status: number, body: unknown): Response {
 }
 
 export function authRoutes(env: Env) {
-  const devToken = route
-    .post("/v1/auth/dev-token")
-    .body(devTokenBody)
-    .handle(async ({ body }) => {
-      if (!env.BULL_DEV_AUTH_BYPASS) {
-        return json(403, { error: "dev_auth_disabled" })
-      }
-      const sub = body.device_id ?? `bull-dev-${crypto.randomUUID()}`
-      const token = await signCoachJwt(env.JWT_SECRET, { sub, scope: "coach" })
-      return created({
-        access_token: token,
-        token_type: "Bearer",
-        expires_in: SESSION_TTL_SECONDS,
-        coach_entitled: true,
-      })
-    })
-
   // Sign in with Apple: verify the device-issued identity token, upsert the
   // Bull account, and return a user-scoped session token.
   const apple = route
@@ -77,9 +56,9 @@ export function authRoutes(env: Env) {
   const entitlement = route.get("/v1/coach/entitlement").handle(() =>
     ok({
       coach_entitled: true,
-      auth_mode: env.BULL_DEV_AUTH_BYPASS ? "dev_bypass" : "jwt",
+      auth_mode: "jwt",
     }),
   )
 
-  return new Hyper({ prefix: "" }).use([devToken, apple, entitlement])
+  return new Hyper({ prefix: "" }).use([apple, entitlement])
 }

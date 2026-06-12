@@ -32,10 +32,7 @@ const coachBody = z.object({
 })
 
 export function coachRoutes(env: Env) {
-  const jwt = authJwt({
-    secret: env.JWT_SECRET,
-    allowShortSecret: env.BULL_DEV_AUTH_BYPASS,
-  })
+  const jwt = authJwt({ secret: env.JWT_SECRET })
 
   const responses = route
     .post("/v1/coach/responses")

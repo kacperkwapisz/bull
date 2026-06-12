@@ -25,9 +25,13 @@ function json(status: number, body: unknown): Response {
   })
 }
 
-function userIdFrom(ctx: { jwt?: { user_id?: unknown; sub?: unknown } }): string | null {
-  const claim = ctx.jwt?.user_id ?? ctx.jwt?.sub
-  return typeof claim === "string" && claim.length > 0 ? claim : null
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Data routes are scoped to real accounts: the session token must carry the
+// `user_id` UUID claim issued by /v1/auth/apple. No `sub` fallback.
+function userIdFrom(ctx: { jwt?: { [claim: string]: unknown } }): string | null {
+  const claim = ctx.jwt?.["user_id"]
+  return typeof claim === "string" && UUID_RE.test(claim) ? claim : null
 }
 
 const listQuery = z.object({
@@ -37,10 +41,7 @@ const listQuery = z.object({
 })
 
 export function dataRoutes(env: Env) {
-  const jwt = authJwt({
-    secret: env.JWT_SECRET,
-    allowShortSecret: env.BULL_DEV_AUTH_BYPASS,
-  })
+  const jwt = authJwt({ secret: env.JWT_SECRET })
 
   // Ingest: store the raw export bundle (source of record) and, if a summary
   // is attached, project curated rows. Multipart form: `bundle` (file),

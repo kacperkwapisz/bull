@@ -7,10 +7,6 @@ const envSchema = z.object({
   BULL_UPSTREAM_API_KEY: z.string().min(1),
   BULL_MODEL_DEFAULT: z.string().default("gpt-oss-120b"),
   BULL_MODEL_DEEP: z.string().default("gpt-oss-120b"),
-  BULL_DEV_AUTH_BYPASS: z
-    .enum(["0", "1"])
-    .default("0")
-    .transform((v) => v === "1"),
   CORS_ORIGINS: z.string().optional(),
   // Persistence. Optional so coach-only / test runs boot without a database;
   // data + Apple-account routes return 503 when it is absent.

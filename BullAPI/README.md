@@ -2,7 +2,7 @@
 
 Backend for the Bull app. Three capability groups in one service:
 
-1. **Auth** — Sign in with Apple (real accounts) plus a dev-token bypass for local builds.
+1. **Auth** — Sign in with Apple (real accounts only).
 2. **Data** — ingest of device-originated WHOOP 5 data and read APIs for the
    forthcoming web app and for debugging what the device produces.
 3. **Coach** — the existing local-first inference gateway (streams model output
@@ -25,7 +25,7 @@ bun run db:migrate     # apply schema to DATABASE_URL (no-op concept: idempotent
 bun run dev
 ```
 
-Persistence is optional: with no `DATABASE_URL`, coach + dev-token still work and
+Persistence is optional: with no `DATABASE_URL`, coach routes still work and
 the data/Apple routes return `503 persistence_unavailable`.
 
 ## Routes
@@ -34,7 +34,6 @@ the data/Apple routes return `503 persistence_unavailable`.
 |--------|------|------|---------|
 | GET  | `/health` | — | Liveness; reports upstream + DB connectivity. |
 | POST | `/v1/auth/apple` | — | Verify Apple identity token, upsert user, issue session JWT. |
-| POST | `/v1/auth/dev-token` | — (bypass only) | Dev/TestFlight JWT when `BULL_DEV_AUTH_BYPASS=1`. |
 | GET  | `/v1/coach/entitlement` | — | Coach entitlement + auth mode. |
 | POST | `/v1/coach/responses` | Bearer | SSE coach stream (Responses-shaped events). |
 | POST | `/v1/data/uploads` | Bearer (user) | Upload an export bundle (+ optional summary). |
@@ -118,7 +117,6 @@ Postgres via Drizzle. Schema lives in `src/db/schema.ts`; migrations in
 | `S3_BUCKET` | for data | — | Bucket for raw bundles. |
 | `S3_REGION` | no | `auto` | `auto` for R2. |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | for data | — | Bucket credentials. |
-| `BULL_DEV_AUTH_BYPASS` | no | `0` | `1` enables `/v1/auth/dev-token`. |
 | `BULL_UPSTREAM_BASE_URL` | no | `https://oraiapi.com/v1` | Coach upstream base. |
 | `BULL_MODEL_DEFAULT` / `BULL_MODEL_DEEP` | no | `gpt-oss-120b` | Coach tier models. |
 | `CORS_ORIGINS` | no | `*` | Comma-separated allowlist. |
@@ -135,7 +133,6 @@ docker run --rm -p 3000:3000 \
   -e S3_ENDPOINT='https://<account_id>.r2.cloudflarestorage.com' \
   -e S3_BUCKET='bull-bundles' -e S3_REGION='auto' \
   -e S3_ACCESS_KEY_ID='...' -e S3_SECRET_ACCESS_KEY='...' \
-  -e BULL_DEV_AUTH_BYPASS=0 \
   bull-api
 ```
 
@@ -162,7 +159,8 @@ TEST_DATABASE_URL=postgres://bull:bull@localhost:5432/bull_test bun test   # ful
 
 ## iOS client contract
 
-The current Bull app talks to `/v1/auth/dev-token` and `/v1/coach/*`, which are
-unchanged. The Apple sign-in + data-upload client work is a follow-up (see
-`docs/bull-swift-mvp/`): post the Apple identity token to `/v1/auth/apple`, store
-the returned session JWT, and `POST` export bundles to `/v1/data/uploads`.
+The Bull app performs native Sign in with Apple on launch, posts the identity
+token to `/v1/auth/apple`, stores the returned session JWT in the Keychain, and
+uses it as the Bearer token for `/v1/coach/*` and `/v1/data/*` (see
+`docs/bull-swift-mvp/`). There is no development token path; every session is
+backed by a real Apple account.
