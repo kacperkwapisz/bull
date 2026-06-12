@@ -128,6 +128,7 @@ use crate::{
         rollup_resting_heart_rate_day_for_store, validate_resting_heart_rate_capture_for_store,
     },
     reference::reference_algorithm_definitions,
+    rr_hr_consistency::{RrHrConsistencyOptions, run_rr_hr_consistency_report},
     sleep_validation::{
         SleepStageLabelValidationOptions, SleepV1EvidenceFolderOptions,
         SleepV1ExplanationStabilityOptions, SleepV1ReleaseGateInput,
@@ -273,6 +274,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "metrics.resting_hr_capture_validation",
     "metrics.resting_hr_daily_rollup",
     "metrics.resting_hr_features",
+    "metrics.rr_hr_consistency",
     "metrics.sleep_score_from_features",
     "metrics.sleep_staging",
     "metrics.step_capture_validation",
@@ -932,6 +934,25 @@ struct TemperatureCaptureValidationArgs {
     tolerance_c: Option<f64>,
     #[serde(default)]
     label_provenance: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RrHrConsistencyArgs {
+    database_path: String,
+    #[serde(default = "default_correlation_start")]
+    start: String,
+    #[serde(default = "default_correlation_end")]
+    end: String,
+    #[serde(default)]
+    max_hr_abs_error_bpm: Option<f64>,
+    #[serde(default)]
+    max_hr_fractional_error: Option<f64>,
+    #[serde(default)]
+    min_rr_intervals_per_frame: Option<usize>,
+    #[serde(default)]
+    min_eligible_frames: Option<usize>,
+    #[serde(default)]
+    consistency_pass_ratio: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2257,6 +2278,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
                 .map(|value| bridge_ok(&request.request_id, value))
                 .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error))
         }
+        "metrics.rr_hr_consistency" => request_args::<RrHrConsistencyArgs>(&request)
+            .and_then(rr_hr_consistency_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hrv_features" => request_args::<HrvFeaturesArgs>(&request)
             .and_then(hrv_features_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4683,6 +4708,33 @@ fn validate_requested_primary_algorithm(
         )));
     }
     Ok(())
+}
+
+fn rr_hr_consistency_bridge(args: RrHrConsistencyArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let decoded_rows = store.decoded_frames_between(&args.start, &args.end)?;
+    let defaults = RrHrConsistencyOptions::default();
+    let options = RrHrConsistencyOptions {
+        max_hr_abs_error_bpm: args
+            .max_hr_abs_error_bpm
+            .unwrap_or(defaults.max_hr_abs_error_bpm),
+        max_hr_fractional_error: args
+            .max_hr_fractional_error
+            .unwrap_or(defaults.max_hr_fractional_error),
+        min_rr_intervals_per_frame: args
+            .min_rr_intervals_per_frame
+            .unwrap_or(defaults.min_rr_intervals_per_frame),
+        min_eligible_frames: args.min_eligible_frames.unwrap_or(defaults.min_eligible_frames),
+        consistency_pass_ratio: args
+            .consistency_pass_ratio
+            .unwrap_or(defaults.consistency_pass_ratio),
+    };
+    let report = run_rr_hr_consistency_report(&decoded_rows, options)?;
+    serde_json::to_value(&report).map_err(|error| {
+        BullError::message(format!(
+            "cannot serialize RR/HR consistency report: {error}"
+        ))
+    })
 }
 
 fn hrv_features_bridge(args: HrvFeaturesArgs) -> BullResult<serde_json::Value> {
