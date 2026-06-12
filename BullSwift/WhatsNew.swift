@@ -24,6 +24,25 @@ struct ChangelogHighlight: Identifiable {
 enum Changelog {
   static let entries: [ChangelogEntry] = [
     ChangelogEntry(
+      id: 2,
+      title: "Engine, Refined",
+      date: "June 2026",
+      highlights: [
+        ChangelogHighlight(
+          icon: "waveform.path.ecg",
+          tint: Color(red: 0.20, green: 0.68, blue: 0.27),
+          title: "More accurate HRV",
+          detail: "Heart-rate variability now segments around recording gaps and rejects ectopic beats before scoring, for a steadier, more trustworthy nightly reading."
+        ),
+        ChangelogHighlight(
+          icon: "slider.horizontal.3",
+          tint: Color(red: 0.55, green: 0.40, blue: 0.95),
+          title: "Biometric Engine preview",
+          detail: "Open More → Biometric Engine to watch your personal baseline, Recovery v1 and Readiness build live from your band's own sensor data."
+        ),
+      ]
+    ),
+    ChangelogEntry(
       id: 1,
       title: "Biometric Engine",
       date: "June 2026",
