@@ -27,4 +27,8 @@ enum CoachAPIConfiguration {
   static var appleAuthURL: URL {
     baseURL.appendingPathComponent("v1/auth/apple")
   }
+
+  static var dataUploadsURL: URL {
+    baseURL.appendingPathComponent("v1/data/uploads")
+  }
 }

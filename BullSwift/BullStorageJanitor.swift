@@ -47,7 +47,8 @@ enum BullStorageJanitor {
       now: now,
       summary: &summary
     ) { name in
-      name.hasPrefix("bull-local-data-") && name.hasSuffix(".bullbundle.json")
+      (name.hasPrefix("bull-local-data-") && name.hasSuffix(".bullbundle.json"))
+        || (name.hasPrefix("bull-spool-archive-") && name.hasSuffix(".zip"))
     }
   }
 

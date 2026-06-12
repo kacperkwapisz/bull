@@ -67,6 +67,11 @@ final class BullAppModel: ObservableObject {
   let notificationParseStateLock = NSLock()
   let captureFrameRowBuildQueue = DispatchQueue(label: "com.bull.swift.capture-frame-row-build", qos: .utility)
   let rustStartupQueue = DispatchQueue(label: "com.bull.swift.rust-startup", qos: .utility)
+  lazy var spoolArchiveUploader = BullSpoolArchiveUploader { [weak self] title, body in
+    DispatchQueue.main.async {
+      self?.ble.record(source: "storage.archive", title: title, body: body)
+    }
+  }
   let activityTimelineRefreshQueue = DispatchQueue(label: "com.bull.swift.activity-timeline-refresh", qos: .utility)
   let captureStatusSnapshotWriteQueue = DispatchQueue(label: "com.bull.swift.capture-status-snapshot", qos: .utility)
   let heartRateSamplePipeline = HeartRateSamplePipeline(

@@ -54,6 +54,9 @@ extension BullAppModel {
           title: "launch.maintenance",
           body: maintenanceBody
         )
+        // Raw spools whose sessions are finished move to the user's account
+        // and are removed locally once the server confirms the upload.
+        self.spoolArchiveUploader.archiveFinishedSessions()
       }
     }
   }
