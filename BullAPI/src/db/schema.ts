@@ -66,9 +66,9 @@ export const devices = pgTable(
 )
 
 /**
- * One row per uploaded export bundle. The raw bytes live at storagePath (local
- * filesystem in dev); checksum makes re-uploads idempotent per user. status
- * tracks the parse lifecycle so debugging can see exactly what arrived.
+ * One row per uploaded export bundle. The raw bytes live in object storage
+ * (S3/R2) under storageKey; checksum makes re-uploads idempotent per user.
+ * status tracks the parse lifecycle so debugging can see exactly what arrived.
  */
 export const uploadBundles = pgTable(
   "upload_bundles",
@@ -83,7 +83,9 @@ export const uploadBundles = pgTable(
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     // pending | parsed | failed
     status: text("status").notNull().default("pending"),
-    storagePath: text("storage_path").notNull(),
+    // Object-storage key for the raw bundle bytes (S3/R2).
+    storageKey: text("storage_key").notNull(),
+    contentType: text("content_type").notNull().default("application/octet-stream"),
     timeframeStart: timestamp("timeframe_start", { withTimezone: true }),
     timeframeEnd: timestamp("timeframe_end", { withTimezone: true }),
     parseError: text("parse_error"),

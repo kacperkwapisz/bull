@@ -2,7 +2,8 @@ name: Bull API Docker Publish
 
 # Builds and pushes the Bull API image to GitHub Container Registry (GHCR).
 # Configure runtime secrets (JWT_SECRET, BULL_UPSTREAM_API_KEY, DATABASE_URL,
-# APPLE_BUNDLE_ID, …) in your host platform — never bake them into the image.
+# S3_* for R2, APPLE_BUNDLE_ID, …) in your host platform — never bake them into
+# the image.
 
 on:
   push:

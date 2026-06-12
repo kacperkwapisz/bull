@@ -19,17 +19,37 @@ const envSchema = z.object({
   // Apple identity tokens; APPLE_ISSUER is fixed and overridable only for tests.
   APPLE_BUNDLE_ID: z.string().min(1).default("com.bull.swift"),
   APPLE_ISSUER: z.string().url().default("https://appleid.apple.com"),
+  // Object storage (S3-compatible; Cloudflare R2) for raw upload bundles.
+  // Optional so coach-only / test runs boot without it; the upload route
+  // returns 503 when storage is unconfigured. All five are required together.
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_REGION: z.string().min(1).default("auto"),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
 
 export function loadEnv(): Env {
-  const parsed = envSchema.safeParse(process.env)
+  // Treat empty-string vars as absent so a partially-filled environment (e.g. a
+  // placeholder `.env` with blank S3 keys) doesn't block coach-only boot.
+  const cleaned = Object.fromEntries(
+    Object.entries(process.env).filter(([, v]) => v !== ""),
+  )
+  const parsed = envSchema.safeParse(cleaned)
   if (!parsed.success) {
     const message = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
     throw new Error(`BullAPI env invalid: ${message}`)
   }
   return parsed.data
+}
+
+/** True when all required S3/R2 settings are present. */
+export function hasObjectStore(env: Env): boolean {
+  return Boolean(
+    env.S3_ENDPOINT && env.S3_BUCKET && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY,
+  )
 }
 
 export function corsOrigins(env: Env): readonly string[] | "*" {

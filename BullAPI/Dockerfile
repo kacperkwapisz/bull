@@ -12,8 +12,8 @@ FROM base AS release
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HYPER_SKIP_LISTEN=1
-# Raw uploaded bundles land here. Mount a volume to persist across restarts.
-ENV BULL_BUNDLE_DIR=/app/bundles
+# Raw upload bundles are stored in object storage (S3/R2) via the S3_* runtime
+# env — no local volume required.
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock tsconfig.json hyper.config.json hyper.lock.json drizzle.config.ts ./
@@ -21,7 +21,6 @@ COPY src ./src
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 RUN chmod +x docker-entrypoint.sh \
-  && mkdir -p "$BULL_BUNDLE_DIR" \
   && addgroup -g 1001 -S bull && adduser -S bull -u 1001 -G bull \
   && chown -R bull:bull /app
 USER bull

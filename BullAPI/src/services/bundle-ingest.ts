@@ -1,22 +1,25 @@
 /**
  * Ingest of device export bundles.
  *
- * The raw bundle is the source of record: it is written to disk verbatim and
- * tracked in upload_bundles (deduped per user by sha256). A device-supplied
- * summary — derived from the same connected-device sensor store the Bull app
- * reads for its own UI — is projected into curated tables (recovery, sleep,
- * SpO2) so the web app can query them and so uploads are inspectable. Every
- * value originates from the device's own live sensors; nothing here is imported
- * from third-party health stores. The summary is re-derivable from the raw
- * bundle, so the projection can always be rebuilt.
+ * The raw bundle is the source of record: it is stored verbatim in object
+ * storage (S3/R2) and tracked in upload_bundles (deduped per user by sha256).
+ * A device-supplied summary — derived from the same connected-device sensor
+ * store the Bull app reads for its own UI — is projected into curated tables
+ * (recovery, sleep, SpO2) so the web app can query them and so uploads are
+ * inspectable. Every value originates from the device's own live sensors;
+ * nothing here is imported from third-party health stores. The summary is
+ * re-derivable from the raw bundle, so the projection can always be rebuilt.
+ *
+ * Ordering: bytes are written to the bucket first (idempotent by key), then the
+ * DB row is recorded. A failure after the put leaves a harmless orphan object
+ * that the next identical upload reuses — never a DB row without bytes.
  */
 
-import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
 import { z } from "zod"
 import { sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { dailyRecovery, dailySleep, spo2Samples, uploadBundles } from "../db/schema.ts"
+import { bundleObjectKey, type ObjectStore } from "../lib/object-store.ts"
 
 const dayString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -62,10 +65,6 @@ export const bundleSummarySchema = z.object({
 
 export type BundleSummary = z.infer<typeof bundleSummarySchema>
 
-export function bundleStorageRoot(): string {
-  return process.env.BULL_BUNDLE_DIR ?? join(process.cwd(), "bundles")
-}
-
 function sha256Hex(bytes: Uint8Array): string {
   const hasher = new Bun.CryptoHasher("sha256")
   hasher.update(bytes)
@@ -83,10 +82,15 @@ export interface IngestInput {
   readonly userId: string
   readonly deviceId?: string
   readonly bytes: Uint8Array
+  readonly contentType?: string
   readonly summary?: BundleSummary
 }
 
-export async function ingestBundle(db: Db, input: IngestInput): Promise<IngestResult> {
+export async function ingestBundle(
+  db: Db,
+  store: ObjectStore,
+  input: IngestInput,
+): Promise<IngestResult> {
   const checksum = sha256Hex(input.bytes)
 
   const existing = await db
@@ -103,10 +107,9 @@ export async function ingestBundle(db: Db, input: IngestInput): Promise<IngestRe
     }
   }
 
-  const dir = join(bundleStorageRoot(), input.userId)
-  await mkdir(dir, { recursive: true })
-  const storagePath = join(dir, `${checksum}.bundle`)
-  await writeFile(storagePath, input.bytes)
+  const contentType = input.contentType ?? "application/octet-stream"
+  const storageKey = bundleObjectKey(input.userId, checksum)
+  await store.put(storageKey, input.bytes, contentType)
 
   const tf = input.summary?.timeframe
   const inserted = await db
@@ -117,7 +120,8 @@ export async function ingestBundle(db: Db, input: IngestInput): Promise<IngestRe
       checksum,
       byteSize: input.bytes.byteLength,
       status: "pending",
-      storagePath,
+      storageKey,
+      contentType,
       ...(tf?.start ? { timeframeStart: new Date(tf.start) } : {}),
       ...(tf?.end ? { timeframeEnd: new Date(tf.end) } : {}),
     })

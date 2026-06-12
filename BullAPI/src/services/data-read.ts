@@ -7,6 +7,34 @@ import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { dailyRecovery, dailySleep, spo2Samples, uploadBundles } from "../db/schema.ts"
 
+export interface BundleRef {
+  readonly id: string
+  readonly storageKey: string
+  readonly contentType: string
+  readonly byteSize: number
+  readonly checksum: string
+}
+
+/** Look up a single bundle owned by the user, for presigned download. */
+export async function getBundleForUser(
+  db: Db,
+  userId: string,
+  bundleId: string,
+): Promise<BundleRef | null> {
+  const rows = await db
+    .select({
+      id: uploadBundles.id,
+      storageKey: uploadBundles.storageKey,
+      contentType: uploadBundles.contentType,
+      byteSize: uploadBundles.byteSize,
+      checksum: uploadBundles.checksum,
+    })
+    .from(uploadBundles)
+    .where(and(eq(uploadBundles.id, bundleId), eq(uploadBundles.userId, userId)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export interface DayRange {
   readonly from?: string
   readonly to?: string

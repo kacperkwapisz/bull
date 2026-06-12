@@ -3,14 +3,18 @@ import { authJwt } from "@hyper/auth-jwt"
 import { z } from "zod"
 import type { Env } from "../lib/env.ts"
 import { getDb } from "../db/client.ts"
+import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import {
   dataSummary,
+  getBundleForUser,
   listRecovery,
   listSleep,
   listSpo2,
   listUploads,
 } from "../services/data-read.ts"
+
+const DOWNLOAD_URL_TTL_SECONDS = 15 * 60
 
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024 // 64 MB
 
@@ -47,6 +51,8 @@ export function dataRoutes(env: Env) {
     .handle(async ({ req, ctx }) => {
       const db = getDb(env)
       if (!db) return json(503, { error: "persistence_unavailable" })
+      const store = getObjectStore(env)
+      if (!store) return json(503, { error: "storage_unavailable" })
       const userId = userIdFrom(ctx)
       if (!userId) return json(403, { error: "user_scope_required" })
 
@@ -61,6 +67,7 @@ export function dataRoutes(env: Env) {
       if (file.size > MAX_BUNDLE_BYTES) return json(413, { error: "bundle_too_large" })
       const bytes = new Uint8Array(await file.arrayBuffer())
       if (bytes.byteLength === 0) return json(400, { error: "empty_bundle" })
+      const contentType = file.type && file.type.length > 0 ? file.type : "application/octet-stream"
 
       let summary
       const summaryRaw = form.get("summary")
@@ -74,13 +81,40 @@ export function dataRoutes(env: Env) {
       const deviceField = form.get("device_id")
       const deviceId = typeof deviceField === "string" ? deviceField : undefined
 
-      const result = await ingestBundle(db, {
+      const result = await ingestBundle(db, store, {
         userId,
         ...(deviceId !== undefined ? { deviceId } : {}),
         bytes,
+        contentType,
         ...(summary !== undefined ? { summary } : {}),
       })
       return created(result)
+    })
+
+  // Presigned download of a raw bundle. Returns a short-lived URL; the file
+  // bytes are served directly by object storage, never proxied through the API.
+  const download = route
+    .get("/v1/data/uploads/:id/download")
+    .use(jwt)
+    .handle(async ({ ctx, params }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const store = getObjectStore(env)
+      if (!store) return json(503, { error: "storage_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const id = (params as { id?: string }).id
+      if (!id) return json(400, { error: "missing_bundle_id" })
+      const bundle = await getBundleForUser(db, userId, id)
+      if (!bundle) return json(404, { error: "bundle_not_found" })
+      const url = store.presignGet(bundle.storageKey, DOWNLOAD_URL_TTL_SECONDS)
+      return ok({
+        url,
+        expires_in: DOWNLOAD_URL_TTL_SECONDS,
+        checksum: bundle.checksum,
+        byte_size: bundle.byteSize,
+        content_type: bundle.contentType,
+      })
     })
 
   const summary = route
@@ -152,5 +186,13 @@ export function dataRoutes(env: Env) {
       return ok({ rows: await listUploads(db, userId, query.limit) })
     })
 
-  return new Hyper({ prefix: "" }).use([upload, summary, recovery, sleep, spo2, uploads])
+  return new Hyper({ prefix: "" }).use([
+    upload,
+    download,
+    summary,
+    recovery,
+    sleep,
+    spo2,
+    uploads,
+  ])
 }

@@ -11,6 +11,10 @@ sensors, uploaded by the Bull app — never imported from third-party health
 stores. The raw upload bundle is the source of record; curated tables are a
 re-derivable projection.
 
+Storage split: Postgres holds accounts, curated metrics, and bundle metadata;
+the raw bundle bytes live in S3-compatible object storage (Cloudflare R2).
+Downloads are short-lived presigned URLs served directly by the bucket.
+
 ## Architecture
 
 ```
@@ -26,8 +30,11 @@ Web app (future)   ──► BullAPI read endpoints (user session JWT)
 - `POST /v1/auth/apple` — verify Apple identity token (issuer + `APPLE_BUNDLE_ID`
   audience), upsert one user per Apple subject, return a 30-day session JWT
   carrying `user_id`.
-- `POST /v1/data/uploads` — multipart: `bundle` (raw export, stored verbatim,
-  deduped by SHA-256), optional `summary` (curated metrics), optional `device_id`.
+- `POST /v1/data/uploads` — multipart: `bundle` (raw export, stored verbatim in
+  R2, deduped by SHA-256), optional `summary` (curated metrics), optional
+  `device_id`.
+- `GET /v1/data/uploads/:id/download` — 15-minute presigned URL for the raw
+  bundle (bytes served by the bucket, not the API).
 - `GET /v1/data/{summary,recovery,sleep,spo2,uploads}` — per-user reads with
   honest empty states.
 - Schema: `users`, `apple_identities`, `devices`, `upload_bundles`,

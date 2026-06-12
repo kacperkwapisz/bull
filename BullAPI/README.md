@@ -38,6 +38,7 @@ the data/Apple routes return `503 persistence_unavailable`.
 | GET  | `/v1/coach/entitlement` | — | Coach entitlement + auth mode. |
 | POST | `/v1/coach/responses` | Bearer | SSE coach stream (Responses-shaped events). |
 | POST | `/v1/data/uploads` | Bearer (user) | Upload an export bundle (+ optional summary). |
+| GET  | `/v1/data/uploads/:id/download` | Bearer (user) | Short-lived presigned URL for the raw bundle. |
 | GET  | `/v1/data/summary` | Bearer (user) | Counts + latest day per metric family. |
 | GET  | `/v1/data/recovery` | Bearer (user) | Daily recovery rows (`from`,`to`,`limit`). |
 | GET  | `/v1/data/sleep` | Bearer (user) | Daily sleep rows. |
@@ -82,8 +83,20 @@ own sensors):
 }
 ```
 
-Raw bundles land under `BULL_BUNDLE_DIR` (default `./bundles`, `/app/bundles` in
-Docker — mount a volume to persist). Re-uploading identical bytes is idempotent.
+Raw bundles are stored in object storage (S3-compatible; Cloudflare R2), keyed
+`users/<userId>/bundles/<sha256>.bundle`. Bytes are written to the bucket before
+the DB row is recorded, so a failure never leaves a row without bytes;
+re-uploading identical bytes is idempotent. Download them via
+`GET /v1/data/uploads/:id/download`, which returns a 15-minute presigned URL —
+file bytes are served directly by the bucket and never proxy through the API.
+
+### Object storage (R2)
+
+Create an R2 bucket and an API token, then set `S3_ENDPOINT`
+(`https://<account_id>.r2.cloudflarestorage.com`), `S3_BUCKET`, `S3_REGION=auto`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. The same code path works against AWS
+S3 or MinIO by changing the endpoint/region. Without these, `/v1/data/uploads`
+returns `503 storage_unavailable`.
 
 ## Database
 
@@ -101,10 +114,13 @@ Postgres via Drizzle. Schema lives in `src/db/schema.ts`; migrations in
 | `DATABASE_URL` | for data/auth | — | Postgres connection string. |
 | `APPLE_BUNDLE_ID` | for Apple | `com.bull.swift` | Required audience in Apple tokens. |
 | `APPLE_ISSUER` | no | `https://appleid.apple.com` | Override only in tests. |
+| `S3_ENDPOINT` | for data | — | R2/S3 endpoint. |
+| `S3_BUCKET` | for data | — | Bucket for raw bundles. |
+| `S3_REGION` | no | `auto` | `auto` for R2. |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | for data | — | Bucket credentials. |
 | `BULL_DEV_AUTH_BYPASS` | no | `0` | `1` enables `/v1/auth/dev-token`. |
 | `BULL_UPSTREAM_BASE_URL` | no | `https://oraiapi.com/v1` | Coach upstream base. |
 | `BULL_MODEL_DEFAULT` / `BULL_MODEL_DEEP` | no | `gpt-oss-120b` | Coach tier models. |
-| `BULL_BUNDLE_DIR` | no | `./bundles` | Raw bundle storage root. |
 | `CORS_ORIGINS` | no | `*` | Comma-separated allowlist. |
 
 ## Docker (production)
@@ -116,8 +132,10 @@ docker run --rm -p 3000:3000 \
   -e BULL_UPSTREAM_API_KEY='...' \
   -e DATABASE_URL='postgres://user:pass@host:5432/bull' \
   -e APPLE_BUNDLE_ID='com.bull.swift' \
+  -e S3_ENDPOINT='https://<account_id>.r2.cloudflarestorage.com' \
+  -e S3_BUCKET='bull-bundles' -e S3_REGION='auto' \
+  -e S3_ACCESS_KEY_ID='...' -e S3_SECRET_ACCESS_KEY='...' \
   -e BULL_DEV_AUTH_BYPASS=0 \
-  -v bull-bundles:/app/bundles \
   bull-api
 ```
 
@@ -132,7 +150,7 @@ tracks applied migrations, so it is idempotent across restarts/replicas.
 | `bull-api-docker.yml` | Push to `main` or tag `bull-api-v*`: publish to GHCR (`ghcr.io/<owner>/bull-api`). |
 
 **Runtime secrets (set in your host, never baked into the image):** `JWT_SECRET`,
-`BULL_UPSTREAM_API_KEY`, `DATABASE_URL`. Optional: `APPLE_BUNDLE_ID`,
+`BULL_UPSTREAM_API_KEY`, `DATABASE_URL`, `S3_*`. Optional: `APPLE_BUNDLE_ID`,
 `BULL_UPSTREAM_BASE_URL`, `BULL_MODEL_*`, `CORS_ORIGINS`.
 
 ## Tests

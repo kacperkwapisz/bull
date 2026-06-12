@@ -1,5 +1,5 @@
 {
-  "id": "86ecc5b2-10e1-4f94-9fd4-ce3c73f8be3b",
+  "id": "b227e995-4c57-4d50-aac9-cedc386518ac",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -591,11 +591,18 @@
           "notNull": true,
           "default": "'pending'"
         },
-        "storage_path": {
-          "name": "storage_path",
+        "storage_key": {
+          "name": "storage_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'application/octet-stream'"
         },
         "timeframe_start": {
           "name": "timeframe_start",
