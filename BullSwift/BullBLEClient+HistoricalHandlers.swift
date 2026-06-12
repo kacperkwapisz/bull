@@ -664,6 +664,14 @@ extension BullBLEClient {
       : "\(historicalPacketsReceivedThisSync) historical \(historicalPacketsReceivedThisSync == 1 ? "packet" : "packets") captured"
     publishSyncToast(phase: .synced, detail: detail, clearAfter: 2.2)
     notifyHistoricalSyncProgress(status: "synced", detail: detail, terminal: true, failed: false)
+    // Recompute packet-derived scores against the newly persisted overnight
+    // history (decoded into `decoded_frames` during the sync).
+    if !rangeOnly {
+      NotificationCenter.default.post(
+        name: HealthDataStore.historicalSyncDidCompleteNotification,
+        object: nil
+      )
+    }
     record(source: "ble.sync", title: "historical_sync.completed", body: "reason=\(reason) \(detail)")
   }
 

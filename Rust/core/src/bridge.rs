@@ -153,9 +153,9 @@ use crate::{
         ActivityIntervalInput, ActivityMetricInput, ActivityMetricRow, ActivitySessionInput,
         ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION,
         CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
-        CommandValidationRecord, DecodedFrameRow, ExerciseSessionRow, ExternalSleepSessionInput,
-        ExternalSleepSessionRow, ExternalSleepStageInput, ExternalSleepStageRow, BullStore,
-        GravityRow,
+        CommandValidationRecord, DailySleepMetricInput, DecodedFrameRow, ExerciseSessionRow,
+        ExternalSleepSessionInput, ExternalSleepSessionRow, ExternalSleepStageInput,
+        ExternalSleepStageRow, BullStore, GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
         OvernightSyncSessionInput, SleepCorrectionLabelInput,
     },
@@ -223,6 +223,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "commands.validate_evidence",
     "core.list_methods",
     "core.version",
+    "debug.db_overview",
     "debug.finish_command",
     "debug.record_event",
     "debug.session_snapshot",
@@ -300,6 +301,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "sleep.add_correction_label",
     "sleep.import_external_history",
     "sleep.list_correction_labels",
+    "sleep.list_nightly",
     "sleep.validate_stage_labels",
     "sleep.validate_v1_evidence_folder",
     "sleep.validate_v1_explanation_stability",
@@ -1202,6 +1204,21 @@ struct SleepFeatureScoreArgs {
     algorithm_id: Option<String>,
     #[serde(default)]
     algorithm_version: Option<String>,
+    /// When true, persist the computed primary-night window into
+    /// `daily_sleep_metrics` so nightly history accumulates across syncs.
+    #[serde(default)]
+    persist_nightly: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SleepListNightlyArgs {
+    database_path: String,
+    #[serde(default = "default_nightly_sleep_limit")]
+    limit: i64,
+}
+
+fn default_nightly_sleep_limit() -> i64 {
+    30
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2564,6 +2581,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(sleep_correction_label_list_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "sleep.list_nightly" => request_args::<SleepListNightlyArgs>(&request)
+            .and_then(sleep_list_nightly_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "sleep.validate_window_labels" => request_args::<SleepWindowLabelValidationArgs>(&request)
             .and_then(sleep_window_label_validation_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -2644,6 +2665,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
                 .map(|value| bridge_ok(&request.request_id, value))
                 .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error))
         }
+        "debug.db_overview" => request_args::<DebugDbOverviewArgs>(&request)
+            .and_then(debug_db_overview_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "debug.start_session" => request_args::<DebugStartSessionArgs>(&request)
             .and_then(debug_start_session_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -5893,7 +5918,190 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
             report.score_result.as_ref(),
         )?;
     }
+    if args.persist_nightly {
+        let persisted = persist_nightly_sleep_record(
+            &store,
+            &report,
+            &value,
+            requested_algorithm_id,
+            requested_algorithm_version,
+        )?;
+        value["nightly_sleep_persisted"] = serde_json::Value::Bool(persisted);
+    }
     Ok(value)
+}
+
+/// Persist the computed primary-night window into `daily_sleep_metrics`. The
+/// record is keyed by the night's start time so recomputing the same night
+/// updates the existing row instead of duplicating it. Returns whether a row
+/// was written (false when there is no usable sleep window).
+fn persist_nightly_sleep_record(
+    store: &BullStore,
+    report: &crate::metric_features::SleepFeatureScoreReport,
+    value: &serde_json::Value,
+    algorithm_id: &str,
+    algorithm_version: &str,
+) -> BullResult<bool> {
+    let Some(window) = report.sleep_window.as_ref() else {
+        return Ok(false);
+    };
+    let (Some(start_unix), Some(end_unix)) = (
+        parse_rfc3339_utc_unix_ms(&window.start_time),
+        parse_rfc3339_utc_unix_ms(&window.end_time),
+    ) else {
+        return Ok(false);
+    };
+    if end_unix <= start_unix {
+        return Ok(false);
+    }
+    let date_key = window.start_time.get(0..10).unwrap_or(&window.start_time);
+    let output = value.get("score_result").and_then(|result| result.get("output"));
+    let read_f64 = |key: &str| {
+        output
+            .and_then(|object| object.get(key))
+            .and_then(serde_json::Value::as_f64)
+    };
+    let stage_minutes_json =
+        serde_json::to_string(&window.stage_minutes).unwrap_or_else(|_| "{}".to_string());
+    let quality_flags_json =
+        serde_json::to_string(&window.quality_flags).unwrap_or_else(|_| "[]".to_string());
+    let confidence = read_f64("sleep_window_confidence_0_to_1")
+        .or_else(|| read_f64("confidence_0_to_1"))
+        .unwrap_or(0.0);
+    let nightly_sleep_id = format!("nightly-sleep.{start_unix}");
+    let provenance = json!({
+        "method": "metrics.sleep_score_from_features",
+        "algorithm_id": algorithm_id,
+        "algorithm_version": algorithm_version,
+        "motion_coverage_fraction": window.motion_coverage_fraction,
+        "heart_rate_coverage_fraction": window.heart_rate_coverage_fraction,
+        "input_ids": window.input_ids,
+    })
+    .to_string();
+    store.upsert_daily_sleep_metric(DailySleepMetricInput {
+        nightly_sleep_id: &nightly_sleep_id,
+        date_key,
+        start_time: &window.start_time,
+        end_time: &window.end_time,
+        start_time_unix_ms: start_unix,
+        end_time_unix_ms: end_unix,
+        score_0_to_100: read_f64("score_0_to_100"),
+        sleep_duration_minutes: Some(window.sleep_duration_minutes),
+        time_in_bed_minutes: Some(window.time_in_bed_minutes),
+        sleep_performance_fraction: read_f64("sleep_performance_fraction"),
+        heart_rate_dip_percent: window.heart_rate_dip_percent,
+        disturbance_count: Some(i64::from(window.disturbance_count)),
+        algorithm_id,
+        algorithm_version,
+        source_kind: "packet_derived_local",
+        confidence,
+        stage_minutes_json: &stage_minutes_json,
+        quality_flags_json: &quality_flags_json,
+        provenance_json: &provenance,
+    })?;
+    Ok(true)
+}
+
+fn sleep_list_nightly_bridge(args: SleepListNightlyArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let nights = store.list_daily_sleep_metrics(args.limit)?;
+    Ok(json!({
+        "schema": "bull.nightly-sleep-list.v1",
+        "count": nights.len(),
+        "nights": nights,
+    }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DebugDbOverviewArgs {
+    database_path: String,
+}
+
+/// Read-only local diagnostic: report table row counts, on-disk size, the
+/// decoded-frame packet/body-summary distribution, and the sleep feature
+/// report's blocking reasons. Used to triage why sleep is unavailable and to
+/// surface unbounded raw-notification growth without exporting the whole store.
+fn debug_db_overview_bridge(args: DebugDbOverviewArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let tracked_tables = [
+        "decoded_frames",
+        "raw_evidence",
+        "ble_raw_notifications",
+        "daily_sleep_metrics",
+        "daily_recovery_metrics",
+        "capture_sessions",
+        "overnight_sync_sessions",
+        "step_counter_samples",
+        "activity_sessions",
+    ];
+    let mut table_counts = serde_json::Map::new();
+    for table in tracked_tables {
+        if let Ok(count) = store.table_row_count(table) {
+            table_counts.insert(table.to_string(), json!(count));
+        }
+    }
+    let database_bytes = store.database_byte_size().unwrap_or(-1);
+
+    let decoded = store.decoded_frames_between("0000", "9999")?;
+    let mut packet_type_histogram: BTreeMap<String, i64> = BTreeMap::new();
+    let mut body_summary_histogram: BTreeMap<String, i64> = BTreeMap::new();
+    for row in &decoded {
+        let key = row
+            .packet_type_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        *packet_type_histogram.entry(key).or_insert(0) += 1;
+        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&row.parsed_payload_json) {
+            if let Some(kind) = payload
+                .get("body_summary")
+                .and_then(|summary| summary.get("kind"))
+                .and_then(serde_json::Value::as_str)
+            {
+                *body_summary_histogram.entry(kind.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let sleep = run_sleep_feature_score_report_for_store(
+        &store,
+        &args.database_path,
+        "0000",
+        "9999",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 480.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+        },
+    )?;
+
+    let v0_score = sleep
+        .score_result
+        .as_ref()
+        .and_then(|result| result.output.as_ref())
+        .map(|output| output.score_0_to_100);
+    let nightly = store.list_daily_sleep_metrics(5)?;
+
+    Ok(json!({
+        "schema": "bull.debug-db-overview.v1",
+        "database_bytes": database_bytes,
+        "table_counts": table_counts,
+        "decoded_frame_count": decoded.len(),
+        "decoded_packet_type_histogram": packet_type_histogram,
+        "decoded_body_summary_histogram": body_summary_histogram,
+        "sleep_report_pass": sleep.pass,
+        "sleep_report_issues": sleep.issues,
+        "sleep_window_present": sleep.sleep_window.is_some(),
+        "sleep_v0_score_0_to_100": v0_score,
+        "sleep_window_start": sleep.sleep_window.as_ref().map(|window| window.start_time.clone()),
+        "sleep_window_end": sleep.sleep_window.as_ref().map(|window| window.end_time.clone()),
+        "sleep_window_quality_flags": sleep.sleep_window.as_ref().map(|window| window.quality_flags.clone()),
+        "sleep_motion_feature_count": sleep.motion_report.feature_count,
+        "sleep_heart_rate_feature_count": sleep.heart_rate_report.feature_count,
+        "nightly_records": nightly,
+    }))
 }
 
 fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> BullResult<serde_json::Value> {

@@ -750,6 +750,32 @@ fn required_columns() -> BTreeMap<&'static str, Vec<&'static str>> {
         ],
     );
     columns.insert(
+        "daily_sleep_metrics",
+        vec![
+            "nightly_sleep_id",
+            "date_key",
+            "start_time",
+            "end_time",
+            "start_time_unix_ms",
+            "end_time_unix_ms",
+            "score_0_to_100",
+            "sleep_duration_minutes",
+            "time_in_bed_minutes",
+            "sleep_performance_fraction",
+            "heart_rate_dip_percent",
+            "disturbance_count",
+            "algorithm_id",
+            "algorithm_version",
+            "source_kind",
+            "confidence",
+            "stage_minutes_json",
+            "quality_flags_json",
+            "provenance_json",
+            "created_at",
+            "updated_at",
+        ],
+    );
+    columns.insert(
         "metric_provenance",
         vec![
             "provenance_id",

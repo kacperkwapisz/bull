@@ -10,7 +10,7 @@ extension HealthDataStore {
     }
     switch route {
     case .sleep:
-      return Self.sleepTrendRows
+      return sleepTrendRowsForV2()
     case .recovery:
       return recoveryTrendRowsForV2()
     case .strain:
@@ -19,6 +19,56 @@ extension HealthDataStore {
       return stressTrendRowsForV2()
     default:
       return []
+    }
+  }
+
+  /// Sleep trend rows. The Sleep Score row is backed by real persisted nightly
+  /// history (`daily_sleep_metrics`); rows without a wired local history source
+  /// fall through to their honest empty-state placeholders.
+  func sleepTrendRowsForV2() -> [HealthMetricSnapshot] {
+    guard !usesPreviewPacketData else {
+      return []
+    }
+
+    return Self.sleepTrendRows.compactMap { snapshot in
+      switch snapshot.id {
+      case "sleep-score-trend":
+        let scored = nightlySleepHistory
+          .filter { $0.score != nil }
+          .sorted { $0.startTimeUnixMs < $1.startTimeUnixMs }
+        guard let latest = scored.last,
+              let latestScore = latest.score,
+              let scoreText = Self.numberText(latestScore, fractionDigits: 0) else {
+          return snapshot
+        }
+        let rows: [[String: Any]] = scored.map { record in
+          ["date_key": record.dateKey, "score_0_to_100": record.score ?? 0]
+        }
+        let trend = Self.dailyTrend(
+          id: snapshot.trend.id,
+          title: snapshot.trend.title,
+          rows: rows,
+          valueKey: "score_0_to_100",
+          unit: "%",
+          fractionDigits: 0,
+          resources: snapshot.trend.resources
+        )
+        guard trend.hasData else {
+          return snapshot
+        }
+        return replacingHealthMonitorSnapshot(
+          snapshot,
+          value: scoreText,
+          unit: "%",
+          status: Self.sleepQualityLabel(score: latestScore),
+          freshness: latest.dateKey,
+          provenance: "sleep.list_nightly",
+          source: .bridge("daily_sleep_metrics"),
+          trend: trend
+        )
+      default:
+        return snapshot
+      }
     }
   }
 

@@ -3,9 +3,19 @@ import UIKit
 
 
 extension BullAppModel {
+  /// Decoded frames are persisted into `decoded_frames` (the table the local
+  /// sleep/recovery feature pipeline reads) whenever a capture session is
+  /// active OR a historical sync is in flight. The historical-sync case is what
+  /// lets a morning sync of the band's stored overnight HR + V24 motion history
+  /// reach the sleep score, instead of being decoded for the live UI and then
+  /// discarded.
+  var shouldPersistDecodedFrames: Bool {
+    activeHealthPacketCapture != nil || activeActivityPersistence != nil || ble.isHistoricalSyncing
+  }
+
   func handleNotification(_ event: BullNotificationEvent) {
     let (queueDepth, highWatermark) = incrementNotificationIngestQueueDepth()
-    let captureImportActive = activeHealthPacketCapture != nil || activeActivityPersistence != nil
+    let captureImportActive = shouldPersistDecodedFrames
     let parseContext = notificationParseContext(for: event)
     publishPipelinePerformanceStatus(
       "ingest queued notification bytes=\(event.value.count) | ingestQ \(queueDepth) hwm \(highWatermark)"
@@ -162,7 +172,7 @@ extension BullAppModel {
   }
 
   func importCapturedFrames(_ frames: [NotificationFrame], event: BullNotificationEvent) {
-    guard activeHealthPacketCapture != nil || activeActivityPersistence != nil else {
+    guard shouldPersistDecodedFrames else {
       return
     }
 

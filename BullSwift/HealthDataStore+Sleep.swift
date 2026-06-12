@@ -11,6 +11,76 @@ extension HealthDataStore {
     primarySleepDetail = detail
   }
 
+  /// One-shot read-only diagnostic: ask the bridge for a compact DB overview
+  /// (table counts, on-disk size, decoded-frame packet distribution, and the
+  /// sleep report's blocking reasons) and write it as a small JSON file next to
+  /// the database so it can be pulled off-device without exporting the store.
+  func writeDebugOverview() {
+    let bridge = self.bridge
+    let databasePath = self.databasePath
+    packetInputQueue.async {
+      guard let report = try? bridge.request(
+        method: "debug.db_overview",
+        args: ["database_path": databasePath]
+      ) else {
+        return
+      }
+      guard JSONSerialization.isValidJSONObject(report),
+            let data = try? JSONSerialization.data(
+              withJSONObject: report,
+              options: [.prettyPrinted, .sortedKeys]
+            ) else {
+        return
+      }
+      let directory = (databasePath as NSString).deletingLastPathComponent
+      let outURL = URL(fileURLWithPath: directory).appendingPathComponent("bull-diag.json")
+      try? data.write(to: outURL, options: .atomic)
+    }
+  }
+
+  /// Load persisted nightly sleep records (newest first) so sleep trends are
+  /// backed by real accumulated history instead of placeholder rows.
+  func loadNightlySleepHistory(limit: Int = 30) {
+    let bridge = self.bridge
+    let databasePath = self.databasePath
+    packetInputQueue.async { [weak self] in
+      let report = try? bridge.request(
+        method: "sleep.list_nightly",
+        args: [
+          "database_path": databasePath,
+          "limit": limit,
+        ]
+      )
+      let records = Self.nightlySleepRecords(from: report)
+      DispatchQueue.main.async { [weak self] in
+        self?.nightlySleepHistory = records
+      }
+    }
+  }
+
+  static func nightlySleepRecords(from report: [String: Any]?) -> [NightlySleepRecord] {
+    guard let report else {
+      return []
+    }
+    return array(report["nights"]).compactMap { row in
+      guard let id = row["nightly_sleep_id"] as? String,
+            let dateKey = row["date_key"] as? String else {
+        return nil
+      }
+      let startMs = (doubleValue(row["start_time_unix_ms"]) ?? 0)
+      return NightlySleepRecord(
+        id: id,
+        dateKey: dateKey,
+        startTimeUnixMs: Int64(startMs),
+        score: doubleValue(row["score_0_to_100"]),
+        sleepDurationMinutes: doubleValue(row["sleep_duration_minutes"]),
+        timeInBedMinutes: doubleValue(row["time_in_bed_minutes"]),
+        heartRateDipPercent: doubleValue(row["heart_rate_dip_percent"]),
+        confidence: doubleValue(row["confidence"]) ?? 0
+      )
+    }
+  }
+
   static func primarySleepDetail(fromSleepReport report: [String: Any]?) -> PrimarySleepDetail? {
     guard let report,
           let output = map(report, "score_result", "output") else {

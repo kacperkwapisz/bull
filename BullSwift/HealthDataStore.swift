@@ -16,6 +16,8 @@ final class HealthDataStore: ObservableObject {
   @Published var externalSleepImportStatus = "External sleep imports disabled"
   @Published var referenceRunStatusByFamily: [String: String] = [:]
   @Published var primarySleepDetail: PrimarySleepDetail?
+  @Published var nightlySleepHistory: [NightlySleepRecord] = []
+  var packetScoresComputeInFlight = false
   @Published var calibrationTargetFamily = "recovery"
   @Published var calibrationLabelsImported = false
   @Published var calibrationRunComplete = false
@@ -62,6 +64,14 @@ final class HealthDataStore: ObservableObject {
   var packetInputIsRunning = false
   var heartRateTimelineRefreshID: UUID?
   var heartRateSeriesUpdateObserver: NSObjectProtocol?
+  var historicalSyncCompletedObserver: NSObjectProtocol?
+
+  /// Posted after a historical sync finishes successfully so packet-derived
+  /// scores (sleep, recovery, strain, stress) recompute against the band's
+  /// freshly-synced overnight history without a manual refresh.
+  static let historicalSyncDidCompleteNotification = Notification.Name(
+    "bull.swift.historicalSyncDidComplete"
+  )
   let packetInputQueue = DispatchQueue(label: "com.bull.swift.health.packet-inputs", qos: .utility)
   let heartRateTimelineQueue = DispatchQueue(label: "com.bull.swift.health.heart-rate-timeline", qos: .utility)
   lazy var databasePath = HealthDataStore.defaultDatabasePath()
@@ -91,11 +101,25 @@ final class HealthDataStore: ObservableObject {
         self?.refreshHeartRateTimeline()
       }
     }
+    historicalSyncCompletedObserver = NotificationCenter.default.addObserver(
+      forName: Self.historicalSyncDidCompleteNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        self?.runPacketScores()
+        self?.writeDebugOverview()
+      }
+    }
+    writeDebugOverview()
   }
 
   deinit {
     if let heartRateSeriesUpdateObserver {
       NotificationCenter.default.removeObserver(heartRateSeriesUpdateObserver)
+    }
+    if let historicalSyncCompletedObserver {
+      NotificationCenter.default.removeObserver(historicalSyncCompletedObserver)
     }
   }
 

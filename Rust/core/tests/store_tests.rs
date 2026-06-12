@@ -15,7 +15,8 @@ use bull_core::{
         ActivityIntervalInput, ActivityLabelInput, ActivityMetricInput, ActivitySessionInput,
         AlgorithmPreferenceRecord, CURRENT_SCHEMA_VERSION, CalibrationLabelInput,
         CaptureSessionInput, CommandValidationRecord, DailyActivityMetricInput,
-        DailyRecoveryMetricInput, DebugCommandRow, DebugEventRow, DebugSessionRow,
+        DailyRecoveryMetricInput, DailySleepMetricInput, DebugCommandRow, DebugEventRow,
+        DebugSessionRow,
         DecodedFrameInput, ExternalSleepSessionInput, ExternalSleepStageInput, BullStore,
         HourlyActivityMetricInput, MetricDebugFeatureInput, MetricProvenanceInput,
         RawEvidenceInput, StepCounterSampleInput,
@@ -33,6 +34,97 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
+}
+
+fn sample_nightly_sleep_input<'a>(
+    nightly_sleep_id: &'a str,
+    date_key: &'a str,
+    start_time: &'a str,
+    end_time: &'a str,
+    start_time_unix_ms: i64,
+    end_time_unix_ms: i64,
+    score_0_to_100: Option<f64>,
+) -> DailySleepMetricInput<'a> {
+    DailySleepMetricInput {
+        nightly_sleep_id,
+        date_key,
+        start_time,
+        end_time,
+        start_time_unix_ms,
+        end_time_unix_ms,
+        score_0_to_100,
+        sleep_duration_minutes: Some(420.0),
+        time_in_bed_minutes: Some(450.0),
+        sleep_performance_fraction: Some(0.88),
+        heart_rate_dip_percent: Some(12.0),
+        disturbance_count: Some(3),
+        algorithm_id: "bull.sleep.v1",
+        algorithm_version: "1.0.0",
+        source_kind: "packet_derived_local",
+        confidence: 0.7,
+        stage_minutes_json: "{\"deep\":90.0,\"rem\":110.0}",
+        quality_flags_json: "[\"preliminary_sleep_from_motion_hr_heuristics\"]",
+        provenance_json: "{\"method\":\"metrics.sleep_score_from_features\"}",
+    }
+}
+
+#[test]
+fn daily_sleep_metrics_upsert_is_idempotent_and_lists_newest_first() {
+    let store = BullStore::open_in_memory().unwrap();
+
+    assert!(
+        store
+            .upsert_daily_sleep_metric(sample_nightly_sleep_input(
+                "nightly-sleep.1",
+                "2026-01-01",
+                "2026-01-01T22:00:00Z",
+                "2026-01-02T05:00:00Z",
+                1_767_304_800_000,
+                1_767_330_000_000,
+                Some(81.0),
+            ))
+            .unwrap()
+    );
+    assert!(
+        store
+            .upsert_daily_sleep_metric(sample_nightly_sleep_input(
+                "nightly-sleep.2",
+                "2026-01-02",
+                "2026-01-02T22:30:00Z",
+                "2026-01-03T06:00:00Z",
+                1_767_391_800_000,
+                1_767_420_000_000,
+                Some(74.0),
+            ))
+            .unwrap()
+    );
+
+    // Re-running the same night updates in place (score changes), no duplicate.
+    assert!(
+        store
+            .upsert_daily_sleep_metric(sample_nightly_sleep_input(
+                "nightly-sleep.1",
+                "2026-01-01",
+                "2026-01-01T22:00:00Z",
+                "2026-01-02T05:00:00Z",
+                1_767_304_800_000,
+                1_767_330_000_000,
+                Some(83.0),
+            ))
+            .unwrap()
+    );
+
+    let nights = store.list_daily_sleep_metrics(30).unwrap();
+    assert_eq!(nights.len(), 2);
+    // Newest first.
+    assert_eq!(nights[0].nightly_sleep_id, "nightly-sleep.2");
+    assert_eq!(nights[1].nightly_sleep_id, "nightly-sleep.1");
+    assert_eq!(nights[1].score_0_to_100, Some(83.0));
+    assert_eq!(nights[0].disturbance_count, Some(3));
+
+    let limited = store.list_daily_sleep_metrics(1).unwrap();
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].nightly_sleep_id, "nightly-sleep.2");
 }
 
 fn seed_legacy_capture_metric_database(db_path: &Path) {

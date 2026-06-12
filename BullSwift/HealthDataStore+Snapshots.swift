@@ -4,7 +4,18 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
+  /// Compute packet-derived scores once if they have not been computed yet, so
+  /// the Health/Sleep cards populate when the screen opens instead of requiring
+  /// the developer "Run Packet-Derived Scores" button.
+  func computePacketScoresIfNeeded() {
+    guard packetScoreReports["sleep"] == nil, !packetScoresComputeInFlight else {
+      return
+    }
+    runPacketScores()
+  }
+
   func runPacketScores() {
+    packetScoresComputeInFlight = true
     packetScoreStatus = "Extracting bridge packet-derived scores..."
     let baseArgs = bridgeBaseArgs(requireTrustedEvidence: false)
     let recoveryArgs = baseArgs.merging(recoveryScoreBridgeArgs()) { _, new in new }
@@ -37,6 +48,7 @@ extension HealthDataStore {
             "target_midpoint_minutes_since_midnight": 180.0,
             "history_import_in_progress": false,
             "algorithm_id": "bull.sleep.v1",
+            "persist_nightly": true,
           ]) { _, new in new }
         )
         let strainReport = try bridge.request(
@@ -56,15 +68,18 @@ extension HealthDataStore {
           guard let self else { return }
           self.packetScoreReports["sleep"] = sleepReport
           self.refreshPrimarySleepFromScoreReport()
+          self.loadNightlySleepHistory()
           self.packetScoreReports["strain"] = strainReport
           self.packetScoreReports["recovery"] = recoveryReport
           self.packetScoreReports["stress"] = stressReport
+          self.packetScoresComputeInFlight = false
           self.packetScoreStatus = "Bridge packet-derived scores recomputed"
         }
       } catch {
         let shortErr = Self.shortError(error)
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
+          self.packetScoresComputeInFlight = false
           self.packetScoreStatus = "Bridge score run blocked: \(shortErr)"
         }
       }
@@ -86,12 +101,14 @@ extension HealthDataStore {
             "target_midpoint_minutes_since_midnight": 180.0,
             "history_import_in_progress": false,
             "algorithm_id": "bull.sleep.v1",
+            "persist_nightly": true,
           ]) { _, new in new }
         )
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
           self.packetScoreReports["sleep"] = sleepReport
           self.refreshPrimarySleepFromScoreReport()
+          self.loadNightlySleepHistory()
           self.packetScoreStatus = "Bridge sleep score recomputed"
         }
       } catch {

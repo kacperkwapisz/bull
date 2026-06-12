@@ -996,11 +996,31 @@ pub struct MetricFeatureNextAction {
 #[derive(Debug, Clone)]
 struct MotionPlan {
     body_summary_kind: &'static str,
-    axes: Vec<I16SeriesSummary>,
+    source: MotionPlanSource,
     heart_rate_bpm: Option<u8>,
     device_timestamp_seconds: Option<u32>,
     device_timestamp_subseconds: Option<u16>,
     summary_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+enum MotionPlanSource {
+    /// Raw signed-i16 IMU axis series (realtime K10/K21 motion streams).
+    SignedAxes(Vec<I16SeriesSummary>),
+    /// Per-sample gravity-vector motion proxy derived from already-decoded V24
+    /// history fields. The intensity is preliminary and uncalibrated; the sleep
+    /// stage thresholds were tuned for the signed-i16 amplitude scale, so V24
+    /// nights carry quality flags noting that the motion scale still requires
+    /// personal calibration.
+    GravityProxy {
+        source_signal: &'static str,
+        scale_basis: &'static str,
+        motion_intensity_0_to_1: f64,
+        raw_mean_abs: f64,
+        raw_peak_abs: f64,
+        sample_count: usize,
+        extra_quality_flags: &'static [&'static str],
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1096,8 +1116,10 @@ pub fn run_motion_feature_report(
     correlation: &CaptureCorrelationReport,
     options: MotionFeatureOptions,
 ) -> BullResult<MotionFeatureReport> {
-    let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["raw_motion_k10", "raw_motion_k21"]);
+    let trusted_frames = trusted_frames_for_summary_kinds(
+        correlation,
+        &["raw_motion_k10", "raw_motion_k21", "v24_history"],
+    );
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -1167,8 +1189,10 @@ pub fn run_heart_rate_feature_report(
     correlation: &CaptureCorrelationReport,
     options: HeartRateFeatureOptions,
 ) -> BullResult<HeartRateFeatureReport> {
-    let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["normal_history", "raw_motion_k10"]);
+    let trusted_frames = trusted_frames_for_summary_kinds(
+        correlation,
+        &["normal_history", "raw_motion_k10", "v24_history"],
+    );
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -3983,7 +4007,7 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<MotionPlan>>
             warnings,
         } => Some(MotionPlan {
             body_summary_kind: "raw_motion_k10",
-            axes,
+            source: MotionPlanSource::SignedAxes(axes),
             heart_rate_bpm: heart_rate,
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
@@ -3991,14 +4015,102 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<MotionPlan>>
         }),
         DataPacketBodySummary::RawMotionK21 { axes, warnings, .. } => Some(MotionPlan {
             body_summary_kind: "raw_motion_k21",
-            axes,
+            source: MotionPlanSource::SignedAxes(axes),
             heart_rate_bpm: None,
+            device_timestamp_seconds: timestamp_seconds,
+            device_timestamp_subseconds: timestamp_subseconds,
+            summary_warnings: warnings,
+        }),
+        DataPacketBodySummary::V24History {
+            hr,
+            gravity_x,
+            gravity_y,
+            gravity_z,
+            gravity2_x,
+            gravity2_y,
+            gravity2_z,
+            warnings,
+            ..
+        } => v24_gravity_motion_source(
+            gravity_x,
+            gravity_y,
+            gravity_z,
+            gravity2_x,
+            gravity2_y,
+            gravity2_z,
+        )
+        .map(|source| MotionPlan {
+            body_summary_kind: "v24_history",
+            source,
+            heart_rate_bpm: hr,
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
             summary_warnings: warnings,
         }),
         _ => None,
     })
+}
+
+/// Derive a preliminary per-sample motion-intensity proxy from a V24 history
+/// reading's gravity field(s). When the strap supplies two gravity triplets in
+/// the same reading, the magnitude of their difference is used as a
+/// self-contained motion estimate (near zero when still, larger when moving).
+/// When only one triplet is present, the deviation of the gravity magnitude
+/// from 1g is used as a dynamic-acceleration proxy. Returns `None` when no
+/// gravity field is decodable.
+fn v24_gravity_motion_source(
+    gravity_x: Option<f32>,
+    gravity_y: Option<f32>,
+    gravity_z: Option<f32>,
+    gravity2_x: Option<f32>,
+    gravity2_y: Option<f32>,
+    gravity2_z: Option<f32>,
+) -> Option<MotionPlanSource> {
+    let primary = match (gravity_x, gravity_y, gravity_z) {
+        (Some(x), Some(y), Some(z)) => Some((f64::from(x), f64::from(y), f64::from(z))),
+        _ => None,
+    };
+    let secondary = match (gravity2_x, gravity2_y, gravity2_z) {
+        (Some(x), Some(y), Some(z)) => Some((f64::from(x), f64::from(y), f64::from(z))),
+        _ => None,
+    };
+
+    match (primary, secondary) {
+        (Some((x1, y1, z1)), Some((x2, y2, z2))) => {
+            let delta =
+                ((x2 - x1).powi(2) + (y2 - y1).powi(2) + (z2 - z1).powi(2)).sqrt();
+            Some(MotionPlanSource::GravityProxy {
+                source_signal: "v24_history_gravity_vector_delta",
+                scale_basis: "gravity_vector_delta_magnitude_g",
+                motion_intensity_0_to_1: clamp_fraction(delta),
+                raw_mean_abs: delta,
+                raw_peak_abs: delta,
+                sample_count: 1,
+                extra_quality_flags: &[
+                    "preliminary_gravity_motion_proxy",
+                    "motion_scale_requires_personal_calibration",
+                ],
+            })
+        }
+        (Some((x, y, z)), None) => {
+            let magnitude = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+            let dynamic = (magnitude - 1.0).abs();
+            Some(MotionPlanSource::GravityProxy {
+                source_signal: "v24_history_gravity_magnitude_dynamic",
+                scale_basis: "gravity_magnitude_minus_1g",
+                motion_intensity_0_to_1: clamp_fraction(dynamic),
+                raw_mean_abs: dynamic,
+                raw_peak_abs: dynamic,
+                sample_count: 1,
+                extra_quality_flags: &[
+                    "preliminary_gravity_motion_proxy",
+                    "v24_single_gravity_dynamic_accel_proxy",
+                    "motion_scale_requires_personal_calibration",
+                ],
+            })
+        }
+        _ => None,
+    }
 }
 
 fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<HeartRatePlan>> {
@@ -4024,6 +4136,15 @@ fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<HeartRat
             quality_flag: "preliminary_normal_history_hr_marker",
             marker_offset,
             marker_value,
+            device_timestamp_seconds: timestamp_seconds,
+            device_timestamp_subseconds: timestamp_subseconds,
+        }),
+        DataPacketBodySummary::V24History { hr: Some(hr), .. } => Some(HeartRatePlan {
+            body_summary_kind: "v24_history",
+            source_signal: "v24_history_hr",
+            quality_flag: "preliminary_v24_history_hr",
+            marker_offset: 14,
+            marker_value: hr,
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
         }),
@@ -4187,7 +4308,6 @@ fn motion_feature_from_plan(
     trusted_frames: &BTreeMap<String, bool>,
 ) -> BullResult<Option<MotionFeature>> {
     let mut quality_flags = BTreeSet::new();
-    quality_flags.insert("preliminary_raw_i16_scale".to_string());
     for warning in parse_warnings(row)? {
         quality_flags.insert(warning);
     }
@@ -4198,24 +4318,66 @@ fn motion_feature_from_plan(
         }
     }
 
-    let mut accumulator = MotionAccumulator::default();
-    let mut axis_count = 0;
-    for axis in &plan.axes {
-        let axis_accumulator = accumulate_axis(payload, axis, &mut quality_flags);
-        if axis_accumulator.sample_count > 0 {
-            axis_count += 1;
-            accumulator.abs_sum += axis_accumulator.abs_sum;
-            accumulator.peak_abs = accumulator.peak_abs.max(axis_accumulator.peak_abs);
-            accumulator.sample_count += axis_accumulator.sample_count;
+    let (
+        motion_intensity_0_to_1,
+        raw_mean_abs,
+        raw_peak_abs,
+        parsed_sample_count,
+        axis_count,
+        source_signal,
+        scale_basis,
+    ) = match &plan.source {
+        MotionPlanSource::SignedAxes(axes) => {
+            quality_flags.insert("preliminary_raw_i16_scale".to_string());
+            let mut accumulator = MotionAccumulator::default();
+            let mut axis_count = 0;
+            for axis in axes {
+                let axis_accumulator = accumulate_axis(payload, axis, &mut quality_flags);
+                if axis_accumulator.sample_count > 0 {
+                    axis_count += 1;
+                    accumulator.abs_sum += axis_accumulator.abs_sum;
+                    accumulator.peak_abs = accumulator.peak_abs.max(axis_accumulator.peak_abs);
+                    accumulator.sample_count += axis_accumulator.sample_count;
+                }
+            }
+            if accumulator.sample_count == 0 {
+                return Ok(None);
+            }
+            let raw_mean_abs = accumulator.abs_sum / accumulator.sample_count as f64;
+            (
+                clamp_fraction(raw_mean_abs / 32767.0),
+                raw_mean_abs,
+                accumulator.peak_abs,
+                accumulator.sample_count,
+                axis_count,
+                "raw_motion_signed_i16_amplitude".to_string(),
+                "mean_absolute_signed_i16_div_32767".to_string(),
+            )
         }
-    }
+        MotionPlanSource::GravityProxy {
+            source_signal,
+            scale_basis,
+            motion_intensity_0_to_1,
+            raw_mean_abs,
+            raw_peak_abs,
+            sample_count,
+            extra_quality_flags,
+        } => {
+            for flag in *extra_quality_flags {
+                quality_flags.insert((*flag).to_string());
+            }
+            (
+                *motion_intensity_0_to_1,
+                *raw_mean_abs,
+                *raw_peak_abs,
+                *sample_count,
+                3,
+                (*source_signal).to_string(),
+                (*scale_basis).to_string(),
+            )
+        }
+    };
 
-    if accumulator.sample_count == 0 {
-        return Ok(None);
-    }
-
-    let raw_mean_abs = accumulator.abs_sum / accumulator.sample_count as f64;
-    let motion_intensity_0_to_1 = clamp_fraction(raw_mean_abs / 32767.0);
     let trusted_metric_input = trusted_frames
         .get(&row.frame_id)
         .copied()
@@ -4236,12 +4398,12 @@ fn motion_feature_from_plan(
         sample_time_unix_ms: sample_time.unix_ms,
         sample_time_source: sample_time.source.clone(),
         body_summary_kind: plan.body_summary_kind.to_string(),
-        source_signal: "raw_motion_signed_i16_amplitude".to_string(),
-        scale_basis: "mean_absolute_signed_i16_div_32767".to_string(),
+        source_signal: source_signal.clone(),
+        scale_basis: scale_basis.clone(),
         motion_intensity_0_to_1,
         raw_mean_abs,
-        raw_peak_abs: accumulator.peak_abs,
-        parsed_sample_count: accumulator.sample_count,
+        raw_peak_abs,
+        parsed_sample_count,
         axis_count,
         heart_rate_bpm: plan.heart_rate_bpm.filter(|value| *value > 0),
         device_timestamp_seconds: plan.device_timestamp_seconds,
@@ -4254,7 +4416,8 @@ fn motion_feature_from_plan(
             "evidence_id": row.evidence_id,
             "parser_version": row.parser_version,
             "body_summary_kind": plan.body_summary_kind,
-            "scale_basis": "mean_absolute_signed_i16_div_32767",
+            "scale_basis": scale_basis,
+            "source_signal": source_signal,
             "sample_time_source": sample_time.source,
             "device_timestamp_seconds": plan.device_timestamp_seconds,
             "device_timestamp_subseconds": plan.device_timestamp_subseconds,
@@ -4791,6 +4954,65 @@ fn average_motion_intensity_0_to_1(motion_features: &[&MotionFeature]) -> Option
     )
 }
 
+/// Gap (in minutes) of missing motion samples that separates one night's
+/// cluster of readings from the next when segmenting multi-night history.
+const SLEEP_CLUSTER_GAP_MINUTES: i64 = 120;
+/// Minimum span (in minutes) for a motion cluster to qualify as a plausible
+/// overnight window rather than a short daytime capture.
+const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
+
+struct SleepClusterSelection {
+    start_minute: i64,
+    end_minute: i64,
+}
+
+/// Pick the most recent overnight cluster from a sorted set of timed motion
+/// features. Clusters are split wherever consecutive motion samples are more
+/// than `SLEEP_CLUSTER_GAP_MINUTES` apart; the most recent cluster spanning at
+/// least `SLEEP_CLUSTER_MIN_SPAN_MINUTES` is preferred, otherwise the most
+/// recent cluster is kept so a single short capture is not discarded.
+fn select_most_recent_sleep_cluster(
+    timed_features: &[(i64, &MotionFeature)],
+) -> SleepClusterSelection {
+    let first_minute = timed_features.first().map(|(minute, _)| *minute).unwrap_or(0);
+    let last_minute = timed_features
+        .last()
+        .map(|(minute, _)| *minute)
+        .unwrap_or(first_minute);
+
+    let mut clusters: Vec<(i64, i64)> = Vec::new();
+    let mut cluster_start = first_minute;
+    let mut previous = first_minute;
+    for (minute, _) in timed_features.iter() {
+        if *minute - previous > SLEEP_CLUSTER_GAP_MINUTES {
+            clusters.push((cluster_start, previous));
+            cluster_start = *minute;
+        }
+        previous = *minute;
+    }
+    clusters.push((cluster_start, previous));
+
+    if let Some((start, end)) = clusters
+        .iter()
+        .rev()
+        .find(|(start, end)| end - start >= SLEEP_CLUSTER_MIN_SPAN_MINUTES)
+    {
+        return SleepClusterSelection {
+            start_minute: *start,
+            end_minute: *end,
+        };
+    }
+
+    let (start, end) = clusters
+        .last()
+        .copied()
+        .unwrap_or((first_minute, last_minute));
+    SleepClusterSelection {
+        start_minute: start,
+        end_minute: end,
+    }
+}
+
 fn sleep_window_feature(
     requested_start: &str,
     requested_end: &str,
@@ -4833,10 +5055,28 @@ fn sleep_window_feature(
             .then_with(|| left.1.metric_input_id.cmp(&right.1.metric_input_id))
     });
 
+    // Count parsed motion samples before nightly segmentation so trimming the
+    // window does not get misreported as dropped/unparseable timestamps.
+    let parsed_motion_count = timed_features.len();
+    // Restrict the window to the most recent overnight cluster so multi-night
+    // history (for example several days pulled in a single sync) does not
+    // collapse into one window spanning every captured sample.
+    let segmentation = select_most_recent_sleep_cluster(&timed_features);
+    timed_features.retain(|(minute, _)| {
+        *minute >= segmentation.start_minute && *minute <= segmentation.end_minute
+    });
+    let window_segmented = timed_features.len() < parsed_motion_count;
+    if timed_features.len() < 2 {
+        return None;
+    }
+
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("preliminary_sleep_from_motion_hr_heuristics".to_string());
     quality_flags.insert("stage_estimates_require_personal_calibration".to_string());
-    if timed_features.len() < motion_features.len() {
+    if window_segmented {
+        quality_flags.insert("sleep_window_segmented_to_most_recent_night".to_string());
+    }
+    if parsed_motion_count < motion_features.len() {
         quality_flags.insert("unparseable_motion_timestamps_dropped".to_string());
     }
     if timed_heart_rate_features.len() < heart_rate_features.len() {

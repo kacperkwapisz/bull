@@ -59,6 +59,93 @@ fn motion_feature_extraction_normalizes_owned_k10_raw_amplitude() {
 }
 
 #[test]
+fn motion_feature_extraction_derives_v24_history_gravity_motion_proxy() {
+    let store = BullStore::open_in_memory().unwrap();
+    import_v24_history_frame_at(
+        &store,
+        "user-owned-live-notification",
+        55,
+        (0.0, 0.0, 1.0),
+        Some((0.0, 0.0, 1.03)),
+        "2026-05-27T03:00:00Z",
+    );
+
+    let report = run_motion_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T00:00:00Z",
+        "2026-05-28T00:00:00Z",
+        MotionFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.candidate_frame_count, 1);
+    assert_eq!(report.feature_count, 1);
+    let feature = &report.features[0];
+    assert_eq!(feature.body_summary_kind, "v24_history");
+    assert_eq!(feature.source_signal, "v24_history_gravity_vector_delta");
+    assert_eq!(feature.scale_basis, "gravity_vector_delta_magnitude_g");
+    assert_eq!(feature.heart_rate_bpm, Some(55));
+    // Gravity fields are f32 on the wire, so allow single-precision tolerance.
+    assert!((feature.raw_mean_abs - 0.03).abs() < 1e-5);
+    assert!((feature.motion_intensity_0_to_1 - 0.03).abs() < 1e-5);
+    assert!(
+        feature
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "preliminary_gravity_motion_proxy")
+    );
+    assert!(
+        feature
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "motion_scale_requires_personal_calibration")
+    );
+}
+
+#[test]
+fn heart_rate_feature_extraction_promotes_v24_history_heart_rate() {
+    let store = BullStore::open_in_memory().unwrap();
+    import_v24_history_frame_at(
+        &store,
+        "user-owned-live-notification",
+        58,
+        (0.0, 0.0, 1.0),
+        Some((0.0, 0.0, 1.0)),
+        "2026-05-27T03:00:00Z",
+    );
+
+    let report = run_heart_rate_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T00:00:00Z",
+        "2026-05-28T00:00:00Z",
+        HeartRateFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.candidate_frame_count, 1);
+    assert_eq!(report.feature_count, 1);
+    let feature = &report.features[0];
+    assert_eq!(feature.body_summary_kind, "v24_history");
+    assert_eq!(feature.source_signal, "v24_history_hr");
+    assert_eq!(feature.heart_rate_bpm, 58.0);
+    assert_eq!(feature.marker_value, 58);
+    assert!(
+        feature
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "preliminary_v24_history_hr")
+    );
+}
+
+#[test]
 fn motion_feature_extraction_keeps_synthetic_candidates_untrusted() {
     let store = BullStore::open_in_memory().unwrap();
     import_motion_frame(&store, "synthetic");
@@ -1359,6 +1446,60 @@ fn sleep_feature_score_report_uses_device_sample_time_for_sleep_epochs() {
     assert_eq!(window.stage_segments[0].start_time, "2026-01-01T22:00:00Z");
     assert_eq!(window.stage_segments[0].end_time, "2026-01-01T23:00:00Z");
     assert_eq!(window.provenance["time_basis"], "normalized_sample_time");
+}
+
+#[test]
+fn sleep_feature_score_report_segments_to_most_recent_night() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Two nights one day apart; the ~20h daytime gap separates the clusters.
+    let night_one_start: u32 = 1_767_304_800; // 2026-01-01T22:00:00Z
+    let night_two_start: u32 = night_one_start + 86_400;
+    for base in [night_one_start, night_two_start] {
+        for step in 0..5u32 {
+            import_motion_frame_at_value_with_device_timestamp(
+                &store,
+                "user-owned-live-notification",
+                "2026-01-01T20:00:00Z",
+                1000,
+                base + step * 3600,
+            );
+        }
+        for step in 0..4u32 {
+            import_history_frame_at_with_device_timestamp(
+                &store,
+                "user-owned-live-notification",
+                60,
+                "2026-01-01T20:00:00Z",
+                base + 900 + step * 3600,
+            );
+        }
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-01-01T00:00:00Z",
+        "2026-01-05T00:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 240.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 30.0,
+        },
+    )
+    .unwrap();
+
+    let window = report.sleep_window.expect("sleep window");
+    assert_eq!(window.start_time, "2026-01-02T22:00:00Z");
+    assert_eq!(window.end_time, "2026-01-03T02:00:00Z");
+    assert!(
+        window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "sleep_window_segmented_to_most_recent_night")
+    );
 }
 
 #[test]
@@ -2877,6 +3018,65 @@ fn historical_k21_motion_frame_hex_with_timestamp(timestamp_seconds: u32) -> Str
     hex::encode(build_v5_payload_frame(&payload))
 }
 
+fn historical_v24_frame_hex(
+    hr: u8,
+    gravity: (f32, f32, f32),
+    gravity2: Option<(f32, f32, f32)>,
+    timestamp_seconds: u32,
+) -> String {
+    // The V24 body begins at payload offset 3 and must be at least 77 bytes for
+    // the strap to consider it a full reading (payload length >= 80).
+    let mut payload = vec![0u8; 80];
+    payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = 24;
+    payload[2] = 1;
+    put_u32(&mut payload, 7, timestamp_seconds);
+    payload[3 + 14] = hr;
+    put_f32(&mut payload, 3 + 33, gravity.0);
+    put_f32(&mut payload, 3 + 37, gravity.1);
+    put_f32(&mut payload, 3 + 41, gravity.2);
+    if let Some((x, y, z)) = gravity2 {
+        put_f32(&mut payload, 3 + 49, x);
+        put_f32(&mut payload, 3 + 53, y);
+        put_f32(&mut payload, 3 + 57, z);
+    }
+    hex::encode(build_v5_payload_frame(&payload))
+}
+
+fn import_v24_history_frame_at(
+    store: &BullStore,
+    sensitivity: &str,
+    hr: u8,
+    gravity: (f32, f32, f32),
+    gravity2: Option<(f32, f32, f32)>,
+    captured_at: &str,
+) {
+    let frame_hex = historical_v24_frame_hex(hr, gravity, gravity2, 0x11223344);
+    let frame_tag = &frame_hex[..frame_hex.len().min(48)];
+    let frames = vec![CapturedFrameInput {
+        evidence_id: format!("app.v24.{sensitivity}.{hr}.{captured_at}.{frame_tag}"),
+        frame_id: Some(format!(
+            "app.v24.{sensitivity}.{hr}.{captured_at}.{frame_tag}.frame.0"
+        )),
+        source: "ios.corebluetooth.notification".to_string(),
+        captured_at: captured_at.to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
+        frame_hex,
+        sensitivity: sensitivity.to_string(),
+        capture_session_id: None,
+        device_type: DeviceType::Bull,
+    }];
+    let report = import_captured_frame_batch(
+        store,
+        &frames,
+        CapturedFrameBatchOptions {
+            parser_version: "bull-core/test",
+        },
+    )
+    .unwrap();
+    assert!(report.pass, "{:?}", report.issues);
+}
+
 fn temperature_event_frame_hex(body: &[u8]) -> String {
     let mut payload = vec![
         PACKET_TYPE_EVENT,
@@ -3039,6 +3239,10 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 
 fn put_i16(bytes: &mut [u8], offset: usize, value: i16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+}
+
+fn put_f32(bytes: &mut [u8], offset: usize, value: f32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 fn widget<'a>(

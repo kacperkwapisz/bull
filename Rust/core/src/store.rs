@@ -11,7 +11,7 @@ use crate::{
     validation_labels::OFFICIAL_WHOOP_LABEL_POLICY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 15;
+pub const CURRENT_SCHEMA_VERSION: i64 = 16;
 pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
 
 const ALLOWED_METRIC_SOURCE_KINDS: [&str; 4] = [
@@ -515,6 +515,54 @@ pub struct DailyRecoveryMetricRow {
     pub source_kind: String,
     pub confidence: f64,
     pub inputs_json: String,
+    pub quality_flags_json: String,
+    pub provenance_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DailySleepMetricInput<'a> {
+    pub nightly_sleep_id: &'a str,
+    pub date_key: &'a str,
+    pub start_time: &'a str,
+    pub end_time: &'a str,
+    pub start_time_unix_ms: i64,
+    pub end_time_unix_ms: i64,
+    pub score_0_to_100: Option<f64>,
+    pub sleep_duration_minutes: Option<f64>,
+    pub time_in_bed_minutes: Option<f64>,
+    pub sleep_performance_fraction: Option<f64>,
+    pub heart_rate_dip_percent: Option<f64>,
+    pub disturbance_count: Option<i64>,
+    pub algorithm_id: &'a str,
+    pub algorithm_version: &'a str,
+    pub source_kind: &'a str,
+    pub confidence: f64,
+    pub stage_minutes_json: &'a str,
+    pub quality_flags_json: &'a str,
+    pub provenance_json: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DailySleepMetricRow {
+    pub nightly_sleep_id: String,
+    pub date_key: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub start_time_unix_ms: i64,
+    pub end_time_unix_ms: i64,
+    pub score_0_to_100: Option<f64>,
+    pub sleep_duration_minutes: Option<f64>,
+    pub time_in_bed_minutes: Option<f64>,
+    pub sleep_performance_fraction: Option<f64>,
+    pub heart_rate_dip_percent: Option<f64>,
+    pub disturbance_count: Option<i64>,
+    pub algorithm_id: String,
+    pub algorithm_version: String,
+    pub source_kind: String,
+    pub confidence: f64,
+    pub stage_minutes_json: String,
     pub quality_flags_json: String,
     pub provenance_json: String,
     pub created_at: String,
@@ -1260,6 +1308,35 @@ impl BullStore {
             CREATE INDEX IF NOT EXISTS idx_daily_recovery_metrics_by_source_kind
                 ON daily_recovery_metrics(source_kind);
 
+            CREATE TABLE IF NOT EXISTS daily_sleep_metrics (
+                nightly_sleep_id TEXT PRIMARY KEY,
+                date_key TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                start_time_unix_ms INTEGER NOT NULL,
+                end_time_unix_ms INTEGER NOT NULL,
+                score_0_to_100 REAL,
+                sleep_duration_minutes REAL,
+                time_in_bed_minutes REAL,
+                sleep_performance_fraction REAL,
+                heart_rate_dip_percent REAL,
+                disturbance_count INTEGER,
+                algorithm_id TEXT NOT NULL,
+                algorithm_version TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                stage_minutes_json TEXT NOT NULL DEFAULT '{}',
+                quality_flags_json TEXT NOT NULL DEFAULT '[]',
+                provenance_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_daily_sleep_metrics_by_date
+                ON daily_sleep_metrics(date_key);
+            CREATE INDEX IF NOT EXISTS idx_daily_sleep_metrics_by_window
+                ON daily_sleep_metrics(start_time_unix_ms, end_time_unix_ms);
+
             CREATE TABLE IF NOT EXISTS metric_provenance (
                 provenance_id TEXT PRIMARY KEY,
                 metric_scope TEXT NOT NULL,
@@ -1621,7 +1698,8 @@ impl BullStore {
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (13);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (14);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (15);
-            PRAGMA user_version = 15;
+            INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (16);
+            PRAGMA user_version = 16;
             "#,
         )?;
         self.ensure_raw_evidence_columns()?;
@@ -3735,6 +3813,128 @@ impl BullStore {
             "#,
         )?;
         let rows = statement.query_map([], daily_recovery_metric_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Persist (insert or update) a locally computed nightly sleep record. The
+    /// `nightly_sleep_id` is the idempotency key, so re-running the sleep score
+    /// for the same night updates the row in place rather than duplicating it.
+    pub fn upsert_daily_sleep_metric(&self, input: DailySleepMetricInput<'_>) -> BullResult<bool> {
+        validate_required("nightly_sleep_id", input.nightly_sleep_id)?;
+        validate_required("date_key", input.date_key)?;
+        validate_required("start_time", input.start_time)?;
+        validate_required("end_time", input.end_time)?;
+        validate_required("algorithm_id", input.algorithm_id)?;
+        validate_required("algorithm_version", input.algorithm_version)?;
+        validate_required("source_kind", input.source_kind)?;
+        validate_non_negative("start_time_unix_ms", input.start_time_unix_ms)?;
+        validate_non_negative("end_time_unix_ms", input.end_time_unix_ms)?;
+        validate_window_order(input.start_time_unix_ms, input.end_time_unix_ms)?;
+        let changed = self.conn.execute(
+            r#"
+            INSERT INTO daily_sleep_metrics (
+                nightly_sleep_id,
+                date_key,
+                start_time,
+                end_time,
+                start_time_unix_ms,
+                end_time_unix_ms,
+                score_0_to_100,
+                sleep_duration_minutes,
+                time_in_bed_minutes,
+                sleep_performance_fraction,
+                heart_rate_dip_percent,
+                disturbance_count,
+                algorithm_id,
+                algorithm_version,
+                source_kind,
+                confidence,
+                stage_minutes_json,
+                quality_flags_json,
+                provenance_json
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+            )
+            ON CONFLICT(nightly_sleep_id) DO UPDATE SET
+                date_key = excluded.date_key,
+                start_time = excluded.start_time,
+                end_time = excluded.end_time,
+                start_time_unix_ms = excluded.start_time_unix_ms,
+                end_time_unix_ms = excluded.end_time_unix_ms,
+                score_0_to_100 = excluded.score_0_to_100,
+                sleep_duration_minutes = excluded.sleep_duration_minutes,
+                time_in_bed_minutes = excluded.time_in_bed_minutes,
+                sleep_performance_fraction = excluded.sleep_performance_fraction,
+                heart_rate_dip_percent = excluded.heart_rate_dip_percent,
+                disturbance_count = excluded.disturbance_count,
+                algorithm_id = excluded.algorithm_id,
+                algorithm_version = excluded.algorithm_version,
+                source_kind = excluded.source_kind,
+                confidence = excluded.confidence,
+                stage_minutes_json = excluded.stage_minutes_json,
+                quality_flags_json = excluded.quality_flags_json,
+                provenance_json = excluded.provenance_json,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            "#,
+            params![
+                input.nightly_sleep_id,
+                input.date_key,
+                input.start_time,
+                input.end_time,
+                input.start_time_unix_ms,
+                input.end_time_unix_ms,
+                input.score_0_to_100,
+                input.sleep_duration_minutes,
+                input.time_in_bed_minutes,
+                input.sleep_performance_fraction,
+                input.heart_rate_dip_percent,
+                input.disturbance_count,
+                input.algorithm_id,
+                input.algorithm_version,
+                input.source_kind,
+                input.confidence,
+                input.stage_minutes_json,
+                input.quality_flags_json,
+                input.provenance_json,
+            ],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Return the most recent nightly sleep records, newest first, capped at
+    /// `limit` rows.
+    pub fn list_daily_sleep_metrics(&self, limit: i64) -> BullResult<Vec<DailySleepMetricRow>> {
+        let bounded = limit.clamp(1, 3650);
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                nightly_sleep_id,
+                date_key,
+                start_time,
+                end_time,
+                start_time_unix_ms,
+                end_time_unix_ms,
+                score_0_to_100,
+                sleep_duration_minutes,
+                time_in_bed_minutes,
+                sleep_performance_fraction,
+                heart_rate_dip_percent,
+                disturbance_count,
+                algorithm_id,
+                algorithm_version,
+                source_kind,
+                confidence,
+                stage_minutes_json,
+                quality_flags_json,
+                provenance_json,
+                created_at,
+                updated_at
+            FROM daily_sleep_metrics
+            ORDER BY start_time_unix_ms DESC, nightly_sleep_id DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = statement.query_map(params![bounded], daily_sleep_metric_from_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
     }
 
@@ -6650,6 +6850,30 @@ impl BullStore {
             .query_row("PRAGMA integrity_check", [], |row| row.get(0))
             .map_err(BullError::from)
     }
+
+    /// Count rows in a known table. Used by read-only diagnostics to size the
+    /// local store without exporting it.
+    pub fn table_row_count(&self, table: &str) -> BullResult<i64> {
+        if !is_known_table(table) {
+            return Err(BullError::message(format!("unknown table: {table}")));
+        }
+        let sql = format!("SELECT COUNT(*) FROM {table}");
+        self.conn
+            .query_row(&sql, [], |row| row.get(0))
+            .map_err(BullError::from)
+    }
+
+    /// Approximate on-disk byte size of the main database file
+    /// (`page_count * page_size`).
+    pub fn database_byte_size(&self) -> BullResult<i64> {
+        let page_count: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let page_size: i64 = self
+            .conn
+            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        Ok(page_count * page_size)
+    }
 }
 
 impl BullStore {
@@ -8052,6 +8276,32 @@ fn daily_recovery_metric_from_row(
     })
 }
 
+fn daily_sleep_metric_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailySleepMetricRow> {
+    Ok(DailySleepMetricRow {
+        nightly_sleep_id: row.get(0)?,
+        date_key: row.get(1)?,
+        start_time: row.get(2)?,
+        end_time: row.get(3)?,
+        start_time_unix_ms: row.get(4)?,
+        end_time_unix_ms: row.get(5)?,
+        score_0_to_100: row.get(6)?,
+        sleep_duration_minutes: row.get(7)?,
+        time_in_bed_minutes: row.get(8)?,
+        sleep_performance_fraction: row.get(9)?,
+        heart_rate_dip_percent: row.get(10)?,
+        disturbance_count: row.get(11)?,
+        algorithm_id: row.get(12)?,
+        algorithm_version: row.get(13)?,
+        source_kind: row.get(14)?,
+        confidence: row.get(15)?,
+        stage_minutes_json: row.get(16)?,
+        quality_flags_json: row.get(17)?,
+        provenance_json: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
+    })
+}
+
 fn metric_provenance_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MetricProvenanceRow> {
     Ok(MetricProvenanceRow {
         provenance_id: row.get(0)?,
@@ -8258,6 +8508,7 @@ pub fn known_tables() -> &'static [&'static str] {
         "daily_activity_metrics",
         "hourly_activity_metrics",
         "daily_recovery_metrics",
+        "daily_sleep_metrics",
         "metric_provenance",
         "metric_debug_features",
         "step_counter_samples",

@@ -66,6 +66,7 @@ struct HealthView: View {
       calibration.ensureStarted(connectedAt: model.ble.connectedAt)
       store.loadBridgeCatalogsIfNeeded()
       store.refreshHeartRateTimeline()
+      store.computePacketScoresIfNeeded()
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
@@ -73,6 +74,9 @@ struct HealthView: View {
       refreshSnapshots()
     }
     .onChange(of: store.catalogStatus) { _, _ in
+      refreshSnapshots()
+    }
+    .onChange(of: store.packetScoreStatus) { _, _ in
       refreshSnapshots()
     }
   }

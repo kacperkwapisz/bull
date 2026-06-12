@@ -155,6 +155,20 @@ struct PrimarySleepDetail: Identifiable {
   }
 }
 
+/// A locally computed nightly sleep record loaded from the `daily_sleep_metrics`
+/// table via the `sleep.list_nightly` bridge method. Every value is derived from
+/// the connected device's own packet history; there are no imported scores.
+struct NightlySleepRecord: Identifiable {
+  let id: String
+  let dateKey: String
+  let startTimeUnixMs: Int64
+  let score: Double?
+  let sleepDurationMinutes: Double?
+  let timeInBedMinutes: Double?
+  let heartRateDipPercent: Double?
+  let confidence: Double
+}
+
 struct CardioLoadDay: Identifiable {
   let id: String
   let dateLabel: String
