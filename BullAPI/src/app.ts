@@ -36,14 +36,30 @@ const app = new Hyper()
   .use(coachRoutes(env))
   .use(dataRoutes(env))
 
-export default app
+// Named export only. A default export with a `fetch` method makes Bun
+// auto-serve a SECOND server with the default 10s idleTimeout — that hidden
+// server is the one that answered requests and severed coach SSE streams
+// mid-response (surfacing on iOS as URLError -1017).
+export { app }
 
 // Migrations are applied out-of-band by the Docker entrypoint (`bun run
 // db:migrate`) before the server starts, so the app never mutates schema at
 // request time. Locally, run `bun run db:migrate` once against your DATABASE_URL.
 if (process.env.HYPER_SKIP_LISTEN !== "1") {
+  // Boot Bun.serve directly instead of `app.listen()`: hyper's listen() does
+  // not forward `idleTimeout`, so Bun's 10s default would sever long-lived
+  // coach SSE streams mid-response (truncated chunked body → iOS URLError
+  // -1017). SSE heartbeats keep proxies alive; idleTimeout is the local belt.
+  //
   // Bind to all interfaces by default so on-device clients can reach the API
   // over the local/Tailscale network (Bun's "localhost" default resolves to the
   // IPv6 loopback ::1, which is unreachable from a phone). Override with HOST.
-  app.listen({ port: Number(env.PORT), hostname: process.env.HOST ?? "0.0.0.0" })
+  const server = Bun.serve({
+    port: Number(env.PORT),
+    hostname: process.env.HOST ?? "0.0.0.0",
+    routes: app.routes,
+    fetch: app.fetch,
+    idleTimeout: 120, // seconds without socket activity; heartbeats arrive every 10s
+  })
+  console.log(`bull-api listening on http://${server.hostname}:${server.port}`)
 }

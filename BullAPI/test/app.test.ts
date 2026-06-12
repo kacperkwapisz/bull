@@ -4,7 +4,7 @@ process.env.HYPER_SKIP_LISTEN = "1"
 process.env.JWT_SECRET = "test-jwt-secret-at-least-32-bytes-long!!"
 process.env.BULL_UPSTREAM_API_KEY = "test-upstream-key"
 
-const app = (await import("../src/app.ts")).default
+const app = (await import("../src/app.ts")).app
 
 describe("BullAPI", () => {
   test("GET /health returns ok", async () => {

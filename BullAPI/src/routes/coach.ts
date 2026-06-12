@@ -24,6 +24,49 @@ const messageSchema = z.object({
   tool_call_id: z.string().optional(),
 })
 
+/**
+ * Interval between SSE heartbeat comments. Keeps bytes flowing while the
+ * upstream model is still thinking so neither Bun's idle timeout nor any
+ * proxy in front (Caddy, Cloudflare) tears the connection down mid-stream —
+ * a truncated chunked response surfaces on iOS as URLError -1017.
+ */
+const HEARTBEAT_INTERVAL_MS = 10_000
+
+/**
+ * Merge an SSE byte generator with periodic `: ping` heartbeat comments.
+ * A heartbeat is emitted whenever the source has produced nothing for
+ * `intervalMs`. SSE comments (lines starting with `:`) are ignored by
+ * compliant clients, so they are safe to interleave at any point.
+ */
+export async function* withSseHeartbeat(
+  source: AsyncGenerator<string | Uint8Array>,
+  intervalMs: number = HEARTBEAT_INTERVAL_MS,
+): AsyncGenerator<string | Uint8Array> {
+  const HEARTBEAT = ": ping\n\n"
+  let pending = source.next()
+  try {
+    while (true) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const heartbeat = new Promise<"heartbeat">((resolve) => {
+        timer = setTimeout(() => resolve("heartbeat"), intervalMs)
+      })
+      const winner = await Promise.race([pending, heartbeat])
+      clearTimeout(timer)
+      if (winner === "heartbeat") {
+        yield HEARTBEAT
+        continue
+      }
+      if (winner.done) {
+        return
+      }
+      yield winner.value
+      pending = source.next()
+    }
+  } finally {
+    await source.return?.(undefined)
+  }
+}
+
 const coachBody = z.object({
   model_tier: z.enum(["default", "deep"]).default("default"),
   tool_mode: z.enum(["auto", "required", "none"]).default("auto"),
@@ -63,7 +106,7 @@ export function coachRoutes(env: Env) {
           )
         }
       }
-      return stream(sseBytes(), {
+      return stream(withSseHeartbeat(sseBytes()), {
         headers: {
           "content-type": "text/event-stream; charset=utf-8",
           "cache-control": "no-cache, no-transform",
