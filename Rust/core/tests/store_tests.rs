@@ -19,7 +19,7 @@ use bull_core::{
         DebugSessionRow,
         DecodedFrameInput, ExternalSleepSessionInput, ExternalSleepStageInput, BullStore,
         HourlyActivityMetricInput, MetricDebugFeatureInput, MetricProvenanceInput,
-        RawEvidenceInput, StepCounterSampleInput,
+        RawEvidenceInput, StepCounterSampleInput, StoreMaintenanceOptions,
     },
 };
 use serde_json::json;
@@ -785,6 +785,97 @@ fn raw_evidence_payload_compaction_keeps_decoded_rows() {
     assert_eq!(store.table_count("hourly_activity_metrics").unwrap(), 1);
     assert_eq!(store.table_count("daily_recovery_metrics").unwrap(), 1);
     assert_eq!(store.table_count("metric_provenance").unwrap(), 3);
+}
+
+#[test]
+fn store_maintenance_compacts_payload_copies_and_reports_file_state() {
+    let store = BullStore::open_in_memory().unwrap();
+    let raw = hex::decode(GET_HELLO_FRAME).unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
+    let payload_bytes = raw.len() as i64;
+    let decoded_payload_bytes = (parsed.payload_hex.len() / 2) as i64;
+
+    for (evidence_id, captured_at) in [
+        ("maintenance-frame-old", "2026-05-27T00:00:00Z"),
+        ("maintenance-frame-new", "2026-05-27T00:00:01Z"),
+    ] {
+        store
+            .insert_raw_evidence(RawEvidenceInput {
+                evidence_id,
+                source: "synthetic.fixture",
+                captured_at,
+                device_model: "WHOOP 5.0 Bull",
+                payload: &raw,
+                sensitivity: "public-test-fixture",
+                capture_session_id: None,
+            })
+            .unwrap();
+        store
+            .insert_decoded_frame(DecodedFrameInput {
+                frame_id: &format!("{evidence_id}.frame.0"),
+                evidence_id,
+                parsed: &parsed,
+                parser_version: "bull-core/0.1.0",
+            })
+            .unwrap();
+    }
+
+    // Caps sized to keep exactly the newest row in each table.
+    let report = store
+        .maintain(StoreMaintenanceOptions {
+            raw_payload_limit_bytes: payload_bytes,
+            decoded_payload_limit_bytes: decoded_payload_bytes,
+            vacuum_min_free_bytes: 0,
+            vacuum_min_free_percent: 0,
+        })
+        .unwrap();
+
+    assert_eq!(report.schema, "bull.store-maintenance-report.v1");
+    assert_eq!(report.raw_evidence.compacted_rows, 1);
+    assert_eq!(report.raw_evidence.after_bytes, payload_bytes);
+    assert_eq!(report.decoded_frames.compacted_rows, 1);
+    assert_eq!(report.decoded_frames.after_bytes, decoded_payload_bytes);
+    assert!(report.vacuumed);
+    assert!(report.page_size > 0);
+    assert!(report.file_bytes_after > 0);
+
+    // Oldest copies are blanked; newest copies and parsed JSON survive.
+    assert_eq!(
+        store
+            .raw_evidence("maintenance-frame-old")
+            .unwrap()
+            .unwrap()
+            .payload_hex,
+        ""
+    );
+    let decoded = store
+        .decoded_frames_between("2026-05-27T00:00:00Z", "2026-05-28T00:00:00Z")
+        .unwrap();
+    assert_eq!(decoded.len(), 2);
+    let old_frame = decoded
+        .iter()
+        .find(|frame| frame.frame_id == "maintenance-frame-old.frame.0")
+        .unwrap();
+    assert_eq!(old_frame.payload_hex, "");
+    assert_ne!(old_frame.parsed_payload_json, "");
+    let new_frame = decoded
+        .iter()
+        .find(|frame| frame.frame_id == "maintenance-frame-new.frame.0")
+        .unwrap();
+    assert_ne!(new_frame.payload_hex, "");
+
+    // No-op when everything fits: nothing compacted, nothing vacuumed.
+    let idle = store
+        .maintain(StoreMaintenanceOptions {
+            raw_payload_limit_bytes: payload_bytes,
+            decoded_payload_limit_bytes: decoded_payload_bytes,
+            vacuum_min_free_bytes: 64 * 1024 * 1024,
+            vacuum_min_free_percent: 10,
+        })
+        .unwrap();
+    assert_eq!(idle.raw_evidence.compacted_rows, 0);
+    assert_eq!(idle.decoded_frames.compacted_rows, 0);
+    assert!(!idle.vacuumed);
 }
 
 #[test]

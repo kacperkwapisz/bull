@@ -157,7 +157,7 @@ use crate::{
         ExternalSleepSessionInput, ExternalSleepSessionRow, ExternalSleepStageInput,
         ExternalSleepStageRow, BullStore, GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
-        OvernightSyncSessionInput, SleepCorrectionLabelInput,
+        OvernightSyncSessionInput, SleepCorrectionLabelInput, StoreMaintenanceOptions,
     },
     timeline::{
         observability_timeline_from_rows, packet_timeline_between,
@@ -312,6 +312,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.ewma_baseline_update",
     "store.gravity_rows_between",
     "store.insert_gravity_rows",
+    "store.maintain",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
 ];
@@ -376,6 +377,15 @@ struct StorageCheckArgs {
     database_path: String,
     #[serde(default)]
     self_test: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct StoreMaintainArgs {
+    database_path: String,
+    raw_payload_limit_bytes: Option<i64>,
+    decoded_payload_limit_bytes: Option<i64>,
+    vacuum_min_free_bytes: Option<i64>,
+    vacuum_min_free_percent: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2705,6 +2715,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(storage_check_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.maintain" => request_args::<StoreMaintainArgs>(&request)
+            .and_then(store_maintain_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.ewma_baseline_fold_history" => request_args::<EwmaBaselineFoldHistoryArgs>(&request)
             .and_then(ewma_baseline_fold_history_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3540,6 +3554,28 @@ fn exercise_sessions_between_bridge(
     let store = open_bridge_store(&args.database_path)?;
     let rows = store.exercise_sessions_between(&args.device_id, args.ts_start, args.ts_end)?;
     Ok(json!({ "sessions": rows }))
+}
+
+fn store_maintain_bridge(args: StoreMaintainArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let defaults = StoreMaintenanceOptions::default();
+    let report = store.maintain(StoreMaintenanceOptions {
+        raw_payload_limit_bytes: args
+            .raw_payload_limit_bytes
+            .unwrap_or(defaults.raw_payload_limit_bytes),
+        decoded_payload_limit_bytes: args
+            .decoded_payload_limit_bytes
+            .unwrap_or(defaults.decoded_payload_limit_bytes),
+        vacuum_min_free_bytes: args
+            .vacuum_min_free_bytes
+            .unwrap_or(defaults.vacuum_min_free_bytes),
+        vacuum_min_free_percent: args
+            .vacuum_min_free_percent
+            .unwrap_or(defaults.vacuum_min_free_percent),
+    })?;
+    serde_json::to_value(report).map_err(|error| {
+        BullError::message(format!("cannot serialize maintenance report: {error}"))
+    })
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {

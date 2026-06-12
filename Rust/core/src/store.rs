@@ -13,6 +13,12 @@ use crate::{
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 16;
 pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
+// Mobile maintenance caps. Raw payload bytes beyond these limits are
+// compacted oldest-first; curated metric tables are never touched. The caps
+// keep the on-device store small while Phase 2 (upload raw bundles to the
+// user's account, then prune) is the long-term home for full-fidelity raw data.
+pub const DEFAULT_MOBILE_RAW_PAYLOAD_LIMIT_BYTES: i64 = 128 * 1024 * 1024;
+pub const DEFAULT_MOBILE_DECODED_PAYLOAD_LIMIT_BYTES: i64 = 128 * 1024 * 1024;
 
 const ALLOWED_METRIC_SOURCE_KINDS: [&str; 4] = [
     "device_counter",
@@ -193,6 +199,44 @@ pub struct RawEvidencePayloadRetentionReport {
     pub after_bytes: i64,
     pub compacted_rows: i64,
     pub freed_bytes: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoreMaintenanceOptions {
+    /// Cap on retained raw_evidence payload bytes (oldest compacted first).
+    pub raw_payload_limit_bytes: i64,
+    /// Cap on retained decoded_frames payload bytes (oldest compacted first).
+    pub decoded_payload_limit_bytes: i64,
+    /// VACUUM when at least this many bytes sit on the freelist…
+    pub vacuum_min_free_bytes: i64,
+    /// …and the freelist is at least this fraction of the file (percent, 0-100).
+    pub vacuum_min_free_percent: i64,
+}
+
+impl Default for StoreMaintenanceOptions {
+    fn default() -> Self {
+        Self {
+            raw_payload_limit_bytes: DEFAULT_MOBILE_RAW_PAYLOAD_LIMIT_BYTES,
+            decoded_payload_limit_bytes: DEFAULT_MOBILE_DECODED_PAYLOAD_LIMIT_BYTES,
+            vacuum_min_free_bytes: 64 * 1024 * 1024,
+            vacuum_min_free_percent: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoreMaintenanceReport {
+    pub schema: String,
+    pub raw_evidence: RawEvidencePayloadRetentionReport,
+    pub decoded_frames: RawEvidencePayloadRetentionReport,
+    pub page_size: i64,
+    pub page_count_before: i64,
+    pub page_count_after: i64,
+    pub freelist_count_before: i64,
+    pub freelist_count_after: i64,
+    pub file_bytes_before: i64,
+    pub file_bytes_after: i64,
+    pub vacuumed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -5503,36 +5547,28 @@ impl BullStore {
             });
         }
 
-        let mut bytes_to_free = before_bytes - limit_bytes;
-        let mut statement = self.conn.prepare(
+        // Set-based compaction: a running byte total over rows ordered
+        // newest-first marks everything beyond the cap in one statement.
+        // A per-row UPDATE loop is unusable at on-device scale (millions of
+        // small frames after weeks of live capture).
+        let compacted_rows = self.conn.execute(
             r#"
-            SELECT evidence_id, LENGTH(payload_hex) / 2
-            FROM raw_evidence
-            WHERE payload_hex != ''
-            ORDER BY captured_at, evidence_id
+            UPDATE raw_evidence SET payload_hex = ''
+            WHERE evidence_id IN (
+                SELECT evidence_id FROM (
+                    SELECT
+                        evidence_id,
+                        SUM(LENGTH(payload_hex) / 2) OVER (
+                            ORDER BY captured_at DESC, evidence_id DESC
+                        ) AS running_bytes
+                    FROM raw_evidence
+                    WHERE payload_hex != ''
+                )
+                WHERE running_bytes > ?1
+            )
             "#,
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?;
-
-        let mut compacted_ids = Vec::new();
-        for row in rows {
-            let (evidence_id, payload_bytes) = row?;
-            if bytes_to_free <= 0 {
-                break;
-            }
-            bytes_to_free -= payload_bytes;
-            compacted_ids.push(evidence_id);
-        }
-
-        let mut compacted_rows = 0;
-        for evidence_id in compacted_ids {
-            compacted_rows += self.conn.execute(
-                "UPDATE raw_evidence SET payload_hex = '' WHERE evidence_id = ?1",
-                params![evidence_id],
-            )? as i64;
-        }
+            params![limit_bytes],
+        )? as i64;
 
         let after_bytes = self.raw_evidence_payload_bytes()?;
         Ok(RawEvidencePayloadRetentionReport {
@@ -5541,6 +5577,128 @@ impl BullStore {
             after_bytes,
             compacted_rows,
             freed_bytes: before_bytes - after_bytes,
+        })
+    }
+
+    pub fn decoded_frame_payload_bytes(&self) -> BullResult<i64> {
+        Ok(self.conn.query_row(
+            r#"
+            SELECT COALESCE(SUM(LENGTH(payload_hex) / 2), 0)
+            FROM decoded_frames
+            WHERE payload_hex != ''
+            "#,
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Blank the oldest decoded-frame payload hex until retained payload bytes
+    /// fit under `limit_bytes`. Parsed payload JSON, CRC fields, and all
+    /// curated metric tables are preserved; only the raw byte copy is dropped.
+    pub fn compact_decoded_frame_payloads_to_limit(
+        &self,
+        limit_bytes: i64,
+    ) -> BullResult<RawEvidencePayloadRetentionReport> {
+        validate_non_negative("limit_bytes", limit_bytes)?;
+        let before_bytes = self.decoded_frame_payload_bytes()?;
+        if before_bytes <= limit_bytes {
+            return Ok(RawEvidencePayloadRetentionReport {
+                limit_bytes,
+                before_bytes,
+                after_bytes: before_bytes,
+                compacted_rows: 0,
+                freed_bytes: 0,
+            });
+        }
+
+        // Same set-based strategy as raw_evidence compaction (see above).
+        let compacted_rows = self.conn.execute(
+            r#"
+            UPDATE decoded_frames SET payload_hex = ''
+            WHERE frame_id IN (
+                SELECT frame_id FROM (
+                    SELECT
+                        decoded_frames.frame_id AS frame_id,
+                        SUM(LENGTH(decoded_frames.payload_hex) / 2) OVER (
+                            ORDER BY raw_evidence.captured_at DESC, decoded_frames.frame_id DESC
+                        ) AS running_bytes
+                    FROM decoded_frames
+                    INNER JOIN raw_evidence
+                        ON raw_evidence.evidence_id = decoded_frames.evidence_id
+                    WHERE decoded_frames.payload_hex != ''
+                )
+                WHERE running_bytes > ?1
+            )
+            "#,
+            params![limit_bytes],
+        )? as i64;
+
+        let after_bytes = self.decoded_frame_payload_bytes()?;
+        Ok(RawEvidencePayloadRetentionReport {
+            limit_bytes,
+            before_bytes,
+            after_bytes,
+            compacted_rows,
+            freed_bytes: before_bytes - after_bytes,
+        })
+    }
+
+    /// On-device storage maintenance: compact raw payload copies to the mobile
+    /// caps, then VACUUM when enough freelist space accumulated to be worth
+    /// rewriting the file. Returns a full accounting of what changed.
+    pub fn maintain(&self, options: StoreMaintenanceOptions) -> BullResult<StoreMaintenanceReport> {
+        validate_non_negative("vacuum_min_free_bytes", options.vacuum_min_free_bytes)?;
+        if !(0..=100).contains(&options.vacuum_min_free_percent) {
+            return Err(BullError::message(
+                "vacuum_min_free_percent must be between 0 and 100",
+            ));
+        }
+        let page_size: i64 = self
+            .conn
+            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let page_count_before: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+
+        let raw_evidence =
+            self.compact_raw_evidence_payloads_to_limit(options.raw_payload_limit_bytes)?;
+        let decoded_frames =
+            self.compact_decoded_frame_payloads_to_limit(options.decoded_payload_limit_bytes)?;
+
+        let freelist_count_before: i64 = self
+            .conn
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        let free_bytes = freelist_count_before.saturating_mul(page_size);
+        let file_bytes_before = page_count_before.saturating_mul(page_size);
+        let free_percent = if file_bytes_before > 0 {
+            free_bytes.saturating_mul(100) / file_bytes_before
+        } else {
+            0
+        };
+        let should_vacuum = free_bytes >= options.vacuum_min_free_bytes
+            && free_percent >= options.vacuum_min_free_percent;
+        if should_vacuum {
+            self.conn.execute_batch("VACUUM;")?;
+        }
+
+        let page_count_after: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let freelist_count_after: i64 = self
+            .conn
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(StoreMaintenanceReport {
+            schema: "bull.store-maintenance-report.v1".to_string(),
+            raw_evidence,
+            decoded_frames,
+            page_size,
+            page_count_before,
+            page_count_after,
+            freelist_count_before,
+            freelist_count_after,
+            file_bytes_before,
+            file_bytes_after: page_count_after.saturating_mul(page_size),
+            vacuumed: should_vacuum,
         })
     }
 
