@@ -41,6 +41,15 @@ struct MoreView: View {
         .accessibilityLabel("Update profile")
       }
 
+      Section("Biometric Engine") {
+        NavigationLink {
+          BiometricEnginePreviewView(healthStore: healthStore)
+        } label: {
+          Label("Biometric Engine", systemImage: "waveform.path.ecg.rectangle")
+        }
+        .accessibilityLabel("Biometric Engine preview")
+      }
+
       Section("Device") {
         routeRows(MoreRoute.deviceRoutes)
       }

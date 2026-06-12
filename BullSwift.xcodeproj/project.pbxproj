@@ -11,6 +11,7 @@
 		A10000000000000000000002 /* BullAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* BullAppModel.swift */; };
 		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
 		A10000000000000000000060 /* WhatsNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* WhatsNew.swift */; };
+		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
 		A10000000000000000000004 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* OnboardingView.swift */; };
 		A10000000000000000000005 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ConnectionView.swift */; };
 		A10000000000000000000006 /* BullRustBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* BullRustBridge.swift */; };
@@ -187,6 +188,7 @@
 		A20000000000000000000002 /* BullAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A20000000000000000000060 /* WhatsNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNew.swift; sourceTree = "<group>"; };
+		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* BullRustBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullRustBridge.swift; sourceTree = "<group>"; };
@@ -404,6 +406,7 @@
 				D20000000000000000000021 /* PassiveActivityDetector.swift */,
 				A20000000000000000000003 /* RootView.swift */,
 				A20000000000000000000060 /* WhatsNew.swift */,
+				A20000000000000000000061 /* BiometricEnginePreview.swift */,
 				A20000000000000000000023 /* BullTheme.swift */,
 				A20000000000000000000004 /* OnboardingView.swift */,
 				D20000000000000000000009 /* OnboardingModels.swift */,
@@ -716,6 +719,7 @@
 				D10000000000000000000021 /* PassiveActivityDetector.swift in Sources */,
 				A10000000000000000000003 /* RootView.swift in Sources */,
 				A10000000000000000000060 /* WhatsNew.swift in Sources */,
+				A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */,
 				A10000000000000000000004 /* OnboardingView.swift in Sources */,
 				D10000000000000000000009 /* OnboardingModels.swift in Sources */,
 				D1000000000000000000000A /* OnboardingPermissions.swift in Sources */,
