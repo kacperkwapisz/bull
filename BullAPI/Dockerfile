@@ -11,7 +11,9 @@ RUN bun install --frozen-lockfile --production
 FROM base AS release
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV HYPER_SKIP_LISTEN=1
+# HYPER_SKIP_LISTEN must NOT be set here: src/app.ts boots its own Bun.serve
+# (with the SSE-safe idleTimeout) only when this flag is absent. Tests set the
+# flag themselves to import the app without listening.
 # Raw upload bundles are stored in object storage (S3/R2) via the S3_* runtime
 # env — no local volume required.
 
