@@ -124,6 +124,12 @@ pub struct RrHrConsistencyReport {
     pub scale_basis_under_test: String,
     pub label_policy: String,
     pub verdict: RrHrConsistencyVerdict,
+    /// Total decoded frames scanned in the requested range (all packet kinds).
+    pub decoded_frame_count: usize,
+    /// Decoded frames whose body is a V24 history body (regardless of whether
+    /// they carry HR and RR). Diagnoses whether historical sync has run.
+    pub v24_history_frame_count: usize,
+    /// V24 frames that carry both a non-zero HR and at least one RR interval.
     pub candidate_frame_count: usize,
     pub eligible_frame_count: usize,
     pub consistent_frame_count: usize,
@@ -236,6 +242,8 @@ pub fn evaluate_rr_hr_consistency(
         scale_basis_under_test: RR_HR_CONSISTENCY_SCALE_BASIS.to_string(),
         label_policy: RR_HR_CONSISTENCY_LABEL_POLICY.to_string(),
         verdict,
+        decoded_frame_count: candidate_frame_count,
+        v24_history_frame_count: candidate_frame_count,
         candidate_frame_count,
         eligible_frame_count,
         consistent_frame_count,
@@ -258,13 +266,37 @@ pub fn run_rr_hr_consistency_report(
     options: RrHrConsistencyOptions,
 ) -> BullResult<RrHrConsistencyReport> {
     let mut inputs = Vec::new();
+    let mut v24_history_frame_count = 0usize;
     for row in decoded_rows {
+        if row_is_v24_history(row)? {
+            v24_history_frame_count += 1;
+        }
         let Some(input) = rr_hr_input_from_row(row)? else {
             continue;
         };
         inputs.push(input);
     }
-    Ok(evaluate_rr_hr_consistency(&inputs, options))
+    let mut report = evaluate_rr_hr_consistency(&inputs, options);
+    report.decoded_frame_count = decoded_rows.len();
+    report.v24_history_frame_count = v24_history_frame_count;
+    Ok(report)
+}
+
+fn row_is_v24_history(row: &DecodedFrameRow) -> BullResult<bool> {
+    let parsed_payload: ParsedPayload =
+        serde_json::from_str(&row.parsed_payload_json).map_err(|error| {
+            BullError::message(format!(
+                "{} parsed_payload_json invalid: {error}",
+                row.frame_id
+            ))
+        })?;
+    Ok(matches!(
+        parsed_payload,
+        ParsedPayload::DataPacket {
+            body_summary: Some(DataPacketBodySummary::V24History { .. }),
+            ..
+        }
+    ))
 }
 
 fn rr_hr_input_from_row(row: &DecodedFrameRow) -> BullResult<Option<RrHrFrameInput>> {

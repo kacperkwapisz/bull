@@ -23,6 +23,9 @@ fn rr_hr_consistency_cli_reports_insufficient_data_on_empty_database() {
         "device_internal_hr_only_no_official_labels"
     );
     assert_eq!(report["verdict"], "insufficient_data");
+    assert_eq!(report["decoded_frame_count"], 0);
+    assert_eq!(report["v24_history_frame_count"], 0);
+    assert_eq!(report["candidate_frame_count"], 0);
     assert_eq!(report["eligible_frame_count"], 0);
     assert!(
         report["blockers"]

@@ -20,6 +20,8 @@ final class RrHrConsistencyDebugModel: ObservableObject {
 
   struct Result {
     let verdict: String
+    let decodedFrameCount: Int
+    let v24HistoryFrameCount: Int
     let candidateFrameCount: Int
     let eligibleFrameCount: Int
     let consistentFrameCount: Int
@@ -81,6 +83,8 @@ final class RrHrConsistencyDebugModel: ObservableObject {
     }
     return Result(
       verdict: (report["verdict"] as? String) ?? "unknown",
+      decodedFrameCount: Int(number(report["decoded_frame_count"]) ?? 0),
+      v24HistoryFrameCount: Int(number(report["v24_history_frame_count"]) ?? 0),
       candidateFrameCount: Int(number(report["candidate_frame_count"]) ?? 0),
       eligibleFrameCount: Int(number(report["eligible_frame_count"]) ?? 0),
       consistentFrameCount: Int(number(report["consistent_frame_count"]) ?? 0),
@@ -123,6 +127,9 @@ struct RrHrConsistencyDebugView: View {
         if let r = verifier.result {
           verdictCard(r)
           countsCard(r)
+          if r.verdict == "insufficient_data" {
+            howToCard(r)
+          }
           if !r.nextActions.isEmpty || !r.blockers.isEmpty {
             actionsCard(r)
           }
@@ -183,9 +190,13 @@ struct RrHrConsistencyDebugView: View {
 
   private func countsCard(_ r: RrHrConsistencyDebugModel.Result) -> some View {
     RrHrCard(icon: "list.number", tint: .blue, title: "Frames") {
-      RrHrMetricRow(label: "Candidate V24 frames", value: "\(r.candidateFrameCount)")
+      RrHrMetricRow(label: "Decoded frames (all)", value: "\(r.decodedFrameCount)")
       Divider().overlay(Color.primary.opacity(0.06))
-      RrHrMetricRow(label: "Eligible (HR + RR)", value: "\(r.eligibleFrameCount)")
+      RrHrMetricRow(label: "k24 history frames", value: "\(r.v24HistoryFrameCount)")
+      Divider().overlay(Color.primary.opacity(0.06))
+      RrHrMetricRow(label: "Carry HR + RR", value: "\(r.candidateFrameCount)")
+      Divider().overlay(Color.primary.opacity(0.06))
+      RrHrMetricRow(label: "Eligible", value: "\(r.eligibleFrameCount)")
       Divider().overlay(Color.primary.opacity(0.06))
       RrHrMetricRow(
         label: "Consistent",
@@ -228,6 +239,46 @@ struct RrHrConsistencyDebugView: View {
         }
       }
     }
+  }
+
+  /// Case-specific guidance that turns "insufficient data" into a concrete next
+  /// step, based on which stage of the pipeline has no data yet.
+  private func howToCard(_ r: RrHrConsistencyDebugModel.Result) -> some View {
+    RrHrCard(icon: "questionmark.circle.fill", tint: .blue, title: "How to get data") {
+      ForEach(Array(howToSteps(r).enumerated()), id: \.offset) { _, step in
+        Label(step, systemImage: "arrow.right")
+          .font(.system(size: 13)).foregroundStyle(.primary)
+      }
+    }
+  }
+
+  private func howToSteps(_ r: RrHrConsistencyDebugModel.Result) -> [String] {
+    if r.decodedFrameCount == 0 {
+      return [
+        "No frames captured yet. Put the band on your wrist and connect it in the app.",
+        "Go to More > Debug and start a health packet capture (physiology mode).",
+        "Leave it running while worn (rest or sleep gives the richest HRV data).",
+        "Then come back here and tap Run.",
+      ]
+    }
+    if r.v24HistoryFrameCount == 0 {
+      return [
+        "Frames captured, but no k24 history frames yet — those come from a historical sync.",
+        "Keep the band worn and connected, then trigger a historical sync (More > Debug).",
+        "Once history has transferred, tap Run again.",
+      ]
+    }
+    if r.candidateFrameCount == 0 {
+      return [
+        "k24 history frames are present but none carry RR intervals.",
+        "This is the key finding: the device's k24 packet may not expose RR.",
+        "Capture a longer worn/overnight session and re-run; if RR still never appears, HRV must be sourced from the optical (R17) path instead.",
+      ]
+    }
+    return [
+      "Some RR-bearing frames exist but not enough to conclude (need 20+).",
+      "Wear the band longer and sync more history, then tap Run.",
+    ]
   }
 
   // MARK: Formatting
