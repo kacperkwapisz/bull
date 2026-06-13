@@ -129,6 +129,66 @@ struct CoachAPIClient {
     )
   }
 
+  /// Push curated daily metrics computed on-device to the long-term store.
+  /// `body` must match BullAPI's `POST /v1/data/metrics` schema (family arrays
+  /// keyed by day). Returns the server's `ingested` counts. Every value
+  /// originates from the connected device's own sensors.
+  @discardableResult
+  func pushDailyMetrics(body: [String: Any], token: String) async throws -> [String: Any] {
+    guard JSONSerialization.isValidJSONObject(body) else {
+      throw CoachAPIError.invalidBody
+    }
+    var request = URLRequest(url: CoachAPIConfiguration.dataMetricsURL)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.timeoutInterval = 60
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw CoachAPIError.invalidResponse
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      throw CoachAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+    }
+    return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+  }
+
+  /// Fetch curated metric history for restore-on-reinstall. Returns the parsed
+  /// family arrays (recovery/sleep/strain/stress/energy/vitals) the local Rust
+  /// core re-imports to hydrate its `daily_*` tables.
+  func fetchMetricHistory(from: String?, to: String?, token: String) async throws -> [String: Any] {
+    var components = URLComponents(
+      url: CoachAPIConfiguration.dataMetricsURL,
+      resolvingAgainstBaseURL: false
+    )
+    var items: [URLQueryItem] = []
+    if let from, !from.isEmpty {
+      items.append(URLQueryItem(name: "from", value: from))
+    }
+    if let to, !to.isEmpty {
+      items.append(URLQueryItem(name: "to", value: to))
+    }
+    if !items.isEmpty {
+      components?.queryItems = items
+    }
+    guard let url = components?.url else {
+      throw CoachAPIError.invalidURL
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 60
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw CoachAPIError.invalidResponse
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      throw CoachAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+    }
+    return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+  }
+
   func stream(
     accessToken: String,
     body: [String: Any],

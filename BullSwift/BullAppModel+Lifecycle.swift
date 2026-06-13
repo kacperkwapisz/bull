@@ -57,6 +57,12 @@ extension BullAppModel {
         // Raw spools whose sessions are finished move to the user's account
         // and are removed locally once the server confirms the upload.
         self.spoolArchiveUploader.archiveFinishedSessions()
+        // Restore curated metric history from the long-term store, then push
+        // anything computed locally that the server is missing. Idempotent on
+        // both ends, so this is safe on every launch (and rehydrates a fresh
+        // install once the session is signed in).
+        self.metricSyncCoordinator.restore()
+        self.metricSyncCoordinator.push(source: "device_launch_sync")
       }
     }
   }
@@ -74,6 +80,13 @@ extension BullAppModel {
   func handleAppLifecycleChange(_ phase: String) {
     let power = Self.currentOvernightPowerState()
     ble.record(source: "app.lifecycle", title: "scene_phase", body: "\(phase) | \(power.summary)")
+
+    // Persist locally-computed curated metrics to the long-term store as the
+    // app backgrounds, independent of the overnight-guard state below.
+    if phase == "background" || phase == "inactive" {
+      metricSyncCoordinator.push(source: "device_background_sync")
+    }
+
     guard overnightGuardActive else {
       return
     }

@@ -72,6 +72,15 @@ final class BullAppModel: ObservableObject {
       self?.ble.record(source: "storage.archive", title: title, body: body)
     }
   }
+  // Track A: pushes locally-computed curated metrics to the long-term store and
+  // restores history into the local store on a fresh install.
+  lazy var metricSyncCoordinator = BullMetricSyncCoordinator(
+    databasePath: HealthDataStore.defaultDatabasePath()
+  ) { [weak self] title, body in
+    DispatchQueue.main.async {
+      self?.ble.record(source: "metric.sync", title: title, body: body)
+    }
+  }
   let activityTimelineRefreshQueue = DispatchQueue(label: "com.bull.swift.activity-timeline-refresh", qos: .utility)
   let captureStatusSnapshotWriteQueue = DispatchQueue(label: "com.bull.swift.capture-status-snapshot", qos: .utility)
   let heartRateSamplePipeline = HeartRateSamplePipeline(
