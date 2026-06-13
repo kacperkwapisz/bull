@@ -153,7 +153,8 @@ use crate::{
         ActivityIntervalInput, ActivityMetricInput, ActivityMetricRow, ActivitySessionInput,
         ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION,
         CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
-        CommandValidationRecord, DailySleepMetricInput, DecodedFrameRow, ExerciseSessionRow,
+        CommandValidationRecord, DailyRecoveryMetricInput, DailyRecoveryMetricRow,
+        DailySleepMetricInput, DailySleepMetricRow, DecodedFrameRow, ExerciseSessionRow,
         ExternalSleepSessionInput, ExternalSleepSessionRow, ExternalSleepStageInput,
         ExternalSleepStageRow, BullStore, GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
@@ -257,10 +258,12 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "metrics.energy_daily_rollup",
     "metrics.energy_hourly_rollup",
     "metrics.energy_unavailable_daily_status",
+    "metrics.export_curated",
     "metrics.heart_rate_features",
     "metrics.hourly_activity_metrics",
     "metrics.hrv_capture_validation",
     "metrics.hrv_features",
+    "metrics.import_curated",
     "metrics.input_readiness",
     "metrics.motion_features",
     "metrics.oxygen_saturation_capture_validation",
@@ -735,6 +738,41 @@ struct DailyRecoveryMetricListArgs {
     database_path: String,
     start_time_unix_ms: i64,
     end_time_unix_ms: i64,
+}
+
+/// `metrics.export_curated` — serialize locally-computed curated daily rows into
+/// the exact JSON body the server's `POST /v1/data/metrics` accepts, so the
+/// device can push its clean data to the long-term store. The full local row is
+/// carried in each entry's `raw` field for lossless restore.
+#[derive(Debug, Clone, Deserialize)]
+struct ExportCuratedArgs {
+    database_path: String,
+    /// Provenance stamped on every exported row (e.g. "device_nightly_compute").
+    #[serde(default)]
+    source: Option<String>,
+    /// Cap on nightly sleep rows pulled (newest first). Defaults to full history.
+    #[serde(default)]
+    sleep_limit: Option<i64>,
+}
+
+/// `metrics.import_curated` — hydrate the local `daily_*` tables from a server
+/// restore response (`GET /v1/data/metrics`). Each family is an array of server
+/// rows; the lossless local row is read from each row's `raw` field.
+#[derive(Debug, Clone, Deserialize)]
+struct ImportCuratedArgs {
+    database_path: String,
+    #[serde(default)]
+    sleep: Vec<serde_json::Value>,
+    #[serde(default)]
+    vitals: Vec<serde_json::Value>,
+    #[serde(default)]
+    recovery: Vec<serde_json::Value>,
+    #[serde(default)]
+    strain: Vec<serde_json::Value>,
+    #[serde(default)]
+    stress: Vec<serde_json::Value>,
+    #[serde(default)]
+    energy: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2291,6 +2329,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.energy_daily_rollup" => request_args::<EnergyDailyRollupArgs>(&request)
             .and_then(energy_daily_rollup_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.export_curated" => request_args::<ExportCuratedArgs>(&request)
+            .and_then(export_curated_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.import_curated" => request_args::<ImportCuratedArgs>(&request)
+            .and_then(import_curated_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.energy_unavailable_daily_status" => {
@@ -4607,6 +4653,143 @@ fn daily_recovery_metrics_bridge(
         "end_time_unix_ms": args.end_time_unix_ms,
         "metric_count": metrics.len(),
         "metrics": metrics,
+    }))
+}
+
+/// Map a locally-stored recovery (vitals) row into a server `vitals` push entry.
+/// The typed fields are for the server's queryable projection; the full local
+/// row rides along in `raw` so restore reconstructs it losslessly.
+fn vitals_push_entry(row: &DailyRecoveryMetricRow) -> serde_json::Value {
+    json!({
+        "day": row.date_key,
+        "resting_hr_bpm": row.resting_hr_bpm,
+        "hrv_ms": row.hrv_rmssd_ms,
+        "respiratory_rate": row.respiratory_rate_rpm,
+        "skin_temp_c": row.skin_temperature_delta_c,
+        "spo2_pct": row.oxygen_saturation_percent,
+        "raw": row,
+    })
+}
+
+/// Map a locally-stored nightly sleep row into a server `sleep` push entry.
+fn sleep_push_entry(row: &DailySleepMetricRow) -> serde_json::Value {
+    let stages: std::collections::BTreeMap<String, f64> =
+        serde_json::from_str(&row.stage_minutes_json).unwrap_or_default();
+    json!({
+        "day": row.date_key,
+        "sleep_score": row.score_0_to_100,
+        "total_sleep_minutes": row.sleep_duration_minutes,
+        // Local staging labels: "rem", "deep", "core" (light), "awake".
+        "rem_minutes": stages.get("rem").copied(),
+        "deep_minutes": stages.get("deep").copied(),
+        "light_minutes": stages.get("core").copied(),
+        "awake_minutes": stages.get("awake").copied(),
+        "raw": row,
+    })
+}
+
+fn export_curated_bridge(args: ExportCuratedArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let recovery_rows = store.daily_recovery_metrics_all_ordered()?;
+    let sleep_rows = store.list_daily_sleep_metrics(args.sleep_limit.unwrap_or(3650))?;
+
+    let vitals: Vec<serde_json::Value> = recovery_rows.iter().map(vitals_push_entry).collect();
+    let sleep: Vec<serde_json::Value> = sleep_rows.iter().map(sleep_push_entry).collect();
+
+    let mut body = serde_json::Map::new();
+    if let Some(source) = args.source.as_ref().filter(|s| !s.trim().is_empty()) {
+        body.insert("source".to_string(), json!(source));
+    }
+    // recovery/strain/stress/energy have no curated local source table yet (Track
+    // C3); emit honest empty arrays rather than fabricated values.
+    body.insert("sleep".to_string(), json!(sleep));
+    body.insert("vitals".to_string(), json!(vitals));
+    Ok(json!({
+        "schema": "bull.curated-metrics-push.v1",
+        "generated_by": "bull-bridge",
+        "counts": { "sleep": sleep_rows.len(), "vitals": recovery_rows.len() },
+        "body": serde_json::Value::Object(body),
+    }))
+}
+
+/// Pull each restore row's lossless local payload from its `raw` field.
+fn rows_with_raw(values: &[serde_json::Value]) -> impl Iterator<Item = &serde_json::Value> {
+    values.iter().filter_map(|v| v.get("raw")).filter(|raw| !raw.is_null())
+}
+
+fn import_curated_bridge(args: ImportCuratedArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+
+    let mut vitals_imported = 0usize;
+    let mut vitals_skipped = 0usize;
+    for raw in rows_with_raw(&args.vitals) {
+        match serde_json::from_value::<DailyRecoveryMetricRow>(raw.clone()) {
+            Ok(row) => {
+                store.upsert_daily_recovery_metric(DailyRecoveryMetricInput {
+                    daily_metric_id: &row.daily_metric_id,
+                    date_key: &row.date_key,
+                    timezone: &row.timezone,
+                    start_time_unix_ms: row.start_time_unix_ms,
+                    end_time_unix_ms: row.end_time_unix_ms,
+                    resting_hr_bpm: row.resting_hr_bpm,
+                    hrv_rmssd_ms: row.hrv_rmssd_ms,
+                    respiratory_rate_rpm: row.respiratory_rate_rpm,
+                    oxygen_saturation_percent: row.oxygen_saturation_percent,
+                    skin_temperature_delta_c: row.skin_temperature_delta_c,
+                    source_kind: &row.source_kind,
+                    confidence: row.confidence,
+                    inputs_json: &row.inputs_json,
+                    quality_flags_json: &row.quality_flags_json,
+                    provenance_json: &row.provenance_json,
+                })?;
+                vitals_imported += 1;
+            }
+            Err(_) => vitals_skipped += 1,
+        }
+    }
+
+    let mut sleep_imported = 0usize;
+    let mut sleep_skipped = 0usize;
+    for raw in rows_with_raw(&args.sleep) {
+        match serde_json::from_value::<DailySleepMetricRow>(raw.clone()) {
+            Ok(row) => {
+                store.upsert_daily_sleep_metric(DailySleepMetricInput {
+                    nightly_sleep_id: &row.nightly_sleep_id,
+                    date_key: &row.date_key,
+                    start_time: &row.start_time,
+                    end_time: &row.end_time,
+                    start_time_unix_ms: row.start_time_unix_ms,
+                    end_time_unix_ms: row.end_time_unix_ms,
+                    score_0_to_100: row.score_0_to_100,
+                    sleep_duration_minutes: row.sleep_duration_minutes,
+                    time_in_bed_minutes: row.time_in_bed_minutes,
+                    sleep_performance_fraction: row.sleep_performance_fraction,
+                    heart_rate_dip_percent: row.heart_rate_dip_percent,
+                    disturbance_count: row.disturbance_count,
+                    algorithm_id: &row.algorithm_id,
+                    algorithm_version: &row.algorithm_version,
+                    source_kind: &row.source_kind,
+                    confidence: row.confidence,
+                    stage_minutes_json: &row.stage_minutes_json,
+                    quality_flags_json: &row.quality_flags_json,
+                    provenance_json: &row.provenance_json,
+                })?;
+                sleep_imported += 1;
+            }
+            Err(_) => sleep_skipped += 1,
+        }
+    }
+
+    // recovery/strain/stress/energy have no curated local target table yet
+    // (Track C3); count what arrived so callers can see the round-trip is whole.
+    let deferred = args.recovery.len() + args.strain.len() + args.stress.len() + args.energy.len();
+
+    Ok(json!({
+        "schema": "bull.curated-metrics-import.v1",
+        "generated_by": "bull-bridge",
+        "imported": { "sleep": sleep_imported, "vitals": vitals_imported },
+        "skipped": { "sleep": sleep_skipped, "vitals": vitals_skipped },
+        "deferred_rows": deferred,
     }))
 }
 
@@ -8964,6 +9147,125 @@ mod tests {
         let fold_result = fold_resp.result.expect("fold_history result");
         assert_eq!(fold_result["hrv"]["night_count"], 1);
         assert!((fold_result["hrv"]["mean"].as_f64().unwrap() - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn export_then_import_curated_round_trips_sleep_and_vitals() {
+        // Seed a source store with one nightly sleep row and one recovery
+        // (vitals) row, export the curated push body, then import that body's
+        // rows into a fresh store and assert both reappear (restore-on-reinstall).
+        let (_src_dir, src_path) = make_temp_db();
+        {
+            let store = crate::store::BullStore::open(std::path::Path::new(&src_path))
+                .expect("open src store");
+            store
+                .upsert_daily_recovery_metric(DailyRecoveryMetricInput {
+                    daily_metric_id: "rec-2026-06-10",
+                    date_key: "2026-06-10",
+                    timezone: "UTC",
+                    start_time_unix_ms: 1_780_000_000_000,
+                    end_time_unix_ms: 1_780_028_800_000,
+                    resting_hr_bpm: Some(52.0),
+                    hrv_rmssd_ms: Some(64.0),
+                    respiratory_rate_rpm: Some(14.2),
+                    oxygen_saturation_percent: Some(96.0),
+                    skin_temperature_delta_c: Some(0.3),
+                    source_kind: "device_sensor",
+                    confidence: 0.9,
+                    inputs_json: "{}",
+                    quality_flags_json: "[]",
+                    provenance_json: "{}",
+                })
+                .expect("seed recovery");
+            store
+                .upsert_daily_sleep_metric(DailySleepMetricInput {
+                    nightly_sleep_id: "nightly-sleep.1780000000000",
+                    date_key: "2026-06-10",
+                    start_time: "2026-06-10T00:00:00.000Z",
+                    end_time: "2026-06-10T08:00:00.000Z",
+                    start_time_unix_ms: 1_780_000_000_000,
+                    end_time_unix_ms: 1_780_028_800_000,
+                    score_0_to_100: Some(88.0),
+                    sleep_duration_minutes: Some(451.0),
+                    time_in_bed_minutes: Some(480.0),
+                    sleep_performance_fraction: Some(0.94),
+                    heart_rate_dip_percent: Some(12.0),
+                    disturbance_count: Some(3),
+                    algorithm_id: "bull_sleep_v1",
+                    algorithm_version: "1.0.0",
+                    source_kind: "packet_derived_local",
+                    confidence: 0.9,
+                    stage_minutes_json: "{\"rem\":96.0,\"deep\":80.0,\"core\":275.0,\"awake\":29.0}",
+                    quality_flags_json: "[]",
+                    provenance_json: "{}",
+                })
+                .expect("seed sleep");
+        }
+
+        let export = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-export".to_string(),
+            method: "metrics.export_curated".to_string(),
+            args: json!({ "database_path": src_path, "source": "device_nightly_compute" }),
+        });
+        assert!(export.ok, "export must succeed: {:?}", export.error);
+        let body = export.result.expect("export result")["body"].clone();
+        assert_eq!(body["vitals"].as_array().expect("vitals").len(), 1);
+        assert_eq!(body["sleep"].as_array().expect("sleep").len(), 1);
+        assert_eq!(body["source"], "device_nightly_compute");
+        // Typed projection fields are populated for the web read path.
+        assert_eq!(body["vitals"][0]["hrv_ms"], 64.0);
+        assert_eq!(body["sleep"][0]["light_minutes"], 275.0);
+
+        // A fresh install: import the exported rows (each carries `raw`).
+        let (_dst_dir, dst_path) = make_temp_db();
+        let import = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-import".to_string(),
+            method: "metrics.import_curated".to_string(),
+            args: json!({
+                "database_path": dst_path,
+                "vitals": body["vitals"],
+                "sleep": body["sleep"],
+            }),
+        });
+        assert!(import.ok, "import must succeed: {:?}", import.error);
+        let imported = import.result.expect("import result");
+        assert_eq!(imported["imported"]["vitals"], 1);
+        assert_eq!(imported["imported"]["sleep"], 1);
+        assert_eq!(imported["skipped"]["vitals"], 0);
+        assert_eq!(imported["skipped"]["sleep"], 0);
+
+        // The destination store now holds the restored rows verbatim.
+        let dst = crate::store::BullStore::open(std::path::Path::new(&dst_path))
+            .expect("open dst store");
+        let rec = dst
+            .daily_recovery_metric("rec-2026-06-10")
+            .expect("query recovery")
+            .expect("recovery row present");
+        assert_eq!(rec.hrv_rmssd_ms, Some(64.0));
+        assert_eq!(rec.respiratory_rate_rpm, Some(14.2));
+        let nights = dst.list_daily_sleep_metrics(10).expect("list sleep");
+        assert_eq!(nights.len(), 1);
+        assert_eq!(nights[0].nightly_sleep_id, "nightly-sleep.1780000000000");
+        assert_eq!(nights[0].score_0_to_100, Some(88.0));
+
+        // Idempotent re-import converges (no duplicate rows).
+        let reimport = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "test-reimport".to_string(),
+            method: "metrics.import_curated".to_string(),
+            args: json!({
+                "database_path": dst_path,
+                "vitals": body["vitals"],
+                "sleep": body["sleep"],
+            }),
+        });
+        assert!(reimport.ok, "reimport must succeed");
+        assert_eq!(
+            dst.list_daily_sleep_metrics(10).expect("list sleep again").len(),
+            1
+        );
     }
 
     #[test]
