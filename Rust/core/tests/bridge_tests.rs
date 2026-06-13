@@ -8743,3 +8743,126 @@ fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
 fn put_i16(bytes: &mut [u8], offset: usize, value: i16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
+
+// ── Stale-clock guard tests: 300s grid snap + EVENT type-48 bypass ───────────
+
+/// Stale-clock guard: a timestamp-evidence row whose device clock diverges from
+/// captured_at by more than 86_400 s is snapped to (device_ts / 300) * 300. The
+/// test supplies sample_time equal to that snapped value — the row must be
+/// confirmed (motion/heart-rate timestamp evidence counts == 1).
+#[test]
+fn stale_device_clock_snaps_to_300s_grid_for_timestamp_confirmation() {
+    // captured_at wall-clock: 2026-01-01T20:00:00Z = 1767297600 s
+    // device timestamp (motion): 946685800 s (2000-01-01 ~00:16:40Z — plausible but stale by >> 86_400 s)
+    //   snapped = (946685800 / 300) * 300 = 946685700 = 2000-01-01T00:15:00Z
+    // device timestamp (HR): 946686100 s
+    //   snapped = (946686100 / 300) * 300 = 946686000 = 2000-01-01T00:20:00Z
+    let response = request(serde_json::json!({
+        "schema": "bull.bridge.request.v1",
+        "request_id": "stale-clock-snap-1",
+        "method": "historical_sync.validate_physical_evidence",
+        "args": {
+            "schema": "bull.historical-sync-physical-validation.v1",
+            "generation": "gen5",
+            "capture_session_id": "stale-clock-test-session",
+            "timestamp_evidence": [
+                {
+                    "packet_kind": "raw_motion_k21",
+                    "source_signal": "raw_motion_k21",
+                    "captured_at": "2026-01-01T20:00:00Z",
+                    "sample_time": "2000-01-01T00:15:00Z",
+                    "sample_time_source": "device_timestamp",
+                    "device_timestamp_seconds": 946685800,
+                    "device_timestamp_subseconds": 0,
+                    "capture_session_id": "stale-clock-test-session"
+                },
+                {
+                    "packet_kind": "normal_history",
+                    "source_signal": "heart_rate",
+                    "captured_at": "2026-01-01T20:00:00Z",
+                    "sample_time": "2000-01-01T00:20:00Z",
+                    "sample_time_source": "device_timestamp",
+                    "device_timestamp_seconds": 946686100,
+                    "device_timestamp_subseconds": 0,
+                    "capture_session_id": "stale-clock-test-session"
+                }
+            ]
+        }
+    }));
+    assert!(response.ok, "validate_physical_evidence failed: {:?}", response.error);
+    let result = response.result.unwrap();
+
+    // The stale-clock guard must snap device_timestamp_seconds=946685800 -> 946685700
+    // and device_timestamp_seconds=946686100 -> 946686000.
+    // sample_time matches the snapped value -> rows confirmed.
+    assert_eq!(
+        result["motion_timestamp_evidence_count"], 1,
+        "stale-clock guard did not snap motion timestamp to 300s grid. Result: {:?}",
+        result
+    );
+    assert_eq!(
+        result["heart_rate_timestamp_evidence_count"], 1,
+        "stale-clock guard did not snap HR timestamp to 300s grid. Result: {:?}",
+        result
+    );
+}
+
+/// EVENT type-48 bypass: an EVENT packet's device_timestamp is a native RTC unix
+/// second and must NOT be snapped even when the device clock is stale. The test
+/// supplies sample_time equal to the RAW (unsnapped) device timestamp — confirming
+/// the bypass is active.
+#[test]
+fn event_packet_timestamp_bypasses_stale_clock_snap() {
+    // Motion row: fresh clock (captured_at ~ device_timestamp, difference < 86_400 s — not stale).
+    //   captured_at=2026-01-01T20:00:00Z, device_timestamp=1767304800 (= 2026-01-01T22:00:00Z).
+    //   sample_time must equal device_timestamp directly: "2026-01-01T22:00:00Z".
+    //
+    // EVENT row: stale clock. captured_at=2026-01-01T20:00:00Z, device_timestamp=946685800
+    //   (2000-01-01T00:16:40Z — stale by >> 86_400 s, snapped would be 946685700 = 2000-01-01T00:15:00Z).
+    //   Because it is an EVENT packet, the bypass applies: sample_time must equal the RAW
+    //   device_timestamp "2000-01-01T00:16:40Z", NOT the snapped "2000-01-01T00:15:00Z".
+    let response = request(serde_json::json!({
+        "schema": "bull.bridge.request.v1",
+        "request_id": "event-bypass-1",
+        "method": "historical_sync.validate_physical_evidence",
+        "args": {
+            "schema": "bull.historical-sync-physical-validation.v1",
+            "generation": "gen5",
+            "capture_session_id": "event-bypass-test-session",
+            "timestamp_evidence": [
+                {
+                    "packet_kind": "raw_motion_k21",
+                    "source_signal": "raw_motion_k21",
+                    "captured_at": "2026-01-01T20:00:00Z",
+                    "sample_time": "2026-01-01T22:00:00Z",
+                    "sample_time_source": "device_timestamp",
+                    "device_timestamp_seconds": 1767304800,
+                    "device_timestamp_subseconds": 0,
+                    "capture_session_id": "event-bypass-test-session"
+                },
+                {
+                    "packet_kind": "event",
+                    "source_signal": "heart_rate",
+                    "captured_at": "2026-01-01T20:00:00Z",
+                    "sample_time": "2000-01-01T00:16:40Z",
+                    "sample_time_source": "device_timestamp",
+                    "device_timestamp_seconds": 946685800,
+                    "device_timestamp_subseconds": 0,
+                    "capture_session_id": "event-bypass-test-session"
+                }
+            ]
+        }
+    }));
+    assert!(response.ok, "validate_physical_evidence failed: {:?}", response.error);
+    let result = response.result.unwrap();
+
+    // The EVENT row must be confirmed using the raw device_timestamp (946685800 s =
+    // "2000-01-01T00:16:40Z"), NOT the snapped value (946685700 s = "2000-01-01T00:15:00Z").
+    // If the bypass is missing, the stale guard snaps 946685800 -> 946685700, which does
+    // NOT match sample_time, so heart_rate_timestamp_evidence_count stays 0.
+    assert_eq!(
+        result["heart_rate_timestamp_evidence_count"], 1,
+        "EVENT packet timestamp was snapped instead of bypassed. Result: {:?}",
+        result
+    );
+}

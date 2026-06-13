@@ -1902,7 +1902,23 @@ fn timestamp_packet_confirmed_rows(
             if device_timestamp_subseconds > 999 {
                 return None;
             }
-            let device_timestamp_unix_ms = i64::from(device_timestamp_seconds) * 1_000
+            // EVENT (type-48) packets carry the device's native RTC unix seconds, so they
+            // bypass the stale-clock snap. For every other packet type, if the device clock
+            // diverges from captured_at by more than 86_400 seconds (one day), snap the
+            // device seconds to a 300-second grid. This bounds how far a corrupt or reset
+            // RTC can move a stored row instead of recording an implausibly off timestamp.
+            let is_event_packet = packet_kind.contains("event");
+            let captured_at_unix_s = captured_at_unix_ms / 1_000;
+            let effective_device_seconds = if !is_event_packet
+                && (captured_at_unix_s - i64::from(device_timestamp_seconds))
+                    .unsigned_abs()
+                    > 86_400
+            {
+                (device_timestamp_seconds / 300) * 300
+            } else {
+                device_timestamp_seconds
+            };
+            let device_timestamp_unix_ms = i64::from(effective_device_seconds) * 1_000
                 + i64::from(device_timestamp_subseconds);
             (timestamp_row_matches_signal(&packet_kind, &source_signal, required_signal)
                 && plausible_unix_timestamp_seconds(device_timestamp_seconds)
