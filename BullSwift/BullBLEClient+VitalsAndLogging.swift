@@ -435,6 +435,10 @@ extension BullBLEClient {
     if source == "overnight.guard" || source == "app.lifecycle" || source == "health.packet_capture" {
       return true
     }
+    // Curated metric sync (Track A) is low-volume and high-signal; always keep.
+    if source == "metric.sync" {
+      return true
+    }
     if isLowVolumeBLELifecycleRecord(source: source, title: title) {
       return true
     }
@@ -527,6 +531,11 @@ extension BullBLEClient {
       return true
     }
     if message.source == "overnight.guard" || message.source == "app.lifecycle" {
+      return true
+    }
+    // Curated metric sync (Track A): persist push/restore outcomes so the
+    // server round-trip is inspectable in the in-app log and exports.
+    if message.source == "metric.sync" {
       return true
     }
     if message.source == "activity.detect" {
