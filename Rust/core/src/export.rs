@@ -2394,6 +2394,10 @@ fn export_sensor_samples(
                 // V24 biometric streams are persisted via dedicated sample tables,
                 // not the generic sensor-sample export path — skip gracefully.
             }
+            DataPacketBodySummary::R22Whoop5Hr { .. } => {
+                // R22 realtime frames are decoded for live use, not the generic
+                // sensor-sample export path — skip gracefully.
+            }
         }
     }
     Ok(rows)
