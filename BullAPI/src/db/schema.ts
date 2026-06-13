@@ -165,6 +165,124 @@ export const spo2Samples = pgTable(
   }),
 )
 
+/**
+ * Daily strain rollup (movement + cardiovascular load for the calendar day).
+ * Curated projection pushed by the device after its own on-device compute;
+ * keyed by (user, day) so a re-push of the same day is an idempotent upsert.
+ */
+export const dailyStrain = pgTable(
+  "daily_strain",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceBundleId: uuid("source_bundle_id").references(() => uploadBundles.id, {
+      onDelete: "set null",
+    }),
+    day: date("day").notNull(),
+    strainScore: doublePrecision("strain_score"),
+    kilojoules: doublePrecision("kilojoules"),
+    avgHrBpm: doublePrecision("avg_hr_bpm"),
+    maxHrBpm: doublePrecision("max_hr_bpm"),
+    // Free-text provenance of the curated row (e.g. "device_nightly_compute").
+    source: text("source"),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDayUnique: uniqueIndex("daily_strain_user_day_uq").on(t.userId, t.day),
+  }),
+)
+
+/**
+ * Daily stress rollup. Same curated-projection contract as dailyStrain.
+ */
+export const dailyStress = pgTable(
+  "daily_stress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceBundleId: uuid("source_bundle_id").references(() => uploadBundles.id, {
+      onDelete: "set null",
+    }),
+    day: date("day").notNull(),
+    stressScore: doublePrecision("stress_score"),
+    avgStress: doublePrecision("avg_stress"),
+    maxStress: doublePrecision("max_stress"),
+    highStressMinutes: doublePrecision("high_stress_minutes"),
+    source: text("source"),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDayUnique: uniqueIndex("daily_stress_user_day_uq").on(t.userId, t.day),
+  }),
+)
+
+/**
+ * Daily energy / battery rollup. Same curated-projection contract.
+ */
+export const dailyEnergy = pgTable(
+  "daily_energy",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceBundleId: uuid("source_bundle_id").references(() => uploadBundles.id, {
+      onDelete: "set null",
+    }),
+    day: date("day").notNull(),
+    energyScore: doublePrecision("energy_score"),
+    energyBank: doublePrecision("energy_bank"),
+    chargeRate: doublePrecision("charge_rate"),
+    drainRate: doublePrecision("drain_rate"),
+    source: text("source"),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDayUnique: uniqueIndex("daily_energy_user_day_uq").on(t.userId, t.day),
+  }),
+)
+
+/**
+ * Daily vitals rollup (resting HR, HRV, respiratory rate, skin temp, SpO2).
+ * Each value originates from the connected device's own live sensor data.
+ * Same curated-projection contract: keyed by (user, day), idempotent upsert.
+ */
+export const vitalsDaily = pgTable(
+  "vitals_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceBundleId: uuid("source_bundle_id").references(() => uploadBundles.id, {
+      onDelete: "set null",
+    }),
+    day: date("day").notNull(),
+    restingHrBpm: doublePrecision("resting_hr_bpm"),
+    hrvMs: doublePrecision("hrv_ms"),
+    respiratoryRate: doublePrecision("respiratory_rate"),
+    skinTempC: doublePrecision("skin_temp_c"),
+    spo2Pct: doublePrecision("spo2_pct"),
+    source: text("source"),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDayUnique: uniqueIndex("vitals_daily_user_day_uq").on(t.userId, t.day),
+  }),
+)
+
 export type User = typeof users.$inferSelect
 export type AppleIdentity = typeof appleIdentities.$inferSelect
 export type Device = typeof devices.$inferSelect
@@ -172,3 +290,7 @@ export type UploadBundle = typeof uploadBundles.$inferSelect
 export type DailyRecovery = typeof dailyRecovery.$inferSelect
 export type DailySleep = typeof dailySleep.$inferSelect
 export type Spo2Sample = typeof spo2Samples.$inferSelect
+export type DailyStrain = typeof dailyStrain.$inferSelect
+export type DailyStress = typeof dailyStress.$inferSelect
+export type DailyEnergy = typeof dailyEnergy.$inferSelect
+export type VitalsDaily = typeof vitalsDaily.$inferSelect

@@ -5,13 +5,19 @@ import type { Env } from "../lib/env.ts"
 import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
+import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
 import {
   dataSummary,
   getBundleForUser,
+  listEnergy,
   listRecovery,
   listSleep,
   listSpo2,
+  listStrain,
+  listStress,
   listUploads,
+  listVitals,
+  restoreMetrics,
 } from "../services/data-read.ts"
 
 const DOWNLOAD_URL_TTL_SECONDS = 15 * 60
@@ -174,6 +180,110 @@ export function dataRoutes(env: Env) {
       return ok({ rows: await listSpo2(db, userId, query.limit) })
     })
 
+  // Push: idempotent curated daily rows computed on-device. Independent of the
+  // raw-archive object store; writes only the curated projection tables.
+  // JSON body validated by metricsPushSchema; re-pushing a day is an upsert.
+  const metricsPush = route
+    .post("/v1/data/metrics")
+    .body(metricsPushSchema)
+    .use(jwt)
+    .handle(async ({ ctx, body }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const counts = await ingestMetrics(db, userId, body)
+      return created({ ingested: counts })
+    })
+
+  // Restore: full curated metric history for a day range, in the shape the
+  // device's Rust core re-imports to hydrate its local daily_* tables on a
+  // fresh install. Honest empty states: families with no rows return [].
+  const metricsRestore = route
+    .get("/v1/data/metrics")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const data = await restoreMetrics(db, userId, {
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        limit: query.limit,
+      })
+      return ok(data)
+    })
+
+  const strain = route
+    .get("/v1/data/strain")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const rows = await listStrain(db, userId, {
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        limit: query.limit,
+      })
+      return ok({ rows })
+    })
+
+  const stress = route
+    .get("/v1/data/stress")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const rows = await listStress(db, userId, {
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        limit: query.limit,
+      })
+      return ok({ rows })
+    })
+
+  const energy = route
+    .get("/v1/data/energy")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const rows = await listEnergy(db, userId, {
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        limit: query.limit,
+      })
+      return ok({ rows })
+    })
+
+  const vitals = route
+    .get("/v1/data/vitals")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const rows = await listVitals(db, userId, {
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        limit: query.limit,
+      })
+      return ok({ rows })
+    })
+
   const uploads = route
     .get("/v1/data/uploads")
     .query(listQuery)
@@ -190,8 +300,14 @@ export function dataRoutes(env: Env) {
     upload,
     download,
     summary,
+    metricsPush,
+    metricsRestore,
     recovery,
     sleep,
+    strain,
+    stress,
+    energy,
+    vitals,
     spo2,
     uploads,
   ])

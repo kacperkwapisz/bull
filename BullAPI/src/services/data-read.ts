@@ -5,7 +5,16 @@
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
-import { dailyRecovery, dailySleep, spo2Samples, uploadBundles } from "../db/schema.ts"
+import {
+  dailyEnergy,
+  dailyRecovery,
+  dailySleep,
+  dailyStrain,
+  dailyStress,
+  spo2Samples,
+  uploadBundles,
+  vitalsDaily,
+} from "../db/schema.ts"
 
 export interface BundleRef {
   readonly id: string
@@ -65,6 +74,54 @@ export async function listSleep(db: Db, userId: string, range: DayRange) {
     .limit(range.limit)
 }
 
+export async function listStrain(db: Db, userId: string, range: DayRange) {
+  const conds = [eq(dailyStrain.userId, userId)]
+  if (range.from) conds.push(gte(dailyStrain.day, range.from))
+  if (range.to) conds.push(lte(dailyStrain.day, range.to))
+  return db
+    .select()
+    .from(dailyStrain)
+    .where(and(...conds))
+    .orderBy(desc(dailyStrain.day))
+    .limit(range.limit)
+}
+
+export async function listStress(db: Db, userId: string, range: DayRange) {
+  const conds = [eq(dailyStress.userId, userId)]
+  if (range.from) conds.push(gte(dailyStress.day, range.from))
+  if (range.to) conds.push(lte(dailyStress.day, range.to))
+  return db
+    .select()
+    .from(dailyStress)
+    .where(and(...conds))
+    .orderBy(desc(dailyStress.day))
+    .limit(range.limit)
+}
+
+export async function listEnergy(db: Db, userId: string, range: DayRange) {
+  const conds = [eq(dailyEnergy.userId, userId)]
+  if (range.from) conds.push(gte(dailyEnergy.day, range.from))
+  if (range.to) conds.push(lte(dailyEnergy.day, range.to))
+  return db
+    .select()
+    .from(dailyEnergy)
+    .where(and(...conds))
+    .orderBy(desc(dailyEnergy.day))
+    .limit(range.limit)
+}
+
+export async function listVitals(db: Db, userId: string, range: DayRange) {
+  const conds = [eq(vitalsDaily.userId, userId)]
+  if (range.from) conds.push(gte(vitalsDaily.day, range.from))
+  if (range.to) conds.push(lte(vitalsDaily.day, range.to))
+  return db
+    .select()
+    .from(vitalsDaily)
+    .where(and(...conds))
+    .orderBy(desc(vitalsDaily.day))
+    .limit(range.limit)
+}
+
 export async function listSpo2(db: Db, userId: string, limit: number) {
   return db
     .select()
@@ -94,9 +151,30 @@ export async function listUploads(db: Db, userId: string, limit: number) {
     .limit(limit)
 }
 
+/**
+ * Full curated metric history for a day range, in the shape the device's Rust
+ * core re-imports to hydrate its local `daily_*` tables on a fresh install.
+ * Honest empty states: families with no rows come back as empty arrays.
+ */
+export async function restoreMetrics(db: Db, userId: string, range: DayRange) {
+  const [recovery, sleep, strain, stress, energy, vitals] = await Promise.all([
+    listRecovery(db, userId, range),
+    listSleep(db, userId, range),
+    listStrain(db, userId, range),
+    listStress(db, userId, range),
+    listEnergy(db, userId, range),
+    listVitals(db, userId, range),
+  ])
+  return { recovery, sleep, strain, stress, energy, vitals }
+}
+
 export interface DataSummary {
   readonly recovery_days: number
   readonly sleep_days: number
+  readonly strain_days: number
+  readonly stress_days: number
+  readonly energy_days: number
+  readonly vitals_days: number
   readonly spo2_samples: number
   readonly uploads: number
   readonly latest_recovery_day: string | null
@@ -104,7 +182,7 @@ export interface DataSummary {
 }
 
 export async function dataSummary(db: Db, userId: string): Promise<DataSummary> {
-  const [rec, slp, ox, up] = await Promise.all([
+  const [rec, slp, str, sts, ene, vit, ox, up] = await Promise.all([
     db
       .select({ n: sql<number>`count(*)`, latest: sql<string | null>`max(${dailyRecovery.day})` })
       .from(dailyRecovery)
@@ -113,6 +191,22 @@ export async function dataSummary(db: Db, userId: string): Promise<DataSummary> 
       .select({ n: sql<number>`count(*)`, latest: sql<string | null>`max(${dailySleep.day})` })
       .from(dailySleep)
       .where(eq(dailySleep.userId, userId)),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(dailyStrain)
+      .where(eq(dailyStrain.userId, userId)),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(dailyStress)
+      .where(eq(dailyStress.userId, userId)),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(dailyEnergy)
+      .where(eq(dailyEnergy.userId, userId)),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(vitalsDaily)
+      .where(eq(vitalsDaily.userId, userId)),
     db
       .select({ n: sql<number>`count(*)` })
       .from(spo2Samples)
@@ -125,6 +219,10 @@ export async function dataSummary(db: Db, userId: string): Promise<DataSummary> 
   return {
     recovery_days: Number(rec[0]?.n ?? 0),
     sleep_days: Number(slp[0]?.n ?? 0),
+    strain_days: Number(str[0]?.n ?? 0),
+    stress_days: Number(sts[0]?.n ?? 0),
+    energy_days: Number(ene[0]?.n ?? 0),
+    vitals_days: Number(vit[0]?.n ?? 0),
     spo2_samples: Number(ox[0]?.n ?? 0),
     uploads: Number(up[0]?.n ?? 0),
     latest_recovery_day: rec[0]?.latest ?? null,
