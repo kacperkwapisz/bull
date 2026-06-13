@@ -1252,6 +1252,16 @@ fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() 
         "2026-05-28T02:00:00Z",
         1000,
     );
+    // Still epochs carry sleep-level HR; the 00:00 high-motion epoch sets the
+    // wake reference. Sleep requires this physiological corroboration.
+    for (captured_at, marker) in [
+        ("2026-05-27T22:15:00Z", 50),
+        ("2026-05-27T23:15:00Z", 50),
+        ("2026-05-28T00:15:00Z", 80),
+        ("2026-05-28T01:15:00Z", 50),
+    ] {
+        import_history_frame_at(&store, "user-owned-live-notification", marker, captured_at);
+    }
 
     let report = run_sleep_feature_score_report_for_store(
         &store,
@@ -1265,6 +1275,7 @@ fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() 
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 0.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1276,7 +1287,6 @@ fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() 
     assert_close(window.time_in_bed_minutes, 240.0);
     assert_close(window.sleep_duration_minutes, 180.0);
     assert_close(window.motion_coverage_fraction, 1.0);
-    assert_close(window.heart_rate_coverage_fraction, 0.0);
     assert_close(window.midpoint_deviation_minutes, 0.0);
     assert_eq!(window.disturbance_count, 1);
     assert!(window.trusted_metric_input);
@@ -1420,6 +1430,7 @@ fn sleep_feature_score_report_uses_device_sample_time_for_sleep_epochs() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 30.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1487,6 +1498,7 @@ fn sleep_feature_score_report_segments_to_most_recent_night() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 30.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1530,6 +1542,7 @@ fn sleep_feature_score_report_rejects_sub_sleep_length_clusters() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 30.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1588,6 +1601,7 @@ fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 30.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1692,6 +1706,7 @@ fn sleep_feature_score_report_falls_back_to_highest_quartile_hr_dip_baseline() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 30.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1742,6 +1757,7 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 120.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1753,7 +1769,9 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
         "expected fewer merged segments than raw intervals, got {:?}",
         window.stage_segments
     );
-    assert_eq!(window.stage_segments[0].stage, SleepStageKind::Deep);
+    // Motion-only (no HR) cannot corroborate sleep, so the still epochs stage
+    // Awake; the point here is that adjacent compatible segments still merge.
+    assert_eq!(window.stage_segments[0].stage, SleepStageKind::Awake);
     assert_eq!(window.stage_segments[0].start_time, "2026-05-27T22:00:00Z");
     assert!(window.stage_segments[0].duration_minutes > 60.0);
     assert_close(
@@ -1826,6 +1844,7 @@ fn sleep_feature_score_report_smooths_short_non_wake_stage_islands() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 1350.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1907,6 +1926,7 @@ fn sleep_feature_score_report_preserves_short_awake_stage_islands() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 1350.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -1959,6 +1979,7 @@ fn sleep_feature_score_report_reports_duplicate_and_gap_coverage() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 0.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -2018,6 +2039,7 @@ fn sleep_feature_score_report_drops_nonexistent_calendar_timestamps() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 0.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -2053,6 +2075,7 @@ fn sleep_feature_score_report_requires_enough_trusted_motion_features() {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 0.0,
+            as_of_unix_ms: None,
         },
     )
     .unwrap();
@@ -2131,8 +2154,11 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
     let input = report.recovery_input.unwrap();
     assert_close(input.hrv_rmssd_ms, 25.0);
     assert_close(input.hrv_baseline_rmssd_ms, 50.0);
-    assert_close(input.resting_hr_bpm, 54.5);
-    assert_close(input.resting_hr_baseline_bpm, 55.0);
+    // Resting HR is the lowest-quartile mean of low-motion HR across the broad
+    // resting window; the realistic overnight HR in the sleep window adds
+    // low-motion samples, so the quartile mean is 54.6 rather than 54.5.
+    assert_close(input.resting_hr_bpm, 54.666666666666664);
+    assert_close(input.resting_hr_baseline_bpm, 55.5);
     assert_close(input.respiratory_rate_rpm, 14.0);
     assert_close(input.respiratory_rate_baseline_rpm, 14.0);
     assert_close(input.skin_temp_delta_c, 0.0);
@@ -2154,7 +2180,7 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
             .any(|flag| flag == "provided_resp_temp_inputs_not_packet_derived")
     );
     let output = result.output.unwrap();
-    assert_close(output.score_0_to_100, 62.1125);
+    assert_close(output.score_0_to_100, 62.44583333333333);
 }
 
 #[test]
@@ -2717,6 +2743,19 @@ fn import_recovery_feature_inputs(store: &BullStore) {
             captured_at,
             sample_value,
         );
+    }
+    // Overnight heart rate: still epochs sit below the wake reference (the
+    // high-motion epoch at 00:00) so they corroborate as sleep, but stay
+    // above this fixture's resting-HR quartile so the broad resting window's
+    // lowest-quartile mean is unchanged. Without HR a quiet still window is
+    // honest "quiet rest", not sleep.
+    for (captured_at, marker) in [
+        ("2026-05-27T22:15:00Z", 60),
+        ("2026-05-27T23:15:00Z", 60),
+        ("2026-05-28T00:15:00Z", 80),
+        ("2026-05-28T01:15:00Z", 60),
+    ] {
+        import_history_frame_at(store, "user-owned-live-notification", marker, captured_at);
     }
 }
 

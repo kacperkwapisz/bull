@@ -1218,6 +1218,10 @@ struct SleepFeatureScoreArgs {
     /// `daily_sleep_metrics` so nightly history accumulates across syncs.
     #[serde(default)]
     persist_nightly: bool,
+    /// Caller's "now" in unix milliseconds; enables the in-progress sleep
+    /// guard (a candidate sleep is withheld until wake is confirmed).
+    #[serde(default)]
+    as_of_unix_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -5905,6 +5909,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
             target_midpoint_minutes_since_midnight: args
                 .target_midpoint_minutes_since_midnight
                 .unwrap_or(180.0),
+            as_of_unix_ms: args.as_of_unix_ms,
         },
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
@@ -6110,6 +6115,7 @@ fn debug_db_overview_bridge(args: DebugDbOverviewArgs) -> BullResult<serde_json:
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
         },
     )?;
 

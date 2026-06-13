@@ -4971,7 +4971,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T22:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(1000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(1000, 50),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 },
@@ -4981,7 +4981,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-27T23:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(1000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(1000, 50),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 },
@@ -4991,7 +4991,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T00:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(10000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(10000, 80),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 },
@@ -5001,7 +5001,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T01:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(1000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(1000, 50),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 },
@@ -5011,7 +5011,7 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T02:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(1000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(1000, 50),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 }
@@ -6346,7 +6346,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
                     "source": "ios.corebluetooth.notification",
                     "captured_at": "2026-05-28T00:00:00Z",
                     "device_model": "WHOOP 5.0 Bull",
-                    "frame_hex": k10_motion_frame_hex_with_value(10000),
+                    "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(10000, 90),
                     "sensitivity": "user-owned-capture",
                     "device_type": "BULL"
                 },
@@ -8606,10 +8606,14 @@ fn k10_motion_frame_hex() -> String {
 }
 
 fn k10_motion_frame_hex_with_value(sample_value: i16) -> String {
+    k10_motion_frame_hex_with_value_and_heart_rate(sample_value, 72)
+}
+
+fn k10_motion_frame_hex_with_value_and_heart_rate(sample_value: i16, heart_rate: u8) -> String {
     let mut payload = vec![0; 1288];
     payload[0] = PACKET_TYPE_REALTIME_RAW_DATA;
     payload[1] = 10;
-    payload[17] = 72;
+    payload[17] = heart_rate;
     for offset in [85, 285, 485, 688, 888, 1088] {
         for index in 0..100 {
             put_i16(&mut payload, offset + index * 2, sample_value);

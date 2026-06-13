@@ -152,6 +152,12 @@ pub struct SleepFeatureScoreOptions {
     pub low_motion_threshold_0_to_1: f64,
     pub disturbance_motion_threshold_0_to_1: f64,
     pub target_midpoint_minutes_since_midnight: f64,
+    /// Caller's "now" in unix milliseconds. When set, a candidate sleep whose
+    /// last sleep-staged segment ends within `SLEEP_WAKE_CONFIRMATION_MINUTES`
+    /// of this moment is withheld as still in progress instead of being
+    /// reported as a live, growing sleep. `None` (tests, offline re-derivation)
+    /// skips the guard.
+    pub as_of_unix_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +253,7 @@ impl Default for SleepFeatureScoreOptions {
             low_motion_threshold_0_to_1: 0.05,
             disturbance_motion_threshold_0_to_1: 0.20,
             target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
         }
     }
 }
@@ -2304,6 +2311,9 @@ pub fn run_recovery_feature_score_report_for_store(
             low_motion_threshold_0_to_1: options.low_motion_threshold_0_to_1,
             disturbance_motion_threshold_0_to_1: options.disturbance_motion_threshold_0_to_1,
             target_midpoint_minutes_since_midnight: options.target_midpoint_minutes_since_midnight,
+            // Recovery re-derives the most recent completed night offline;
+            // the live in-progress guard applies in the app's sleep path.
+            as_of_unix_ms: None,
         },
     )?;
     let prior_strain_report = run_strain_feature_score_report_for_store(
@@ -4965,6 +4975,14 @@ const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
 /// not scoreable sleep; reporting them as sleep is dishonest. Windows between
 /// this floor and the overnight span are kept but flagged as short.
 const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
+/// A low-motion epoch may stage as sleep only when its heart rate sits at or
+/// below this fraction of the wake-reference HR (median HR across high-motion
+/// epochs of the same window). Quiet rest with wake-level HR is not sleep.
+const SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION: f64 = 0.95;
+/// Minutes of confirmed wake required after the last sleep-staged segment
+/// before a window is reported. Until then the candidate sleep is still in
+/// progress; reporting it live would count quiet evening rest as sleep.
+const SLEEP_WAKE_CONFIRMATION_MINUTES: i64 = 10;
 
 struct SleepClusterSelection {
     start_minute: i64,
@@ -5120,6 +5138,34 @@ fn sleep_window_feature(
     let mut disturbance_count = 0u32;
     let first = timed_features.first()?;
     let last = timed_features.last()?;
+    // Wake-reference HR: the median heart rate across this window's
+    // high-motion (confidently awake) epochs. Sleep staging compares each
+    // quiet epoch against this reference instead of the window's own min/max,
+    // which is circular when the whole window is quiet rest.
+    let wake_reference_hr_values = {
+        let mut values = Vec::new();
+        for pair in timed_features.windows(2) {
+            if pair[1].0 <= pair[0].0 {
+                continue;
+            }
+            if pair[0].1.motion_intensity_0_to_1 >= options.disturbance_motion_threshold_0_to_1 {
+                if let Some(bpm) = average_heart_rate_for_minute_range(
+                    pair[0].0,
+                    pair[1].0,
+                    &timed_heart_rate_features,
+                ) {
+                    values.push(bpm);
+                }
+            }
+        }
+        values
+    };
+    let wake_reference_hr = if wake_reference_hr_values.is_empty() {
+        quality_flags.insert("sleep_wake_reference_hr_unavailable".to_string());
+        None
+    } else {
+        Some(median(wake_reference_hr_values))
+    };
     let window_hr_values = timed_heart_rate_features
         .iter()
         .filter(|(minute, _)| *minute >= first.0 && *minute <= last.0)
@@ -5163,6 +5209,7 @@ fn sleep_window_feature(
             heart_rate_bpm,
             window_min_hr,
             window_max_hr,
+            wake_reference_hr,
             (pair[0].0 - first.0) as f64 / (last.0 - first.0).max(1) as f64,
             &options,
         );
@@ -5227,6 +5274,18 @@ fn sleep_window_feature(
         .find(|segment| segment.stage != SleepStageKind::Awake)
         .and_then(|segment| parse_rfc3339_utc_unix_ms(&segment.end_time))
         .map(|unix_ms| unix_ms / 60_000);
+    // Wake-confirmation guard: sleep is reported only after it has ended. A
+    // candidate whose last sleep-staged segment reaches into the last few
+    // minutes before "now" is still in progress; surfacing it live would
+    // count ongoing quiet rest as accumulating sleep.
+    if let (Some(as_of_unix_ms), Some(last_sleep_end_minute)) =
+        (options.as_of_unix_ms, last_sleep_end)
+    {
+        let as_of_minute = as_of_unix_ms / 60_000;
+        if as_of_minute - last_sleep_end_minute < SLEEP_WAKE_CONFIRMATION_MINUTES {
+            return None;
+        }
+    }
     let mut wake_after_sleep_onset_minutes = 0.0;
     let mut wake_episode_count = 0u32;
     let mut previous_was_wake = false;
@@ -5664,6 +5723,7 @@ fn infer_sleep_stage(
     heart_rate_bpm: Option<f64>,
     window_min_hr: Option<f64>,
     window_max_hr: Option<f64>,
+    wake_reference_hr: Option<f64>,
     night_fraction_0_to_1: f64,
     options: &SleepFeatureScoreOptions,
 ) -> (SleepStageKind, f64, BTreeMap<String, f64>, Vec<String>) {
@@ -5680,6 +5740,40 @@ fn infer_sleep_stage(
             vec!["wake_from_high_motion".to_string()],
         );
     }
+
+    // Stillness alone is not sleep: every sleep stage requires heart-rate
+    // corroboration from the device's own sensors. An epoch with no HR, or
+    // with HR at wake level relative to this window's confidently-awake
+    // (high-motion) epochs, is quiet rest.
+    let Some(heart_rate_bpm) = heart_rate_bpm else {
+        return (
+            SleepStageKind::Awake,
+            0.50,
+            stage_probability_map([
+                (SleepStageKind::Awake, 0.50),
+                (SleepStageKind::Core, 0.30),
+                (SleepStageKind::Deep, 0.10),
+                (SleepStageKind::Rem, 0.10),
+            ]),
+            vec!["sleep_requires_heart_rate_corroboration".to_string()],
+        );
+    };
+    if let Some(reference) = wake_reference_hr {
+        if heart_rate_bpm > reference * SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION {
+            return (
+                SleepStageKind::Awake,
+                0.62,
+                stage_probability_map([
+                    (SleepStageKind::Awake, 0.62),
+                    (SleepStageKind::Core, 0.26),
+                    (SleepStageKind::Deep, 0.06),
+                    (SleepStageKind::Rem, 0.06),
+                ]),
+                vec!["quiet_rest_hr_at_wake_level".to_string()],
+            );
+        }
+    }
+
     if motion_intensity_0_to_1 > options.low_motion_threshold_0_to_1 {
         return (
             SleepStageKind::Core,
@@ -5693,22 +5787,6 @@ fn infer_sleep_stage(
             vec!["restless_sleep_from_motion".to_string()],
         );
     }
-
-    let Some(heart_rate_bpm) = heart_rate_bpm else {
-        let stage = if night_fraction_0_to_1 < 0.35 {
-            SleepStageKind::Deep
-        } else if night_fraction_0_to_1 > 0.65 {
-            SleepStageKind::Rem
-        } else {
-            SleepStageKind::Core
-        };
-        return (
-            stage.clone(),
-            0.44,
-            stage_probability_map(stage_prior_probability_rows(stage)),
-            vec!["stage_from_motion_and_time_prior_only".to_string()],
-        );
-    };
     let hr_position = match (window_min_hr, window_max_hr) {
         (Some(min_hr), Some(max_hr)) if max_hr > min_hr => {
             ((heart_rate_bpm - min_hr) / (max_hr - min_hr)).clamp(0.0, 1.0)
@@ -5754,34 +5832,6 @@ fn infer_sleep_stage(
     }
 }
 
-fn stage_prior_probability_rows(stage: SleepStageKind) -> [(SleepStageKind, f64); 4] {
-    match stage {
-        SleepStageKind::Awake => [
-            (SleepStageKind::Awake, 0.44),
-            (SleepStageKind::Core, 0.30),
-            (SleepStageKind::Deep, 0.13),
-            (SleepStageKind::Rem, 0.13),
-        ],
-        SleepStageKind::Core => [
-            (SleepStageKind::Awake, 0.12),
-            (SleepStageKind::Core, 0.44),
-            (SleepStageKind::Deep, 0.22),
-            (SleepStageKind::Rem, 0.22),
-        ],
-        SleepStageKind::Deep => [
-            (SleepStageKind::Awake, 0.08),
-            (SleepStageKind::Core, 0.28),
-            (SleepStageKind::Deep, 0.44),
-            (SleepStageKind::Rem, 0.20),
-        ],
-        SleepStageKind::Rem => [
-            (SleepStageKind::Awake, 0.08),
-            (SleepStageKind::Core, 0.28),
-            (SleepStageKind::Deep, 0.20),
-            (SleepStageKind::Rem, 0.44),
-        ],
-    }
-}
 
 fn stage_probability_map(rows: [(SleepStageKind, f64); 4]) -> BTreeMap<String, f64> {
     rows.into_iter()

@@ -5713,6 +5713,8 @@ pub fn run_sleep_window_label_validation_for_store(
             low_motion_threshold_0_to_1: options.low_motion_threshold_0_to_1,
             disturbance_motion_threshold_0_to_1: options.disturbance_motion_threshold_0_to_1,
             target_midpoint_minutes_since_midnight: options.target_midpoint_minutes_since_midnight,
+            // Validation suites replay fixed fixtures; no live "now" exists.
+            as_of_unix_ms: None,
         },
     )?;
 
