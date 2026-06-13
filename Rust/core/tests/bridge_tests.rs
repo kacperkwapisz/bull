@@ -3130,7 +3130,7 @@ fn bridge_extracts_heart_rate_features_for_debug_score_inputs() {
     assert_eq!(report["pass"], true);
     assert_eq!(report["feature_count"], 1);
     assert_eq!(report["trusted_feature_count"], 1);
-    assert_eq!(report["features"][0]["body_summary_kind"], "normal_history");
+    assert_eq!(report["features"][0]["body_summary_kind"], "v18_history");
     assert_eq!(report["features"][0]["heart_rate_bpm"], 77.0);
     assert_eq!(report["features"][0]["trusted_metric_input"], true);
 }
@@ -7529,7 +7529,9 @@ fn bridge_exports_raw_timeframe_for_debug_export_flow() {
     assert_eq!(result["raw_rows"], 8);
     assert_eq!(result["decoded_frame_rows"], 8);
     assert_eq!(result["packet_timeline_rows"], 8);
-    assert_eq!(result["sensor_sample_rows"], 19);
+    // v18 reads HR from data[22]; the k18 fixture's HR byte sits at the v18 offset,
+    // not the old NormalHistory marker at [14], so one fewer sensor-sample row.
+    assert_eq!(result["sensor_sample_rows"], 18);
     assert_eq!(result["metric_feature_report_rows"], 7);
     assert_eq!(result["metric_value_rows"], 0);
     assert_eq!(result["metric_component_rows"], 0);
@@ -8651,14 +8653,17 @@ fn historical_k18_frame_hex(marker_value: u8) -> String {
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(24, 0);
+    // V18History needs >=78 bytes (3-byte header + 75-byte body for skin_temp at data[73]).
+    // HR is at data[22] = payload[25]. Resize first, then set the HR byte.
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     hex::encode(build_v5_payload_frame(&payload))
 }
 
@@ -8701,14 +8706,17 @@ fn historical_k18_frame_hex_with_vital_candidates(
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(41, 0);
+    // Extend to 80 bytes for valid v18 parsing; HR at data[22]=payload[25].
+    // Temperature and respiratory rate stay at absolute offsets 37/39.
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     put_i16(&mut payload, 37, temperature_centi_c);
     put_u16(&mut payload, 39, respiratory_rate_tenths_rpm);
     hex::encode(build_v5_payload_frame(&payload))

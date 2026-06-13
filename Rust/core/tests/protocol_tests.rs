@@ -176,28 +176,43 @@ fn parses_history_packet_stable_header_and_hr_marker() {
     ]);
     let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
+    // v18 now has its own parser (split out of the 7|9|12|18 NormalHistory arm).
+    // A short v18 payload yields V18History with a v18_payload_too_short warning;
+    // the outer header fields (packet_k, hr_marker_offset, etc.) are unchanged.
     assert_eq!(parsed.packet_type_name.as_deref(), Some("HISTORICAL_DATA"));
-    assert_eq!(
-        parsed.parsed_payload,
-        Some(ParsedPayload::DataPacket {
-            packet_k: Some(18),
-            domain: Some("normal_history_with_hr_marker".to_string()),
-            status_or_stream: Some(1),
-            counter_or_page: Some(0x01020304),
-            timestamp_seconds: Some(0x11223344),
-            timestamp_subseconds: Some(0x5566),
-            hr_marker_offset: Some(14),
-            hr_present_marker: Some(0x4d),
-            body_offset: 13,
-            body_hex: "aa4dbbccddeeff".to_string(),
-            body_summary: Some(DataPacketBodySummary::NormalHistory {
-                hr_present: Some(true),
-                marker_offset: Some(14),
-                marker_value: Some(0x4d),
-            }),
-            warnings: Vec::new(),
-        })
-    );
+    match parsed.parsed_payload.unwrap() {
+        ParsedPayload::DataPacket {
+            packet_k,
+            domain,
+            status_or_stream,
+            counter_or_page,
+            timestamp_seconds,
+            timestamp_subseconds,
+            hr_marker_offset,
+            hr_present_marker,
+            body_offset,
+            body_summary,
+            ..
+        } => {
+            assert_eq!(packet_k, Some(18));
+            assert_eq!(domain.as_deref(), Some("normal_history_with_hr_marker"));
+            assert_eq!(status_or_stream, Some(1));
+            assert_eq!(counter_or_page, Some(0x01020304));
+            assert_eq!(timestamp_seconds, Some(0x11223344));
+            assert_eq!(timestamp_subseconds, Some(0x5566));
+            assert_eq!(hr_marker_offset, Some(14));
+            assert_eq!(hr_present_marker, Some(0x4d));
+            assert_eq!(body_offset, 13);
+            // v18 body here is only 7 bytes long → V18History with the short warning.
+            match body_summary.unwrap() {
+                DataPacketBodySummary::V18History { warnings, .. } => {
+                    assert!(warnings.contains(&"v18_payload_too_short".to_string()));
+                }
+                other => panic!("expected V18History, got {other:?}"),
+            }
+        }
+        other => panic!("expected DataPacket, got {other:?}"),
+    }
 }
 
 #[test]
@@ -474,7 +489,8 @@ fn truncated_non_data_frame_fails_instead_of_becoming_decoded_evidence() {
 
 #[test]
 fn short_data_packets_preserve_raw_body_and_warn() {
-    let frame = build_v5_payload_frame(&[PACKET_TYPE_HISTORICAL_DATA, 18, 1, 2]);
+    // Packet k=9 (NormalHistory) with a very short payload — existing behaviour unchanged.
+    let frame = build_v5_payload_frame(&[PACKET_TYPE_HISTORICAL_DATA, 9, 1, 2]);
     let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
 
     assert!(
@@ -490,19 +506,19 @@ fn short_data_packets_preserve_raw_body_and_warn() {
     assert_eq!(
         parsed.parsed_payload,
         Some(ParsedPayload::DataPacket {
-            packet_k: Some(18),
+            packet_k: Some(9),
             domain: Some("normal_history_with_hr_marker".to_string()),
             status_or_stream: Some(1),
             counter_or_page: None,
             timestamp_seconds: None,
             timestamp_subseconds: None,
-            hr_marker_offset: Some(14),
+            hr_marker_offset: Some(17),
             hr_present_marker: None,
             body_offset: 4,
             body_hex: String::new(),
             body_summary: Some(DataPacketBodySummary::NormalHistory {
                 hr_present: None,
-                marker_offset: Some(14),
+                marker_offset: Some(17),
                 marker_value: None,
             }),
             warnings: vec![
@@ -617,6 +633,99 @@ fn r22_zero_hr_bytes_parse_as_zero_not_error() {
                     assert!(warnings.is_empty());
                 }
                 other => panic!("expected R22Whoop5Hr, got {other:?}"),
+            }
+        }
+        other => panic!("expected DataPacket, got {other:?}"),
+    }
+}
+
+fn put_f32(bytes: &mut [u8], offset: usize, value: f32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+// v18 WHOOP 5.0 historical decode tests (BLE5-02)
+
+#[test]
+fn parses_v18_historical_body_fields() {
+    // payload[0] = PACKET_TYPE_HISTORICAL_DATA, [1] = 18 (version), [2] = 1 (stream)
+    // Body starts at payload[3]; field N is at payload[3+N].
+    let mut payload = vec![0u8; 90];
+    payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = 18;
+    payload[2] = 1;
+    // HR at body offset 22 = payload[25]
+    payload[3 + 22] = 75;
+    // rr_count at body offset 23 = payload[26]; set 2 RR intervals
+    payload[3 + 23] = 2;
+    put_u16(&mut payload, 3 + 24, 900); // first RR interval 900ms
+    put_u16(&mut payload, 3 + 26, 950); // second RR interval 950ms
+    // gravity_x/y/z at body offsets 45/49/53
+    put_f32(&mut payload, 3 + 45, 0.1_f32);
+    put_f32(&mut payload, 3 + 49, 0.2_f32);
+    put_f32(&mut payload, 3 + 53, 9.8_f32);
+    // step_motion_counter at body offset 57
+    put_u16(&mut payload, 3 + 57, 42);
+    // skin_temp_raw at body offset 73: raw 4096 → 4096/128.0 = 32.0°C (within gate)
+    put_u16(&mut payload, 3 + 73, 4096);
+
+    let frame = build_v5_payload_frame(&payload);
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
+
+    assert_eq!(parsed.packet_type_name.as_deref(), Some("HISTORICAL_DATA"));
+    match parsed.parsed_payload.unwrap() {
+        ParsedPayload::DataPacket { body_summary, warnings, .. } => {
+            assert!(warnings.is_empty(), "unexpected outer warnings: {warnings:?}");
+            match body_summary.unwrap() {
+                DataPacketBodySummary::V18History {
+                    hr,
+                    rr_intervals_ms,
+                    gravity_x,
+                    gravity_y,
+                    gravity_z,
+                    skin_temp_raw,
+                    step_motion_counter,
+                    warnings,
+                } => {
+                    assert_eq!(hr, Some(75));
+                    assert_eq!(rr_intervals_ms.len(), 2);
+                    assert_eq!(rr_intervals_ms[0], 900);
+                    assert_eq!(rr_intervals_ms[1], 950);
+                    assert!(gravity_x.is_some());
+                    assert!(gravity_y.is_some());
+                    assert!(gravity_z.is_some());
+                    assert_eq!(skin_temp_raw, Some(4096));
+                    assert_eq!(step_motion_counter, Some(42));
+                    assert!(warnings.is_empty());
+                }
+                other => panic!("expected V18History, got {other:?}"),
+            }
+        }
+        other => panic!("expected DataPacket, got {other:?}"),
+    }
+}
+
+#[test]
+fn v18_too_short_yields_warning() {
+    // payload shorter than 75 body bytes → v18_payload_too_short, all fields None
+    let mut payload = vec![0u8; 20];
+    payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = 18;
+    payload[2] = 1;
+
+    let frame = build_v5_payload_frame(&payload);
+    let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
+
+    match parsed.parsed_payload.unwrap() {
+        ParsedPayload::DataPacket { body_summary, .. } => {
+            match body_summary.unwrap() {
+                DataPacketBodySummary::V18History { hr, rr_intervals_ms, gravity_x, skin_temp_raw, warnings, .. } => {
+                    assert_eq!(hr, None);
+                    assert!(rr_intervals_ms.is_empty());
+                    assert_eq!(gravity_x, None);
+                    assert_eq!(skin_temp_raw, None);
+                    assert!(warnings.contains(&"v18_payload_too_short".to_string()));
+                }
+                other => panic!("expected V18History, got {other:?}"),
             }
         }
         other => panic!("expected DataPacket, got {other:?}"),

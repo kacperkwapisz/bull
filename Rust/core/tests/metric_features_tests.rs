@@ -209,9 +209,10 @@ fn heart_rate_feature_extraction_promotes_owned_normal_history_marker() {
     assert_eq!(report.feature_count, 1);
     assert_eq!(report.trusted_feature_count, 1);
     let feature = &report.features[0];
-    assert_eq!(feature.body_summary_kind, "normal_history");
+    // k18 frames now decode as v18_history; HR is read from data[22] = payload[25].
+    assert_eq!(feature.body_summary_kind, "v18_history");
     assert_eq!(feature.heart_rate_bpm, 77.0);
-    assert_eq!(feature.marker_offset, 14);
+    assert_eq!(feature.marker_offset, 22);
     assert_eq!(feature.marker_value, 77);
     assert_eq!(feature.device_timestamp_seconds, Some(0x11223344));
     assert_eq!(feature.sample_time, "2026-05-27T13:00:00Z");
@@ -221,7 +222,7 @@ fn heart_rate_feature_extraction_promotes_owned_normal_history_marker() {
         feature
             .quality_flags
             .iter()
-            .any(|flag| flag == "preliminary_normal_history_hr_marker")
+            .any(|flag| flag == "preliminary_v18_history_hr")
     );
 }
 
@@ -3206,14 +3207,16 @@ fn historical_k18_frame_hex(marker_value: u8) -> String {
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(24, 0);
+    // V18History needs >=78 bytes; HR is read from data[22] = payload[25].
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     hex::encode(build_v5_payload_frame(&payload))
 }
 
@@ -3236,14 +3239,15 @@ fn historical_k18_frame_hex_with_skin_temperature(
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(39, 0);
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     put_i16(&mut payload, 37, temperature_centi_c);
     hex::encode(build_v5_payload_frame(&payload))
 }
@@ -3268,14 +3272,15 @@ fn historical_k18_frame_hex_with_vital_candidates(
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(41, 0);
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     put_i16(&mut payload, 37, temperature_centi_c);
     put_u16(&mut payload, 39, respiratory_rate_tenths_rpm);
     hex::encode(build_v5_payload_frame(&payload))
@@ -3297,7 +3302,7 @@ fn historical_k18_frame_hex_with_timestamp(marker_value: u8, timestamp_seconds: 
         0,
         0,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
@@ -3305,7 +3310,8 @@ fn historical_k18_frame_hex_with_timestamp(marker_value: u8, timestamp_seconds: 
         0xff,
     ];
     put_u32(&mut payload, 7, timestamp_seconds);
-    payload.resize(24, 0);
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     hex::encode(build_v5_payload_frame(&payload))
 }
 

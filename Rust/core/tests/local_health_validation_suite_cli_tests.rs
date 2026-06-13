@@ -5507,14 +5507,18 @@ fn historical_k18_frame_hex(marker_value: u8) -> String {
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(24, 0);
+    // V18History needs >=78 bytes (3-byte header + 75-byte body). HR is read from
+    // data[22] = payload[25]; resize first, then set the HR byte so the same HR
+    // values feed the rollups through the v18 decode path.
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     hex::encode(build_v5_payload_frame(&payload))
 }
 

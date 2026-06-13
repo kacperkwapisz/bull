@@ -137,7 +137,8 @@ fn metric_input_readiness_marks_motion_ready_after_trusted_extraction_exists() {
         skin_temp.required_summary_kinds,
         vec![
             "normal_history".to_string(),
-            "event_temperature_level".to_string()
+            "event_temperature_level".to_string(),
+            "v18_history".to_string()
         ]
     );
     assert_eq!(skin_temp.candidate_observation_count, 1);
@@ -364,12 +365,12 @@ fn metric_input_readiness_can_fail_when_scores_are_required() {
     );
     assert_eq!(
         respiratory.required_summary_kinds,
-        vec!["normal_history".to_string()]
+        vec!["normal_history".to_string(), "v18_history".to_string()]
     );
     assert_eq!(
         respiratory.blocker_reasons,
         vec![
-            "no trusted owned capture evidence for normal_history".to_string(),
+            "no trusted owned capture evidence for normal_history|v18_history".to_string(),
             "respiratory_rate_semantics_unverified".to_string(),
         ]
     );
@@ -377,7 +378,7 @@ fn metric_input_readiness_can_fail_when_scores_are_required() {
         respiratory
             .next_actions
             .iter()
-            .any(|action| action.reason == "no trusted owned capture evidence for normal_history")
+            .any(|action| action.reason == "no trusted owned capture evidence for normal_history|v18_history")
     );
     assert!(
         respiratory
@@ -397,14 +398,14 @@ fn metric_input_readiness_can_fail_when_scores_are_required() {
     assert_eq!(
         skin_temp.blocker_reasons,
         vec![
-            "no trusted owned capture evidence for normal_history|event_temperature_level"
+            "no trusted owned capture evidence for normal_history|event_temperature_level|v18_history"
                 .to_string(),
             "temperature_units_unverified".to_string(),
         ]
     );
     assert!(skin_temp.next_actions.iter().any(|action| {
         action.reason
-            == "no trusted owned capture evidence for normal_history|event_temperature_level"
+            == "no trusted owned capture evidence for normal_history|event_temperature_level|v18_history"
     }));
     assert!(skin_temp.next_actions.iter().any(|action| {
         action.reason == "temperature_units_unverified"
@@ -566,14 +567,16 @@ fn historical_k18_frame_hex(marker_value: u8) -> String {
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00, // payload[14] — no longer used as an HR marker after the v18 split
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(24, 0);
+    // V18History needs >=78 bytes; HR is read from data[22] = payload[25].
+    payload.resize(80, 0);
+    payload[25] = marker_value; // v18 HR at data[22]
     hex::encode(build_v5_payload_frame(&payload))
 }
 

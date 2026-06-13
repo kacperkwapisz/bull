@@ -53,18 +53,19 @@ fn correlation_report_promotes_distinct_owned_history_and_motion_evidence() {
     assert!(k21_motion.blocker_reasons.is_empty());
     assert!(k21_motion.next_capture_actions.is_empty());
 
-    // Reclassifying packet_k==24 frames from NormalHistory to V24History moves the
-    // 2 user-owned K24 fixtures into v24_history; only the synthetic K18 remains
-    // normal_history.
-    let normal_history = report
+    // Reclassifying packet_k==24 frames as V24History moves the 2 user-owned K24
+    // fixtures into v24_history; reclassifying packet_k==18 frames as V18History
+    // moves the synthetic K18 fixture into v18_history (1 observation, 0 owned,
+    // 1 synthetic).
+    let v18_history = report
         .summaries
         .iter()
-        .find(|summary| summary.body_summary_kind == "normal_history")
+        .find(|summary| summary.body_summary_kind == "v18_history")
         .unwrap();
-    assert_eq!(normal_history.observation_count, 1);
-    assert_eq!(normal_history.owned_capture_count, 0);
-    assert_eq!(normal_history.synthetic_count, 1);
-    assert!(!normal_history.trusted_metric_ready); // 0 owned < 2 required
+    assert_eq!(v18_history.observation_count, 1);
+    assert_eq!(v18_history.owned_capture_count, 0);
+    assert_eq!(v18_history.synthetic_count, 1);
+    assert!(!v18_history.trusted_metric_ready); // 0 owned < 2 required
 
     // V24History captures (2 user-owned K24 packets).
     let v24_history = report

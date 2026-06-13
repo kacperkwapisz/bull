@@ -2398,6 +2398,11 @@ fn export_sensor_samples(
                 // R22 realtime frames are decoded for live use, not the generic
                 // sensor-sample export path — skip gracefully.
             }
+            DataPacketBodySummary::V18History { .. } => {
+                // v18 historical bodies are decoded and preserved in decoded_frames;
+                // the generic sensor-sample export path does not handle them — skip
+                // gracefully (typed surfacing is a separate, later pipeline step).
+            }
         }
     }
     Ok(rows)
