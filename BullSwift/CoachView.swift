@@ -41,7 +41,7 @@ struct CoachView: View {
       NavigationStack {
         chatSheetContent
           .bullScreenBackground()
-          .navigationTitle(chat.isSignedIn ? "Coach Chat" : "Set up Coach")
+          .navigationTitle(chatSheetShowsChat ? "Coach Chat" : "Set up Coach")
           .navigationBarTitleDisplayMode(.inline)
           .toolbarBackground(.hidden, for: .navigationBar)
           .toolbar {
@@ -72,7 +72,7 @@ struct CoachView: View {
     .onChange(of: healthStore.bandSleepImportStatus) { _, _ in refreshCoachSnapshot() }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in refreshCoachSnapshot() }
     .onChange(of: router.coachSetupRequestID) { _, requestID in
-      guard requestID > 0, !chat.isSignedIn else {
+      guard requestID > 0, !chatSheetShowsChat else {
         return
       }
       showingChat = true
@@ -82,9 +82,16 @@ struct CoachView: View {
     }
   }
 
+  /// Chat is only usable once the user is signed in AND has accepted Coach
+  /// data sharing. Sign-in can happen at the launch gate, so consent must be
+  /// checked independently here — otherwise there is no way to accept it.
+  private var chatSheetShowsChat: Bool {
+    chat.isSignedIn && !chat.needsConsent
+  }
+
   @ViewBuilder
   private var chatSheetContent: some View {
-    if chat.isSignedIn {
+    if chatSheetShowsChat {
       CoachChatScreen(
         chat: chat,
         healthStore: healthStore,

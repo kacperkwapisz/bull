@@ -14,14 +14,36 @@ final class BullAccountSession: ObservableObject {
   private let client = CoachAPIClient()
 
   init() {
-    // Only a user-scoped session (issued by /v1/auth/apple, carries the
-    // `user_id` claim) counts as signed in. Legacy tokens are purged so the
-    // device migrates onto a real account through the gate.
-    if let token = CoachAuthKeychain.load(), Self.isUserScopedToken(token) {
-      isSignedIn = true
-    } else {
+    isSignedIn = Self.evaluateStoredSession()
+  }
+
+  /// Re-evaluate the stored session, e.g. when the scene becomes active. The
+  /// init-time check can run while the keychain is unreadable (background
+  /// relaunch before unlock), so the gate re-checks once the UI is in front.
+  func refreshFromKeychain() {
+    let signedIn = Self.evaluateStoredSession()
+    if signedIn != isSignedIn {
+      isSignedIn = signedIn
+    }
+  }
+
+  /// Only a user-scoped session (issued by /v1/auth/apple, carries the
+  /// `user_id` claim) counts as signed in. A token we can READ but that is
+  /// legacy or expired is purged so the device migrates through the gate.
+  /// A keychain that cannot be read right now (`.unavailable`, e.g. device
+  /// still locked) must never trigger a purge — the session is intact.
+  private static func evaluateStoredSession() -> Bool {
+    switch CoachAuthKeychain.loadResult() {
+    case .found(let token):
+      if isUserScopedToken(token) {
+        return true
+      }
       CoachAuthKeychain.delete()
-      isSignedIn = false
+      return false
+    case .notFound:
+      return false
+    case .unavailable:
+      return false
     }
   }
 

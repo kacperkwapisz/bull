@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
+  @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var model: BullAppModel
   @AppStorage(OnboardingStorage.onboardingComplete) private var onboardingComplete = false
   @AppStorage(OnboardingStorage.onboardingRedoRequested) private var onboardingRedoRequested = false
@@ -37,6 +38,13 @@ struct RootView: View {
       restorePersistedOnboardingStateIfNeeded()
       syncModelOnboardingState()
       presentWhatsNewIfNeeded()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      // The session may have been evaluated while the keychain was unreadable
+      // (background relaunch before unlock); re-check once the UI is in front.
+      if phase == .active {
+        account.refreshFromKeychain()
+      }
     }
     .onChange(of: onboardingComplete) { _, _ in
       mirrorCurrentOnboardingStateIfNeeded()

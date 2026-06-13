@@ -5,6 +5,17 @@ enum CoachAuthKeychain {
   private static let service = "com.bull.swift.coach"
   private static let account = "access-token"
 
+  /// Distinguishes "there is no token" from "the keychain cannot be read
+  /// right now" (e.g. the app was relaunched in the background for overnight
+  /// BLE capture while the device is locked). Callers must only treat
+  /// `.notFound` / an invalid decoded token as a reason to purge — purging on
+  /// `.unavailable` would destroy a valid session.
+  enum LoadResult {
+    case found(String)
+    case notFound
+    case unavailable(OSStatus)
+  }
+
   static func save(token: String) throws {
     let data = Data(token.utf8)
     let query: [String: Any] = [
@@ -15,6 +26,11 @@ enum CoachAuthKeychain {
     SecItemDelete(query as CFDictionary)
     var insert = query
     insert[kSecValueData as String] = data
+    // AfterFirstUnlock: the session token must stay readable when the app is
+    // relaunched in the background (overnight capture, uploads) while the
+    // device is locked. WhenUnlocked (the default) made those launches see
+    // "no token" and sign the user out.
+    insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
     let status = SecItemAdd(insert as CFDictionary, nil)
     guard status == errSecSuccess else {
       throw CoachAuthError.keychain(status)
@@ -22,6 +38,13 @@ enum CoachAuthKeychain {
   }
 
   static func load() -> String? {
+    if case .found(let token) = loadResult() {
+      return token
+    }
+    return nil
+  }
+
+  static func loadResult() -> LoadResult {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -31,10 +54,17 @@ enum CoachAuthKeychain {
     ]
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
-    guard status == errSecSuccess, let data = item as? Data else {
-      return nil
+    switch status {
+    case errSecSuccess:
+      guard let data = item as? Data, let token = String(data: data, encoding: .utf8) else {
+        return .notFound
+      }
+      return .found(token)
+    case errSecItemNotFound:
+      return .notFound
+    default:
+      return .unavailable(status)
     }
-    return String(data: data, encoding: .utf8)
   }
 
   static func delete() {
