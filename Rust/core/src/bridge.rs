@@ -315,11 +315,15 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "sleep.validate_v1_release_gates",
     "sleep.validate_window_labels",
     "storage.check",
+    "store.drain_frame_bundle",
     "store.ewma_baseline_fold_history",
     "store.ewma_baseline_update",
     "store.gravity_rows_between",
     "store.insert_gravity_rows",
     "store.maintain",
+    "store.mark_frames_synced",
+    "store.prune_synced_frames",
+    "store.unsynced_frame_count",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
 ];
@@ -2773,6 +2777,22 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(store_maintain_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.unsynced_frame_count" => request_args::<DrainDbArgs>(&request)
+            .and_then(unsynced_frame_count_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.drain_frame_bundle" => request_args::<DrainFrameBundleArgs>(&request)
+            .and_then(drain_frame_bundle_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.mark_frames_synced" => request_args::<MarkFramesSyncedArgs>(&request)
+            .and_then(mark_frames_synced_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.prune_synced_frames" => request_args::<PruneSyncedFramesArgs>(&request)
+            .and_then(prune_synced_frames_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.ewma_baseline_fold_history" => request_args::<EwmaBaselineFoldHistoryArgs>(&request)
             .and_then(ewma_baseline_fold_history_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3706,6 +3726,61 @@ fn store_maintain_bridge(args: StoreMaintainArgs) -> BullResult<serde_json::Valu
     serde_json::to_value(report).map_err(|error| {
         BullError::message(format!("cannot serialize maintenance report: {error}"))
     })
+}
+
+// ---------------------------------------------------------------------------
+// Upload-drain bridge (store.unsynced_frame_count / drain_frame_bundle /
+// mark_frames_synced / prune_synced_frames)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+struct DrainDbArgs {
+    database_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DrainFrameBundleArgs {
+    database_path: String,
+    /// Max decoded-binary payload bytes per bundle (>=1 row always returned).
+    max_payload_bytes: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MarkFramesSyncedArgs {
+    database_path: String,
+    evidence_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PruneSyncedFramesArgs {
+    database_path: String,
+    /// RFC3339; synced frames captured strictly before this are deleted.
+    captured_before: String,
+}
+
+fn unsynced_frame_count_bridge(args: DrainDbArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    Ok(json!({ "count": store.unsynced_raw_evidence_count()? }))
+}
+
+fn drain_frame_bundle_bridge(args: DrainFrameBundleArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let rows = store.unsynced_raw_evidence_bundle(args.max_payload_bytes)?;
+    serde_json::to_value(json!({ "frames": rows }))
+        .map_err(|error| BullError::message(format!("cannot serialize drain bundle: {error}")))
+}
+
+fn mark_frames_synced_bridge(args: MarkFramesSyncedArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let ids: Vec<&str> = args.evidence_ids.iter().map(String::as_str).collect();
+    let updated = store.mark_raw_evidence_synced(&ids)?;
+    Ok(json!({ "updated": updated }))
+}
+
+fn prune_synced_frames_bridge(args: PruneSyncedFramesArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let removed = store.prune_synced_raw_evidence_before(&args.captured_before)?;
+    Ok(json!({ "removed": removed }))
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> BullResult<serde_json::Value> {
@@ -9153,6 +9228,65 @@ mod tests {
         let _store = crate::store::BullStore::open(std::path::Path::new(&path))
             .expect("open store for migration");
         (dir, path)
+    }
+
+    #[test]
+    fn drain_bridge_counts_bundles_marks_and_prunes() {
+        use crate::store::{BullStore, RawEvidenceInput};
+
+        let (_dir, db_path) = make_temp_db();
+        {
+            let store = BullStore::open(std::path::Path::new(&db_path)).unwrap();
+            for (id, at) in [("ev-1", "2026-05-28T00:00:00Z"), ("ev-2", "2026-05-28T01:00:00Z")] {
+                store
+                    .insert_raw_evidence(RawEvidenceInput {
+                        evidence_id: id,
+                        source: "synthetic.test",
+                        captured_at: at,
+                        device_model: "WHOOP 5.0 Bull",
+                        payload: &[0u8; 64],
+                        sensitivity: "synthetic",
+                        capture_session_id: None,
+                    })
+                    .unwrap();
+            }
+        }
+
+        let count = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "c".to_string(),
+            method: "store.unsynced_frame_count".to_string(),
+            args: json!({ "database_path": db_path }),
+        });
+        assert!(count.ok, "{:?}", count.error);
+        assert_eq!(count.result.unwrap()["count"], 2);
+
+        let bundle = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "b".to_string(),
+            method: "store.drain_frame_bundle".to_string(),
+            args: json!({ "database_path": db_path, "max_payload_bytes": 1_000_000 }),
+        });
+        let frames = bundle.result.unwrap();
+        let frames = frames["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0]["evidence_id"], "ev-1");
+
+        let mark = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "m".to_string(),
+            method: "store.mark_frames_synced".to_string(),
+            args: json!({ "database_path": db_path, "evidence_ids": ["ev-1", "ev-2"] }),
+        });
+        assert_eq!(mark.result.unwrap()["updated"], 2);
+
+        let prune = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "p".to_string(),
+            method: "store.prune_synced_frames".to_string(),
+            args: json!({ "database_path": db_path, "captured_before": "2026-05-28T00:30:00Z" }),
+        });
+        assert_eq!(prune.result.unwrap()["removed"], 1);
     }
 
     #[test]
