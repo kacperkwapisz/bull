@@ -71,7 +71,8 @@ Legend: ⬜ pending · 🟡 in-progress · ✅ done.
 | Setup | Merge Tier 1 → `main`; branch `feat/tier2-biometric-surfacing`; build green | — | ✅ |
 | **T2-1** | `insert_gravity2_batch` + `gravity2_samples_between` (port tiger, RE-scrub) + round-trip/idempotency/inverted-window tests | `store.rs` | ✅ |
 | T2-1-V | build clean · **846 tests (844+2), 0 failed** · `store.rs` goose/RE sweep clean | — | ✅ |
-| **T2-2** | Generic Rust ingest `run_biometric_ingest_for_store`: read `decoded_frames_between`, match `V24History`+`V18History`, route gravity→`gravity`, gravity2→`gravity2_samples`, skin_temp/spo2/resp→`insert_v24_biometric_batch`; plausibility gates + provenance JSON (mirror step_counter ingest) | new `biometric_ingest.rs` | ⬜ |
+| **T2-2** | Generic Rust ingest `run_biometric_ingest_for_store`: read `decoded_frames_between`, match `V24History`+`V18History`, route gravity→`gravity`, gravity2→`gravity2_samples`, skin_temp/spo2/resp→`insert_v24_biometric_batch`; skin-temp plausibility gate, contact gating, idempotency; 4 tests | new `biometric_ingest.rs` | ✅ |
+| T2-2-V | build clean · **850 tests (846+4), 0 failed** · new-file goose/RE sweep clean. HR/RR left to `metric_features`; steps left to `step_counter` (single owner per stream) | — | ✅ |
 | **T2-3** | Bridge dispatch + registration: `biometrics.ingest_from_decoded` (+ gravity2 query); update `BRIDGE_METHODS` + registry definitions | `bridge.rs` | ⬜ |
 | **T2-4** | Verify step_counter discovery picks up v18/v24 step fields; add fixtures if not | `step_counter.rs`, fixtures | ⬜ |
 | **T2-5** | Metrics correctness fold-in (tiger Ph 20–35/42): SpO₂/skin-temp/resp scaling, gravity2 → sleep-staging input, recovery Z-weights — only what surfaced numbers depend on | `metric_features.rs`, `sleep_staging.rs`, `metric_readiness.rs` | ⬜ |
