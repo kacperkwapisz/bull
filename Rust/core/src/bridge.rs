@@ -24,6 +24,7 @@ use crate::{
         compare_stress_bull_to_reference,
     },
     baselines::{EwmaBaseline, EwmaTrustLevel},
+    biometric_ingest::run_biometric_ingest_for_store,
     sleep_staging::{
         EpochHrFeature, SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
     },
@@ -195,6 +196,8 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "activity.list_sessions_with_metrics",
     "activity.metrics_for_session_in_window",
     "activity.update_session",
+    "biometrics.gravity2_between",
+    "biometrics.ingest_from_decoded",
     "biometrics.insert_v24_batch",
     "biometrics.spo2_from_raw",
     "biometrics.v24_between",
@@ -2785,6 +2788,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(gravity_rows_between_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.ingest_from_decoded" => request_args::<BiometricIngestArgs>(&request)
+            .and_then(biometric_ingest_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.gravity2_between" => request_args::<Gravity2BetweenArgs>(&request)
+            .and_then(gravity2_samples_between_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "biometrics.insert_v24_batch" => request_args::<InsertV24BatchArgs>(&request)
             .and_then(insert_v24_biometric_batch_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3326,6 +3337,49 @@ fn gravity_rows_between_bridge(args: GravityRowsBetweenArgs) -> BullResult<serde
         .map(|r| json!({"ts": r.ts, "x": r.x, "y": r.y, "z": r.z}))
         .collect();
     Ok(json!({ "rows": json_rows }))
+}
+
+#[derive(Debug, Deserialize)]
+struct Gravity2BetweenArgs {
+    database_path: String,
+    device_id: String,
+    ts_start: f64,
+    ts_end: f64,
+}
+
+fn gravity2_samples_between_bridge(args: Gravity2BetweenArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let rows: Vec<GravityRow> =
+        store.gravity2_samples_between(&args.device_id, args.ts_start, args.ts_end)?;
+    let json_rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| json!({"ts": r.ts, "x": r.x, "y": r.y, "z": r.z}))
+        .collect();
+    Ok(json!({ "rows": json_rows }))
+}
+
+// ---------------------------------------------------------------------------
+// Biometric ingest bridge (biometrics.ingest_from_decoded)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+struct BiometricIngestArgs {
+    database_path: String,
+    device_id: String,
+    #[serde(default = "default_correlation_start")]
+    start: String,
+    #[serde(default = "default_correlation_end")]
+    end: String,
+}
+
+/// Surface decoded V24 + v18 biometric streams from `decoded_frames` into the
+/// typed sample tables for a device. Idempotent on `(device_id, ts)`.
+fn biometric_ingest_bridge(args: BiometricIngestArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let report = run_biometric_ingest_for_store(&store, &args.device_id, &args.start, &args.end)?;
+    serde_json::to_value(report).map_err(|error| {
+        BullError::message(format!("cannot serialize biometric ingest report: {error}"))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -9075,6 +9129,86 @@ mod tests {
         let _store = crate::store::BullStore::open(std::path::Path::new(&path))
             .expect("open store for migration");
         (dir, path)
+    }
+
+    #[test]
+    fn biometric_ingest_from_decoded_surfaces_v24_and_reads_gravity2() {
+        use crate::protocol::{DeviceType, PACKET_TYPE_HISTORICAL_DATA, build_v5_payload_frame, parse_frame};
+        use crate::store::{BullStore, DecodedFrameInput, RawEvidenceInput};
+
+        let (_dir, db_path) = make_temp_db();
+
+        // Build a v24 historical body with gravity + gravity2 + contact streams.
+        let mut payload = vec![0u8; 90];
+        payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+        payload[1] = 24;
+        payload[2] = 1;
+        payload[7..11].copy_from_slice(&1_000u32.to_le_bytes()); // timestamp_seconds
+        payload[36..40].copy_from_slice(&0.1f32.to_le_bytes()); // gravity_x (data[33])
+        payload[40..44].copy_from_slice(&0.2f32.to_le_bytes()); // gravity_y
+        payload[44..48].copy_from_slice(&0.98f32.to_le_bytes()); // gravity_z
+        payload[51] = 1; // skin_contact (data[48])
+        payload[52..56].copy_from_slice(&0.3f32.to_le_bytes()); // gravity2_x (data[49])
+        payload[56..60].copy_from_slice(&0.4f32.to_le_bytes()); // gravity2_y
+        payload[60..64].copy_from_slice(&0.95f32.to_le_bytes()); // gravity2_z
+        let frame = build_v5_payload_frame(&payload);
+        let parsed = parse_frame(DeviceType::Bull, &frame).unwrap();
+
+        {
+            let store = BullStore::open(std::path::Path::new(&db_path)).unwrap();
+            store
+                .insert_raw_evidence(RawEvidenceInput {
+                    evidence_id: "ingest-ev",
+                    source: "synthetic.test",
+                    captured_at: "2026-05-28T01:00:00Z",
+                    device_model: "WHOOP 5.0 Bull",
+                    payload: &frame,
+                    sensitivity: "synthetic",
+                    capture_session_id: None,
+                })
+                .unwrap();
+            store
+                .insert_decoded_frame(DecodedFrameInput {
+                    frame_id: "ingest-ev.frame.0",
+                    evidence_id: "ingest-ev",
+                    parsed: &parsed,
+                    parser_version: "bridge-test",
+                })
+                .unwrap();
+        }
+
+        let ingest = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "ingest-1".to_string(),
+            method: "biometrics.ingest_from_decoded".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "start": "2026-05-28T00:00:00Z",
+                "end": "2026-05-29T00:00:00Z"
+            }),
+        });
+        assert!(ingest.ok, "ingest failed: {:?}", ingest.error);
+        let report = ingest.result.expect("ingest report");
+        assert_eq!(report["v24_frame_count"], 1);
+        assert_eq!(report["gravity_inserted"], 1);
+        assert_eq!(report["gravity2_inserted"], 1);
+
+        let query = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "g2-1".to_string(),
+            method: "biometrics.gravity2_between".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "dev-1",
+                "ts_start": 0.0,
+                "ts_end": 10_000.0
+            }),
+        });
+        assert!(query.ok, "gravity2_between failed: {:?}", query.error);
+        let rows = query.result.expect("rows");
+        assert_eq!(rows["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(rows["rows"][0]["ts"], 1_000.0);
     }
 
     #[test]
