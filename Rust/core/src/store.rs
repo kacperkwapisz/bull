@@ -4148,6 +4148,60 @@ impl BullStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
     }
 
+    /// Insert secondary-gravity rows into `gravity2_samples`. The secondary
+    /// triplet is present in the longer historical bodies the device exposes
+    /// over Bluetooth; rows are idempotent on `(device_id, ts)` so re-ingesting
+    /// an overlapping window does not duplicate samples. Returns the number of
+    /// newly inserted rows.
+    pub fn insert_gravity2_batch(
+        &self,
+        device_id: &str,
+        rows: &[(f64, f64, f64, f64)],
+    ) -> BullResult<usize> {
+        validate_required("device_id", device_id)?;
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let mut inserted = 0usize;
+        for &(ts, x, y, z) in rows {
+            let changed = self.conn.execute(
+                "INSERT OR IGNORE INTO gravity2_samples (device_id, ts, x, y, z) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![device_id, ts, x, y, z],
+            )?;
+            inserted += changed;
+        }
+        Ok(inserted)
+    }
+
+    /// Return secondary-gravity rows for a device in the half-open window
+    /// [ts_start, ts_end), ordered by ts ascending.
+    pub fn gravity2_samples_between(
+        &self,
+        device_id: &str,
+        ts_start: f64,
+        ts_end: f64,
+    ) -> BullResult<Vec<GravityRow>> {
+        validate_required("device_id", device_id)?;
+        if ts_end < ts_start {
+            return Err(BullError::message(
+                "ts_end must be greater than or equal to ts_start",
+            ));
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT device_id, ts, x, y, z FROM gravity2_samples WHERE device_id = ?1 AND ts >= ?2 AND ts < ?3 ORDER BY ts",
+        )?;
+        let rows = statement.query_map(params![device_id, ts_start, ts_end], |row| {
+            Ok(GravityRow {
+                device_id: row.get(0)?,
+                ts: row.get(1)?,
+                x: row.get(2)?,
+                y: row.get(3)?,
+                z: row.get(4)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
     /// Return respiration sensor sample rows for a device in [ts_start, ts_end),
     /// ordered by ts ascending. Raw uncalibrated V24 stream.
     pub fn resp_samples_between(
@@ -8751,6 +8805,43 @@ mod tests {
         assert!(index_exists(&store, "idx_raw_evidence_by_captured_at"));
         assert!(index_exists(&store, "idx_decoded_frames_by_evidence"));
         assert!(index_exists(&store, "idx_capture_sessions_by_started_at"));
+    }
+
+    #[test]
+    fn insert_gravity2_batch_round_trips_and_is_idempotent() {
+        let store = BullStore::open_in_memory().unwrap();
+        let device_id = "bull.test.gravity2";
+        let rows = [
+            (1_000.0_f64, 0.1_f64, -0.2_f64, 0.98_f64),
+            (1_001.0_f64, 0.11_f64, -0.21_f64, 0.97_f64),
+        ];
+
+        let first = store.insert_gravity2_batch(device_id, &rows).unwrap();
+        assert_eq!(first, 2);
+
+        // Re-inserting the same window is a no-op (idempotent on device_id, ts).
+        let second = store.insert_gravity2_batch(device_id, &rows).unwrap();
+        assert_eq!(second, 0);
+
+        let window = store
+            .gravity2_samples_between(device_id, 0.0, 2_000.0)
+            .unwrap();
+        assert_eq!(window.len(), 2);
+        assert_eq!(window[0].ts, 1_000.0);
+        assert_eq!(window[1].z, 0.97);
+
+        // gravity2 is a distinct table from the primary gravity stream.
+        let primary = store.gravity_rows_between(device_id, 0.0, 2_000.0).unwrap();
+        assert!(primary.is_empty());
+    }
+
+    #[test]
+    fn gravity2_samples_between_rejects_inverted_window() {
+        let store = BullStore::open_in_memory().unwrap();
+        let error = store
+            .gravity2_samples_between("bull.test.gravity2", 10.0, 5.0)
+            .unwrap_err();
+        assert!(error.to_string().contains("ts_end must be"));
     }
 
     fn index_exists(store: &BullStore, name: &str) -> bool {

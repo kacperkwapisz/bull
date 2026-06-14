@@ -58,6 +58,32 @@ de63118  feat(protocol): decode WHOOP 5.0 v18 historical bodies                 
 realtime HR / v18 historical bodies decode against a real WHOOP 5.0 before starting
 any Tier 2 work. Not pushed (per AGENTS.md; publishing is the user's call).
 
+## 🚧 Tier 2 port progress — G2b unified V24 + v18 biometric surfacing (branch `feat/tier2-biometric-surfacing`, off `main`)
+
+Tier 1 merged to `main` (`17fe526`). Baseline on branch: `cargo build` green.
+Architecture decision: **Rust-side ingest** (reuse Tier 1 decode + cargo test
+harness; Swift stays thin), mirroring the existing `step_counter` ingest pattern.
+Realtime JSON-over-FFI lag fix is **deferred** to a later perf tier (measure first).
+Legend: ⬜ pending · 🟡 in-progress · ✅ done.
+
+| # | Sub-task | Files | Status |
+|---|----------|-------|--------|
+| Setup | Merge Tier 1 → `main`; branch `feat/tier2-biometric-surfacing`; build green | — | ✅ |
+| **T2-1** | `insert_gravity2_batch` + `gravity2_samples_between` (port tiger, RE-scrub) + round-trip/idempotency/inverted-window tests | `store.rs` | ✅ |
+| T2-1-V | build clean · **846 tests (844+2), 0 failed** · `store.rs` goose/RE sweep clean | — | ✅ |
+| **T2-2** | Generic Rust ingest `run_biometric_ingest_for_store`: read `decoded_frames_between`, match `V24History`+`V18History`, route gravity→`gravity`, gravity2→`gravity2_samples`, skin_temp/spo2/resp→`insert_v24_biometric_batch`; plausibility gates + provenance JSON (mirror step_counter ingest) | new `biometric_ingest.rs` | ⬜ |
+| **T2-3** | Bridge dispatch + registration: `biometrics.ingest_from_decoded` (+ gravity2 query); update `BRIDGE_METHODS` + registry definitions | `bridge.rs` | ⬜ |
+| **T2-4** | Verify step_counter discovery picks up v18/v24 step fields; add fixtures if not | `step_counter.rs`, fixtures | ⬜ |
+| **T2-5** | Metrics correctness fold-in (tiger Ph 20–35/42): SpO₂/skin-temp/resp scaling, gravity2 → sleep-staging input, recovery Z-weights — only what surfaced numbers depend on | `metric_features.rs`, `sleep_staging.rs`, `metric_readiness.rs` | ⬜ |
+| **T2-6** | Swift: post-sync trigger of `biometrics.ingest_from_decoded`; thin read-back via existing query bridges | `BullSwift/HealthDataStore+*.swift` | ⬜ |
+| **T2-7** | UI surfacing of V24/v18 biometrics with honest unavailable states | `BullSwift/` views | ⬜ |
+| **V** | After each unit: `cargo build && cargo test --no-fail-fast`; `git grep -i goose` empty; RE sweep clean | — | ⬜ |
+| Final | Tracker updated; focused commits; hardware-verify pause | — | ⬜ |
+
+**Scope guard:** stay within Rust core + local SQLite + thin Swift read-back/UI.
+**Do not** route physiology through HealthKit (`ios_healthkit_read_boundary_is_weight_only`)
+or add a BullAPI write path in this tier — flag for a decision first (as with G2a).
+
 ## How to read this
 
 - **Lineage:** `b-nnett/goose` (frozen root) → shared multi-author dev line → two
