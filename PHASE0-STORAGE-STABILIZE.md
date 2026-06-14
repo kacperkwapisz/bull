@@ -109,7 +109,9 @@ Baseline at branch: **854 Rust tests / 0 failed**; 1.7 GB device DB **wiped**
 | # | Task | Where | Status |
 |---|------|-------|--------|
 | **P0-1** | **WAL checkpoint** — explicit `wal_autocheckpoint=1000` pragma + `checkpoint_wal_truncate()` (`wal_checkpoint(TRUNCATE)`) forced at end of `store.maintain`; report carries `wal_bytes_before/after` + `wal_checkpoint_busy`; 2 tests (WAL truncates to 0; single-conn not busy) | `store.rs` | ✅ |
-| **P0-2** | **Frame drain queue** — track un-uploaded frames; build a bundle of N un-uploaded frames; on confirmed upload (2xx), **delete those rows**; retry/backoff on failure; reconcile with the spool path so each frame uploads once | `store.rs`, `bridge.rs`, `BullSwift` | ⬜ |
+| **P0-2a** | **Drain primitives (Rust)** — `raw_evidence.synced` migration + index; `unsynced_raw_evidence_count` / `unsynced_raw_evidence_bundle(max_bytes)` (oldest-first, byte-budgeted, ≥1) / `mark_raw_evidence_synced` / `prune_synced_raw_evidence_before` (CASCADE drops decoded_frames). 2 tests | `store.rs` | ✅ |
+| **P0-2b** | **Bridge methods** for the drain primitives | `bridge.rs` | ⬜ |
+| **P0-2c** | **Swift drain worker** — bundle → `POST /v1/data/uploads` → on 2xx `mark_synced`; retry/backoff; **unify with / retire the overnight spool uploader** so each frame uploads once | `BullSwift` | ⬜ |
 | **P0-3** | **Trigger drain after capture/sync** (+ app background); run WAL checkpoint after a drain pass | `BullSwift` | ⬜ |
 | **P0-4** | **Tests** — drain selects/bundles/deletes correctly; nothing deleted before success; idempotent (checksum dedupe); WAL truncates; DB stays bounded under simulated high volume | `store.rs` tests | ⬜ |
 | **P0-5** | **On-device verify** — re-sync a real large history; confirm DB stays small, WAL bounded, frames drain to R2, no crash | device | ⬜ |
@@ -126,5 +128,6 @@ now-small drained DB) until Phase 2 deletes it.
 ### Phase 0 commits
 
 ```
-(P0-1) feat(store): force a truncating WAL checkpoint in maintenance
+(P0-1)  feat(store): force a truncating WAL checkpoint in maintenance
+(P0-2a) feat(store): raw-frame upload-drain primitives
 ```
