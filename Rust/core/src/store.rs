@@ -622,6 +622,20 @@ pub struct GravityRow {
     pub z: f64,
 }
 
+/// Lightweight per-stream rollup for read-only biometric surfaces: how many
+/// samples exist and the most recent raw reading, without paging full history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BiometricStreamSummary {
+    pub spo2_count: i64,
+    pub latest_spo2_red: Option<i64>,
+    pub latest_spo2_ir: Option<i64>,
+    pub skin_temp_count: i64,
+    pub latest_skin_temp_raw: Option<i64>,
+    pub resp_count: i64,
+    pub gravity_count: i64,
+    pub gravity2_count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RespSampleRow {
     pub device_id: String,
@@ -4200,6 +4214,47 @@ impl BullStore {
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(BullError::from)
+    }
+
+    /// Lightweight per-stream summary (sample counts + most-recent raw reading)
+    /// for a device, computed with SQL aggregates so the caller never has to
+    /// page the full history across the bridge. Used by read-only surfaces that
+    /// just need "how much data is there + latest value".
+    pub fn biometric_stream_summary(
+        &self,
+        device_id: &str,
+    ) -> BullResult<BiometricStreamSummary> {
+        validate_required("device_id", device_id)?;
+        let count = |table: &str| -> BullResult<i64> {
+            let sql = format!("SELECT COUNT(*) FROM {table} WHERE device_id = ?1");
+            Ok(self.conn.query_row(&sql, params![device_id], |row| row.get(0))?)
+        };
+        let latest_spo2: Option<(i64, i64)> = self
+            .conn
+            .query_row(
+                "SELECT red, ir FROM spo2_samples WHERE device_id = ?1 ORDER BY ts DESC LIMIT 1",
+                params![device_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let latest_skin_temp_raw: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT raw FROM skin_temp_samples WHERE device_id = ?1 ORDER BY ts DESC LIMIT 1",
+                params![device_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(BiometricStreamSummary {
+            spo2_count: count("spo2_samples")?,
+            latest_spo2_red: latest_spo2.map(|(red, _)| red),
+            latest_spo2_ir: latest_spo2.map(|(_, ir)| ir),
+            skin_temp_count: count("skin_temp_samples")?,
+            latest_skin_temp_raw,
+            resp_count: count("resp_samples")?,
+            gravity_count: count("gravity")?,
+            gravity2_count: count("gravity2_samples")?,
+        })
     }
 
     /// Return respiration sensor sample rows for a device in [ts_start, ts_end),

@@ -29,66 +29,27 @@ final class DeviceBiometricsModel: ObservableObject {
     let bridge = store.bridge
     let databasePath = store.databasePath
     let deviceID = HealthDataStore.localBiometricDeviceID
-    // Device-clock seconds. A wide window captures every surfaced sample
-    // regardless of how the device's real-time clock is set.
-    let windowStart = 0.0
-    let windowEnd = 4_102_444_800.0 // 2100-01-01
 
     DispatchQueue.global(qos: .userInitiated).async {
-      // Make the view self-sufficient: run the (idempotent) ingest so the typed
-      // tables reflect the latest decoded frames, then read them back.
-      _ = try? bridge.request(
-        method: "biometrics.ingest_from_decoded",
-        args: [
-          "database_path": databasePath,
-          "device_id": deviceID,
-          "start": "0000",
-          "end": "9999",
-        ]
-      )
-
+      // Read-only: counts + latest raw readings are computed with SQL aggregates
+      // in Rust, so the full sample history is never paged across the bridge
+      // (avoids large allocations after a long historical sync). Ingest is owned
+      // by the packet-input pipeline; this surface never writes.
       var summary: StreamSummary?
       var errorText: String?
       do {
-        let v24 = try bridge.request(
-          method: "biometrics.v24_between",
+        let rollup = try bridge.request(
+          method: "biometrics.stream_summary",
           args: [
             "database_path": databasePath,
             "device_id": deviceID,
-            "start_ts": windowStart,
-            "end_ts": windowEnd,
-          ]
-        )
-        let gravity = try bridge.request(
-          method: "store.gravity_rows_between",
-          args: [
-            "database_path": databasePath,
-            "device_id": deviceID,
-            "ts_start": windowStart,
-            "ts_end": windowEnd,
-          ]
-        )
-        let gravity2 = try bridge.request(
-          method: "biometrics.gravity2_between",
-          args: [
-            "database_path": databasePath,
-            "device_id": deviceID,
-            "ts_start": windowStart,
-            "ts_end": windowEnd,
           ]
         )
 
-        let spo2Rows = v24["spo2"] as? [[String: Any]] ?? []
-        let skinRows = v24["skin_temp"] as? [[String: Any]] ?? []
-        let respRows = v24["resp"] as? [[String: Any]] ?? []
-        let gravityRows = gravity["rows"] as? [[String: Any]] ?? []
-        let gravity2Rows = gravity2["rows"] as? [[String: Any]] ?? []
-
-        // Latest SpO2 via the uncalibrated raw conversion bridge.
+        // Latest SpO2 via the uncalibrated raw conversion bridge (one tiny call).
         var latestSpo2: Double?
-        if let last = spo2Rows.last,
-          let red = Self.intValue(last["red"]),
-          let ir = Self.intValue(last["ir"]) {
+        if let red = Self.intValue(rollup["latest_spo2_red"]),
+          let ir = Self.intValue(rollup["latest_spo2_ir"]) {
           let converted = try? bridge.request(
             method: "biometrics.spo2_from_raw",
             args: ["red": red, "ir": ir]
@@ -97,19 +58,16 @@ final class DeviceBiometricsModel: ObservableObject {
         }
 
         // Latest skin temperature: raw ADC / 128 = degrees Celsius (uncalibrated).
-        var latestSkinTempC: Double?
-        if let last = skinRows.last, let raw = Self.number(last["raw"]) {
-          latestSkinTempC = raw / 128.0
-        }
+        let latestSkinTempC = Self.number(rollup["latest_skin_temp_raw"]).map { $0 / 128.0 }
 
         summary = StreamSummary(
-          spo2Count: spo2Rows.count,
+          spo2Count: Self.intValue(rollup["spo2_count"]) ?? 0,
           latestSpo2Pct: latestSpo2,
-          skinTempCount: skinRows.count,
+          skinTempCount: Self.intValue(rollup["skin_temp_count"]) ?? 0,
           latestSkinTempC: latestSkinTempC,
-          respCount: respRows.count,
-          gravityCount: gravityRows.count,
-          gravity2Count: gravity2Rows.count
+          respCount: Self.intValue(rollup["resp_count"]) ?? 0,
+          gravityCount: Self.intValue(rollup["gravity_count"]) ?? 0,
+          gravity2Count: Self.intValue(rollup["gravity2_count"]) ?? 0
         )
       } catch {
         errorText = Self.shortError(error)

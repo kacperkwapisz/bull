@@ -200,6 +200,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "biometrics.ingest_from_decoded",
     "biometrics.insert_v24_batch",
     "biometrics.spo2_from_raw",
+    "biometrics.stream_summary",
     "biometrics.v24_between",
     "calibration.apply",
     "calibration.evaluate_dataset",
@@ -2808,6 +2809,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(spo2_from_raw_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "biometrics.stream_summary" => request_args::<BiometricStreamSummaryArgs>(&request)
+            .and_then(biometric_stream_summary_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "exercise.detect_sessions" => request_args::<DetectExerciseSessionsArgs>(&request)
             .and_then(exercise_detect_sessions_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3379,6 +3384,25 @@ fn biometric_ingest_bridge(args: BiometricIngestArgs) -> BullResult<serde_json::
     let report = run_biometric_ingest_for_store(&store, &args.device_id, &args.start, &args.end)?;
     serde_json::to_value(report).map_err(|error| {
         BullError::message(format!("cannot serialize biometric ingest report: {error}"))
+    })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct BiometricStreamSummaryArgs {
+    database_path: String,
+    device_id: String,
+}
+
+/// Read-only per-stream rollup (counts + latest raw reading) computed with SQL
+/// aggregates, so read surfaces never page the full sample history across the
+/// bridge.
+fn biometric_stream_summary_bridge(
+    args: BiometricStreamSummaryArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let summary = store.biometric_stream_summary(&args.device_id)?;
+    serde_json::to_value(summary).map_err(|error| {
+        BullError::message(format!("cannot serialize biometric stream summary: {error}"))
     })
 }
 

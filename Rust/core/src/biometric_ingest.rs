@@ -400,6 +400,35 @@ mod tests {
     }
 
     #[test]
+    fn stream_summary_reports_counts_and_latest_without_paging() {
+        let store = BullStore::open_in_memory().unwrap();
+        seed_frame(&store, "f.v24a", &v24_payload(1_000, true, 4096));
+        seed_frame(&store, "f.v24b", &v24_payload(1_002, true, 4224)); // 33.0 degC, latest
+        seed_frame(&store, "f.v18", &v18_payload(1_001, 4096));
+        run_biometric_ingest_for_store(&store, DEVICE_ID, START, END).unwrap();
+
+        let summary = store.biometric_stream_summary(DEVICE_ID).unwrap();
+        assert_eq!(summary.spo2_count, 2);
+        assert_eq!(summary.skin_temp_count, 3); // 2 v24 + 1 v18
+        assert_eq!(summary.resp_count, 2);
+        assert_eq!(summary.gravity_count, 3); // 2 v24 + 1 v18
+        assert_eq!(summary.gravity2_count, 2); // v24 only
+        // Latest skin temp is from the most recent ts (1_002 -> raw 4224).
+        assert_eq!(summary.latest_skin_temp_raw, Some(4224));
+        assert!(summary.latest_spo2_red.is_some());
+        assert!(summary.latest_spo2_ir.is_some());
+    }
+
+    #[test]
+    fn stream_summary_is_empty_for_unknown_device() {
+        let store = BullStore::open_in_memory().unwrap();
+        let summary = store.biometric_stream_summary("bull.test.absent").unwrap();
+        assert_eq!(summary.gravity_count, 0);
+        assert_eq!(summary.spo2_count, 0);
+        assert_eq!(summary.latest_skin_temp_raw, None);
+    }
+
+    #[test]
     fn implausible_skin_temp_is_rejected() {
         let store = BullStore::open_in_memory().unwrap();
         // raw 256 -> 2.0 degC, below the 5 degC gate.
