@@ -156,6 +156,18 @@ extension BullBLEClient: CBPeripheralDelegate {
            V5PacketType.metadata,
            V5PacketType.puffinMetadata:
         return true
+      case V5PacketType.historicalData,
+           V5PacketType.historicalIMUDataStream:
+        // Historical body frames must reach the main-thread handler so an active
+        // sync can record and persist them. Route them to main only while a sync
+        // is in progress; outside a sync these are high-rate live-stream frames
+        // kept off-main for performance. Without this guard the sync never
+        // observes any historical bodies and stalls — silently losing the
+        // device's own recorded data, which Bull must never do.
+        if isHistoricalSyncing {
+          return true
+        }
+        continue
       default:
         continue
       }

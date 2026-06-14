@@ -10,7 +10,7 @@
   "schema": "bull.frame.hex.v1",
   "consent": "synthetic-no-user-data",
   "sensitivity": "public-test-fixture",
-  "notes": "HISTORICAL_DATA K18 frame with stable header fields and HR-present marker at payload offset 14.",
+  "notes": "HISTORICAL_DATA K18 frame with stable header fields. The body is shorter than a full v18 body, so the v18 decoder reports v18_payload_too_short and leaves the per-second fields unavailable; the outer header (including the offset-14 marker byte) still parses.",
   "expected": {
     "device_type": "BULL",
     "packet_type": 47,
@@ -33,10 +33,15 @@
       "body_offset": 13,
       "body_hex": "aa4dbbccddeeff",
       "body_summary": {
-        "kind": "normal_history",
-        "hr_present": true,
-        "marker_offset": 14,
-        "marker_value": 77
+        "kind": "v18_history",
+        "hr": null,
+        "rr_intervals_ms": [],
+        "gravity_x": null,
+        "gravity_y": null,
+        "gravity_z": null,
+        "skin_temp_raw": null,
+        "step_motion_counter": null,
+        "warnings": ["v18_payload_too_short"]
       }
     }
   }
