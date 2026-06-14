@@ -15,9 +15,10 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   /// Decoded-binary payload budget per bundle. The compressed upload is smaller;
   /// kept well under the server's bundle cap.
   static let bundlePayloadByteBudget = 2 * 1024 * 1024
-  /// Keep recently-synced frames on device this long for the temporary
-  /// on-device metric stand-in; prune older ones.
-  static let retentionWindowSeconds: TimeInterval = 3 * 24 * 3600
+  /// Hard cap on retained *synced* raw payload. The store is kept this small
+  /// regardless of how much has been synced — only a recent slice stays on
+  /// device (for the live/recent view); deep history comes from the server.
+  static let syncedRetentionByteCap = 32 * 1024 * 1024
   /// Safety bound on bundles drained per pass (each pass is re-entrant-safe).
   private static let maxBundlesPerPass = 512
 
@@ -89,14 +90,14 @@ final class BullFrameDrainUploader: @unchecked Sendable {
       }
     }
 
-    // Prune synced frames past the retention window; cascade reclaims decoded rows.
-    let cutoff = Self.iso8601.string(from: Date().addingTimeInterval(-Self.retentionWindowSeconds))
+    // Hard-bound the local store: keep only a small recent slice of synced
+    // frames; cascade reclaims their decoded rows. Deep history lives server-side.
     if let pruneResult = try? bridge.request(
-      method: "store.prune_synced_frames",
-      args: ["database_path": databasePath, "captured_before": cutoff]
+      method: "store.prune_synced_to_cap",
+      args: ["database_path": databasePath, "max_payload_bytes": Self.syncedRetentionByteCap]
     ) {
       let removed = (pruneResult["removed"] as? Int) ?? 0
-      if removed > 0 { log("drain.pruned", "removed=\(removed) before=\(cutoff)") }
+      if removed > 0 { log("drain.pruned", "removed=\(removed) cap=\(Self.syncedRetentionByteCap)") }
     }
 
     // Fold the freed space back and truncate the WAL.
@@ -134,12 +135,6 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     guard !jsonl.isEmpty else { return nil }
     return (try? (jsonl as NSData).compressed(using: .zlib)) as Data?
   }
-
-  private static let iso8601: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
 
   // MARK: - Upload (multipart, same surface as the spool archive uploader)
 

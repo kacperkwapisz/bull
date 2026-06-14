@@ -80,6 +80,20 @@ final class BullAppModel: ObservableObject {
       self?.ble.record(source: "storage.drain", title: title, body: body)
     }
   }
+  /// Throttle so the during-capture drain fires at most this often.
+  static let frameDrainThrottleSeconds: TimeInterval = 15
+  var lastFrameDrainTriggerTime = Date.distantPast
+
+  /// Kick the drain while capturing so the local store stays bounded mid-sync.
+  /// Throttled; the uploader itself skips re-entrant runs.
+  func maybeTriggerFrameDrain() {
+    let now = Date()
+    guard now.timeIntervalSince(lastFrameDrainTriggerTime) >= Self.frameDrainThrottleSeconds else {
+      return
+    }
+    lastFrameDrainTriggerTime = now
+    frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath())
+  }
   // Track A: pushes locally-computed curated metrics to the long-term store and
   // restores history into the local store on a fresh install.
   lazy var metricSyncCoordinator = BullMetricSyncCoordinator(

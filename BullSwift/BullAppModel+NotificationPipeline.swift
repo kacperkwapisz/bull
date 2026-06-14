@@ -181,6 +181,10 @@ extension BullAppModel {
       return
     }
 
+    // Drain continuously while capturing so a long sync can't grow the local
+    // store without bound (throttled; re-entrant runs are skipped).
+    maybeTriggerFrameDrain()
+
     let capturedAt = Self.captureTimestampFormatter.string(from: event.capturedAt)
     let captureSessionID = activeHealthPacketCapture?.sessionID ?? activeActivityPersistence?.captureSessionID
     let request = CaptureFrameRowBuildRequest(

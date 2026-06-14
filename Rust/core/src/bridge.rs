@@ -323,6 +323,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.maintain",
     "store.mark_frames_synced",
     "store.prune_synced_frames",
+    "store.prune_synced_to_cap",
     "store.unsynced_frame_count",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
@@ -2793,6 +2794,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(prune_synced_frames_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.prune_synced_to_cap" => request_args::<PruneSyncedToCapArgs>(&request)
+            .and_then(prune_synced_to_cap_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.ewma_baseline_fold_history" => request_args::<EwmaBaselineFoldHistoryArgs>(&request)
             .and_then(ewma_baseline_fold_history_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3780,6 +3785,19 @@ fn mark_frames_synced_bridge(args: MarkFramesSyncedArgs) -> BullResult<serde_jso
 fn prune_synced_frames_bridge(args: PruneSyncedFramesArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store_hot(&args.database_path)?;
     let removed = store.prune_synced_raw_evidence_before(&args.captured_before)?;
+    Ok(json!({ "removed": removed }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PruneSyncedToCapArgs {
+    database_path: String,
+    /// Keep only the newest synced frames summing to this many binary bytes.
+    max_payload_bytes: i64,
+}
+
+fn prune_synced_to_cap_bridge(args: PruneSyncedToCapArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let removed = store.prune_synced_raw_evidence_to_byte_cap(args.max_payload_bytes)?;
     Ok(json!({ "removed": removed }))
 }
 

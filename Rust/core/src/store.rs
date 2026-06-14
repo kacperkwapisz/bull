@@ -5955,6 +5955,36 @@ impl BullStore {
         Ok(removed)
     }
 
+    /// Keep only the most-recent synced frames whose decoded-binary payloads sum
+    /// to `max_payload_bytes`; delete older synced frames beyond that (cascade
+    /// reclaims their decoded_frames). Un-synced frames are always retained.
+    /// This is the hard bound that keeps the local store small regardless of how
+    /// much has been synced. Returns the number of raw_evidence rows removed.
+    pub fn prune_synced_raw_evidence_to_byte_cap(
+        &self,
+        max_payload_bytes: i64,
+    ) -> BullResult<usize> {
+        validate_non_negative("max_payload_bytes", max_payload_bytes)?;
+        let removed = self.conn.execute(
+            r#"
+            DELETE FROM raw_evidence WHERE evidence_id IN (
+                SELECT evidence_id FROM (
+                    SELECT
+                        evidence_id,
+                        SUM(LENGTH(payload_hex) / 2) OVER (
+                            ORDER BY captured_at DESC, evidence_id DESC
+                        ) AS running_bytes
+                    FROM raw_evidence
+                    WHERE synced = 1
+                )
+                WHERE running_bytes > ?1
+            )
+            "#,
+            params![max_payload_bytes],
+        )?;
+        Ok(removed)
+    }
+
     pub fn decoded_frames_between(
         &self,
         start: &str,
@@ -9144,6 +9174,41 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM decoded_frames", [], |r| r.get(0))
             .unwrap();
         assert_eq!(decoded, 0, "deleting ev-1 cascades to its decoded_frames");
+    }
+
+    #[test]
+    fn prune_to_byte_cap_keeps_newest_synced_and_drops_older() {
+        let store = BullStore::open_in_memory().unwrap();
+        // 4 synced frames of 100 B each (200 hex chars) + 1 un-synced.
+        for (id, at) in [
+            ("s-1", "2026-05-28T00:00:00Z"),
+            ("s-2", "2026-05-28T01:00:00Z"),
+            ("s-3", "2026-05-28T02:00:00Z"),
+            ("s-4", "2026-05-28T03:00:00Z"),
+        ] {
+            seed_raw(&store, id, at, &[0u8; 100]);
+        }
+        seed_raw(&store, "u-1", "2026-05-27T00:00:00Z", &[0u8; 100]); // old but un-synced
+        store
+            .mark_raw_evidence_synced(&["s-1", "s-2", "s-3", "s-4"])
+            .unwrap();
+
+        // Cap of 250 B keeps the 2 newest synced (s-4, s-3 = 200 B); s-2, s-1 go.
+        let removed = store.prune_synced_raw_evidence_to_byte_cap(250).unwrap();
+        assert_eq!(removed, 2);
+
+        let ids: Vec<String> = {
+            let mut stmt = store
+                .conn
+                .prepare("SELECT evidence_id FROM raw_evidence ORDER BY evidence_id")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        // s-3, s-4 kept (newest synced under cap); u-1 kept (un-synced, never pruned).
+        assert_eq!(ids, vec!["s-3", "s-4", "u-1"]);
     }
 
     #[test]
