@@ -237,6 +237,14 @@ pub struct StoreMaintenanceReport {
     pub file_bytes_before: i64,
     pub file_bytes_after: i64,
     pub vacuumed: bool,
+    /// WAL file size (bytes) before and after the truncating checkpoint. The
+    /// auto-checkpoint can be blocked by long-running readers during a sync,
+    /// so maintenance forces a TRUNCATE checkpoint to keep the WAL bounded.
+    pub wal_bytes_before: i64,
+    pub wal_bytes_after: i64,
+    /// True when the checkpoint could not fully reclaim the WAL because another
+    /// connection still held a read mark (best-effort; retried next maintenance).
+    pub wal_checkpoint_busy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1076,6 +1084,7 @@ fn configure_read_write_connection(conn: &Connection) -> BullResult<()> {
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         PRAGMA busy_timeout = 5000;
+        PRAGMA wal_autocheckpoint = 1000;
         "#,
     )?;
     Ok(())
@@ -5790,6 +5799,14 @@ impl BullStore {
             self.conn.execute_batch("VACUUM;")?;
         }
 
+        // Force a truncating WAL checkpoint last, so any pages written by the
+        // compaction/VACUUM above are folded back into the main file and the
+        // WAL is reset to zero. Without this the WAL can grow without bound when
+        // long readers (e.g. a sync scan) keep blocking the auto-checkpoint.
+        let wal_bytes_before = self.wal_file_bytes();
+        let wal_checkpoint_busy = self.checkpoint_wal_truncate()?;
+        let wal_bytes_after = self.wal_file_bytes();
+
         let page_count_after: i64 = self
             .conn
             .query_row("PRAGMA page_count", [], |row| row.get(0))?;
@@ -5808,7 +5825,36 @@ impl BullStore {
             file_bytes_before,
             file_bytes_after: page_count_after.saturating_mul(page_size),
             vacuumed: should_vacuum,
+            wal_bytes_before,
+            wal_bytes_after,
+            wal_checkpoint_busy,
         })
+    }
+
+    /// Force a `wal_checkpoint(TRUNCATE)`: flush all committed WAL frames into
+    /// the main database and truncate the WAL file back to zero. Returns `true`
+    /// when the checkpoint was `busy` (another connection still held a read
+    /// mark, so the WAL could not be fully reclaimed this pass). Best-effort by
+    /// design — a busy result is retried at the next maintenance.
+    pub fn checkpoint_wal_truncate(&self) -> BullResult<bool> {
+        // PRAGMA wal_checkpoint(TRUNCATE) returns one row: (busy, log, checkpointed).
+        let busy: i64 = self.conn.query_row(
+            "PRAGMA wal_checkpoint(TRUNCATE)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(busy != 0)
+    }
+
+    /// Size in bytes of the `-wal` sidecar file, or 0 when absent / in-memory.
+    fn wal_file_bytes(&self) -> i64 {
+        let Some(path) = self.conn.path().filter(|path| !path.is_empty()) else {
+            return 0;
+        };
+        let wal_path = format!("{path}-wal");
+        std::fs::metadata(&wal_path)
+            .map(|meta| meta.len() as i64)
+            .unwrap_or(0)
     }
 
     pub fn decoded_frames_between(
@@ -8888,6 +8934,59 @@ mod tests {
         // gravity2 is a distinct table from the primary gravity stream.
         let primary = store.gravity_rows_between(device_id, 0.0, 2_000.0).unwrap();
         assert!(primary.is_empty());
+    }
+
+    #[test]
+    fn maintain_truncates_the_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bull.sqlite");
+        let store = BullStore::open(&path).unwrap();
+        let payload = vec![0u8; 4096];
+        // Many small transactions grow the WAL without hitting auto-checkpoint.
+        for i in 0..50 {
+            store
+                .insert_raw_evidence(RawEvidenceInput {
+                    evidence_id: &format!("ev-{i}"),
+                    source: "synthetic.test",
+                    captured_at: "2026-05-28T00:00:00Z",
+                    device_model: "WHOOP 5.0 Bull",
+                    payload: &payload,
+                    sensitivity: "synthetic",
+                    capture_session_id: None,
+                })
+                .unwrap();
+        }
+        let wal_path = format!("{}-wal", path.display());
+        let wal_before = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+        assert!(wal_before > 0, "expected a non-empty WAL before maintenance");
+
+        let report = store.maintain(StoreMaintenanceOptions::default()).unwrap();
+        assert!(!report.wal_checkpoint_busy, "single connection must not be busy");
+        assert_eq!(
+            report.wal_bytes_after, 0,
+            "TRUNCATE checkpoint must reset the WAL to zero"
+        );
+        let wal_after = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+        assert_eq!(wal_after, 0, "on-disk WAL file must be truncated");
+    }
+
+    #[test]
+    fn checkpoint_wal_truncate_is_not_busy_for_a_single_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bull.sqlite");
+        let store = BullStore::open(&path).unwrap();
+        store
+            .insert_raw_evidence(RawEvidenceInput {
+                evidence_id: "ev-1",
+                source: "synthetic.test",
+                captured_at: "2026-05-28T00:00:00Z",
+                device_model: "WHOOP 5.0 Bull",
+                payload: &[1u8, 2, 3, 4],
+                sensitivity: "synthetic",
+                capture_session_id: None,
+            })
+            .unwrap();
+        assert!(!store.checkpoint_wal_truncate().unwrap());
     }
 
     #[test]

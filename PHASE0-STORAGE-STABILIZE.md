@@ -108,7 +108,7 @@ Baseline at branch: **854 Rust tests / 0 failed**; 1.7 GB device DB **wiped**
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
-| **P0-1** | **WAL checkpoint** — `wal_checkpoint(TRUNCATE)` in `store.maintain`; verify/adjust `wal_autocheckpoint` so the WAL can't reach 1.3 GB | `store.rs` | ⬜ |
+| **P0-1** | **WAL checkpoint** — explicit `wal_autocheckpoint=1000` pragma + `checkpoint_wal_truncate()` (`wal_checkpoint(TRUNCATE)`) forced at end of `store.maintain`; report carries `wal_bytes_before/after` + `wal_checkpoint_busy`; 2 tests (WAL truncates to 0; single-conn not busy) | `store.rs` | ✅ |
 | **P0-2** | **Frame drain queue** — track un-uploaded frames; build a bundle of N un-uploaded frames; on confirmed upload (2xx), **delete those rows**; retry/backoff on failure; reconcile with the spool path so each frame uploads once | `store.rs`, `bridge.rs`, `BullSwift` | ⬜ |
 | **P0-3** | **Trigger drain after capture/sync** (+ app background); run WAL checkpoint after a drain pass | `BullSwift` | ⬜ |
 | **P0-4** | **Tests** — drain selects/bundles/deletes correctly; nothing deleted before success; idempotent (checksum dedupe); WAL truncates; DB stays bounded under simulated high volume | `store.rs` tests | ⬜ |
@@ -126,5 +126,5 @@ now-small drained DB) until Phase 2 deletes it.
 ### Phase 0 commits
 
 ```
-(none yet)
+(P0-1) feat(store): force a truncating WAL checkpoint in maintenance
 ```
