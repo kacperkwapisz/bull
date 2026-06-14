@@ -75,7 +75,8 @@ Legend: ⬜ pending · 🟡 in-progress · ✅ done.
 | T2-2-V | build clean · **850 tests (846+4), 0 failed** · new-file goose/RE sweep clean. HR/RR left to `metric_features`; steps left to `step_counter` (single owner per stream) | — | ✅ |
 | **T2-3** | Bridge dispatch + registration: `biometrics.ingest_from_decoded` + `biometrics.gravity2_between`; `BRIDGE_METHODS` updated; consistency test + end-to-end wiring test | `bridge.rs` | ✅ |
 | T2-3-V | build clean · **851 tests (850+1), 0 failed** · `bridge_methods_constant_matches_dispatcher` green · additions goose/RE clean | — | ✅ |
-| **T2-4** | Verify step_counter discovery picks up v18/v24 step fields; add fixtures if not | `step_counter.rs`, fixtures | ⬜ |
+| **T2-4** | Verified: generic step discovery already classifies v18 `step_motion_counter` as `step_count`/device_counter (key contains "step", path under `$.body_summary.`) — no v18-specific code needed; regression test added | `step_packet_discovery_tests.rs` | ✅ |
+| T2-4-V | **852 tests (851+1), 0 failed**. Steps surface for free via existing discovery→ingest→`step_counter_samples`; Swift already calls `metrics.step_counter_ingest` | — | ✅ |
 | **T2-5** | Metrics correctness fold-in (tiger Ph 20–35/42): SpO₂/skin-temp/resp scaling, gravity2 → sleep-staging input, recovery Z-weights — only what surfaced numbers depend on | `metric_features.rs`, `sleep_staging.rs`, `metric_readiness.rs` | ⬜ |
 | **T2-6** | Swift: post-sync trigger of `biometrics.ingest_from_decoded`; thin read-back via existing query bridges | `BullSwift/HealthDataStore+*.swift` | ⬜ |
 | **T2-7** | UI surfacing of V24/v18 biometrics with honest unavailable states | `BullSwift/` views | ⬜ |

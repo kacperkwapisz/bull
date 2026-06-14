@@ -59,6 +59,55 @@ fn step_packet_discovery_promotes_explicit_decoded_step_counter() {
 }
 
 #[test]
+fn step_packet_discovery_promotes_v18_step_motion_counter() {
+    // The v18 historical body the device exposes over Bluetooth carries a
+    // step_motion_counter; the generic field scanner should classify it as an
+    // explicit step counter (key contains "step") without any v18-specific code.
+    let rows = vec![decoded_frame_row(
+        "v18-frame-1",
+        "2026-06-02T12:00:00Z",
+        "HISTORICAL_DATA",
+        json!({
+            "kind": "data_packet",
+            "packet_k": 18,
+            "domain": "normal_history_with_hr_marker",
+            "body_summary": {
+                "kind": "v18_history",
+                "hr": 75,
+                "rr_intervals_ms": [900, 950],
+                "gravity_x": 0.1,
+                "gravity_y": 0.2,
+                "gravity_z": 9.8,
+                "skin_temp_raw": 4096,
+                "step_motion_counter": 42,
+                "warnings": []
+            },
+            "warnings": []
+        }),
+    )];
+
+    let report = run_step_packet_discovery(
+        &rows,
+        "synthetic.sqlite",
+        "2026-06-02T00:00:00Z",
+        "2026-06-03T00:00:00Z",
+        StepPacketDiscoveryOptions::default(),
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert!(report.explicit_step_counter_found);
+    let step = report
+        .candidate_fields
+        .iter()
+        .find(|field| field.field_name == "step_motion_counter")
+        .expect("step_motion_counter candidate");
+    assert_eq!(step.match_kind, "step_count");
+    assert_eq!(step.source_kind_inference, "device_counter");
+    assert_eq!(step.json_path, "$.body_summary.step_motion_counter");
+}
+
+#[test]
 fn step_packet_discovery_blocks_when_motion_decode_exposes_no_pedometer_fields() {
     let rows = vec![decoded_frame_row(
         "motion-frame-1",
