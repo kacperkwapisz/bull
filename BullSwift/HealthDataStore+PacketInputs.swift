@@ -4,6 +4,14 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
+  /// Stable identifier for the locally connected device's surfaced biometric
+  /// streams. Every physiological sample is derived from the connected device's
+  /// own live sensor data over Bluetooth and stored locally; this id keys the
+  /// typed sample tables (gravity, gravity2, SpO2, skin temp, resp) so ingest
+  /// and read-back agree. Single connected device today; revisit if multi-device
+  /// support is added.
+  nonisolated static let localBiometricDeviceID = "bull.device.local.v1"
+
   nonisolated static func packetInputBridgeReports(databasePath: String) -> Result<[String: [String: Any]], Error> {
     let bridge = BullRustBridge()
     let baseArgs: [String: Any] = [
@@ -34,6 +42,17 @@ extension HealthDataStore {
       reports["step_counter_ingest"] = try bridge.request(
         method: "metrics.step_counter_ingest",
         args: baseArgs.merging(["max_candidate_fields": 1_000]) { _, new in new }
+      )
+      // Surface decoded V24 + v18 biometric streams (gravity, gravity2, SpO2,
+      // skin temp, resp) into their typed tables. Local-only; idempotent.
+      reports["biometric_ingest"] = try bridge.request(
+        method: "biometrics.ingest_from_decoded",
+        args: [
+          "database_path": databasePath,
+          "device_id": HealthDataStore.localBiometricDeviceID,
+          "start": "0000",
+          "end": "9999",
+        ]
       )
       reports["heart_rate"] = try bridge.request(method: "metrics.heart_rate_features", args: baseArgs)
       reports["vital_event"] = try bridge.request(method: "metrics.vital_event_features", args: baseArgs)
