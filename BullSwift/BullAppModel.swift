@@ -72,6 +72,14 @@ final class BullAppModel: ObservableObject {
       self?.ble.record(source: "storage.archive", title: title, body: body)
     }
   }
+  // Drains the local raw-frame buffer to the user's account in byte-bounded
+  // bundles, deleting frames only after a confirmed upload. Single raw-upload
+  // path; bounds on-device storage so a large sync can't grow it without limit.
+  lazy var frameDrainUploader = BullFrameDrainUploader { [weak self] title, body in
+    DispatchQueue.main.async {
+      self?.ble.record(source: "storage.drain", title: title, body: body)
+    }
+  }
   // Track A: pushes locally-computed curated metrics to the long-term store and
   // restores history into the local store on a fresh install.
   lazy var metricSyncCoordinator = BullMetricSyncCoordinator(

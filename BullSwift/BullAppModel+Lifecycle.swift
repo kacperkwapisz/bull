@@ -57,6 +57,9 @@ extension BullAppModel {
         // Raw spools whose sessions are finished move to the user's account
         // and are removed locally once the server confirms the upload.
         self.spoolArchiveUploader.archiveFinishedSessions()
+        // Drain the captured raw-frame buffer to the user's account and prune
+        // the synced+aged copies so the local store stays bounded.
+        self.frameDrainUploader.drain(databasePath: databasePath)
         // Restore curated metric history from the long-term store, then push
         // anything computed locally that the server is missing. Idempotent on
         // both ends, so this is safe on every launch (and rehydrates a fresh
