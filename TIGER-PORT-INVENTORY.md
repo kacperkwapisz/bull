@@ -81,8 +81,14 @@ Legend: ⬜ pending · 🟡 in-progress · ✅ done.
 | **T2-6** | Swift: `biometrics.ingest_from_decoded` added to `packetInputBridgeReports` (rides existing background pipeline → `packetInputReports`); `localBiometricDeviceID` convention defined. All local SQLite — no HealthKit, no BullAPI | `HealthDataStore+PacketInputs.swift` | ✅ |
 | **T2-7** | `DeviceBiometricsView` + model: reads `v24_between` / `gravity_rows_between` / `gravity2_between`, SpO₂ via `spo2_from_raw`, skin-temp raw/128; honest unavailable + uncalibrated states; linked under More → Biometric Engine; pbxproj entries added | `DeviceBiometricsView.swift`, `MoreView.swift`, `project.pbxproj` | ✅ |
 | T2-6/7-V | **Simulator build SUCCEEDED** (iPhone 17 Pro); new-file goose/RE sweep clean; only warning is the pre-existing `BullRustBridge` non-Sendable capture pattern shared with `BiometricEnginePreview`. Rust suite unchanged (852, 0 failed) | — | ✅ |
-| **V** | After each unit: `cargo build && cargo test --no-fail-fast`; `git grep -i goose` empty; RE sweep clean | — | ⬜ |
-| Final | Tracker updated; focused commits; hardware-verify pause | — | ⬜ |
+| **V** | After each unit: `cargo build && cargo test --no-fail-fast`; `git grep -i goose` empty; RE sweep clean | — | ✅ |
+| Final | **852 Rust tests, 0 failed**; simulator build SUCCEEDED; source tree goose/RE clean; 7 focused commits on `feat/tier2-biometric-surfacing`. Not pushed. | — | ✅ |
+
+**⏸ PAUSED for on-device verification.** The full G2b pipeline is wired end-to-end
+and compiles, but real surfacing needs a WHOOP 5.0 sync: install on the iPhone,
+sync the band, then open **More → Biometric Engine → Device Biometrics** to confirm
+gravity/SpO₂/skin-temp/resp/steps populate. Tier 3 = full metrics-accuracy bundle
+(tiger Ph 20–35/42) once data is confirmed visible.
 
 **Scope guard:** stay within Rust core + local SQLite + thin Swift read-back/UI.
 **Do not** route physiology through HealthKit (`ios_healthkit_read_boundary_is_weight_only`)
