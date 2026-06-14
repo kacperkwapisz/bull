@@ -630,6 +630,15 @@ pub struct GravityRow {
     pub z: f64,
 }
 
+/// One un-uploaded raw frame in the upload-drain queue.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RawEvidenceQueueRow {
+    pub evidence_id: String,
+    pub captured_at: String,
+    pub sha256: String,
+    pub payload_hex: String,
+}
+
 /// Lightweight per-stream rollup for read-only biometric surfaces: how many
 /// samples exist and the most recent raw reading, without paging full history.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -5857,6 +5866,95 @@ impl BullStore {
             .unwrap_or(0)
     }
 
+    // -- Upload-drain queue ------------------------------------------------
+    //
+    // Raw frames are retained locally only until their bundle is confirmed
+    // uploaded. The drain selects un-synced frames up to a byte budget, the
+    // caller uploads them, marks them synced, and prunes synced rows past the
+    // on-device retention window (the cascade removes their decoded_frames).
+
+    /// Number of raw frames not yet confirmed uploaded.
+    pub fn unsynced_raw_evidence_count(&self) -> BullResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM raw_evidence WHERE synced = 0",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Oldest un-synced raw frames (by `captured_at`), accumulated up to
+    /// `max_payload_bytes` of decoded binary payload. Always returns at least
+    /// one row when any un-synced frame exists, so a single oversized frame can
+    /// still drain. `max_payload_bytes <= 0` falls back to a single row.
+    pub fn unsynced_raw_evidence_bundle(
+        &self,
+        max_payload_bytes: i64,
+    ) -> BullResult<Vec<RawEvidenceQueueRow>> {
+        let mut statement = self.conn.prepare(
+            "SELECT evidence_id, captured_at, sha256, payload_hex
+             FROM raw_evidence WHERE synced = 0
+             ORDER BY captured_at ASC, evidence_id ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(RawEvidenceQueueRow {
+                evidence_id: row.get(0)?,
+                captured_at: row.get(1)?,
+                sha256: row.get(2)?,
+                payload_hex: row.get(3)?,
+            })
+        })?;
+
+        let mut bundle = Vec::new();
+        let mut accumulated_bytes: i64 = 0;
+        for row in rows {
+            let row = row?;
+            // Binary payload size is half the hex length.
+            let row_bytes = (row.payload_hex.len() / 2) as i64;
+            if !bundle.is_empty()
+                && max_payload_bytes > 0
+                && accumulated_bytes.saturating_add(row_bytes) > max_payload_bytes
+            {
+                break;
+            }
+            accumulated_bytes = accumulated_bytes.saturating_add(row_bytes);
+            bundle.push(row);
+        }
+        Ok(bundle)
+    }
+
+    /// Mark the given frames as confirmed-uploaded. Returns the number updated.
+    pub fn mark_raw_evidence_synced(&self, evidence_ids: &[&str]) -> BullResult<usize> {
+        if evidence_ids.is_empty() {
+            return Ok(0);
+        }
+        self.immediate_transaction(|store| {
+            let mut updated = 0usize;
+            let mut statement = store
+                .conn
+                .prepare_cached("UPDATE raw_evidence SET synced = 1 WHERE evidence_id = ?1")?;
+            for id in evidence_ids {
+                updated += statement.execute(params![id])?;
+            }
+            Ok(updated)
+        })
+    }
+
+    /// Delete synced frames captured strictly before `captured_at_exclusive`
+    /// (RFC3339). The `decoded_frames` cascade removes their decoded rows too.
+    /// Un-synced frames are never deleted (no data loss before upload). Returns
+    /// the number of raw_evidence rows removed.
+    pub fn prune_synced_raw_evidence_before(
+        &self,
+        captured_at_exclusive: &str,
+    ) -> BullResult<usize> {
+        validate_required("captured_at_exclusive", captured_at_exclusive)?;
+        let removed = self.conn.execute(
+            "DELETE FROM raw_evidence WHERE synced = 1 AND captured_at < ?1",
+            params![captured_at_exclusive],
+        )?;
+        Ok(removed)
+    }
+
     pub fn decoded_frames_between(
         &self,
         start: &str,
@@ -7229,14 +7327,28 @@ impl BullStore {
 
     fn ensure_raw_evidence_columns(&self) -> BullResult<()> {
         let columns = self.table_columns_unchecked("raw_evidence")?;
-        for (column, ddl) in [(
-            "capture_session_id",
-            "capture_session_id TEXT REFERENCES capture_sessions(session_id) ON DELETE SET NULL",
-        )] {
+        for (column, ddl) in [
+            (
+                "capture_session_id",
+                "capture_session_id TEXT REFERENCES capture_sessions(session_id) ON DELETE SET NULL",
+            ),
+            // Upload-drain bookkeeping: a frame is retained locally only until its
+            // bundle is confirmed uploaded (synced=1), after which it is eligible
+            // for pruning. Deleting a raw_evidence row cascades to decoded_frames.
+            ("synced", "synced INTEGER NOT NULL DEFAULT 0"),
+        ] {
             if !columns.contains(column) {
                 self.conn
                     .execute(&format!("ALTER TABLE raw_evidence ADD COLUMN {ddl}"), [])?;
             }
+        }
+        // Only index once the base column exists; a partially-migrated table
+        // (missing captured_at) is left for the storage check to report.
+        if columns.contains("captured_at") {
+            self.conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_raw_evidence_synced_captured
+                     ON raw_evidence(synced, captured_at);",
+            )?;
         }
         Ok(())
     }
@@ -8968,6 +9080,80 @@ mod tests {
         );
         let wal_after = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
         assert_eq!(wal_after, 0, "on-disk WAL file must be truncated");
+    }
+
+    fn seed_raw(store: &BullStore, id: &str, captured_at: &str, payload: &[u8]) {
+        store
+            .insert_raw_evidence(RawEvidenceInput {
+                evidence_id: id,
+                source: "synthetic.test",
+                captured_at,
+                device_model: "WHOOP 5.0 Bull",
+                payload,
+                sensitivity: "synthetic",
+                capture_session_id: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn drain_bundle_marks_synced_and_prune_cascades_decoded_frames() {
+        let store = BullStore::open_in_memory().unwrap();
+        seed_raw(&store, "ev-1", "2026-05-28T00:00:00Z", &[0u8; 100]);
+        seed_raw(&store, "ev-2", "2026-05-28T01:00:00Z", &[0u8; 100]);
+        seed_raw(&store, "ev-3", "2026-05-28T02:00:00Z", &[0u8; 100]);
+        // A decoded frame hanging off ev-1 to prove the cascade.
+        store
+            .conn
+            .execute(
+                "INSERT INTO decoded_frames (frame_id, evidence_id, device_type, raw_len,
+                     header_len, declared_len, payload_hex, payload_crc_hex, header_crc_valid,
+                     payload_crc_valid, parsed_payload_json, parser_version, warnings_json)
+                 VALUES ('f-1','ev-1','BULL',0,0,0,'','',1,1,'null','test','[]')",
+                [],
+            )
+            .unwrap();
+
+        assert_eq!(store.unsynced_raw_evidence_count().unwrap(), 3);
+
+        // Byte budget of 150 → only the oldest frame (100 B) fits; the next would
+        // exceed, so the bundle stops at one (oldest-first).
+        let bundle = store.unsynced_raw_evidence_bundle(150).unwrap();
+        assert_eq!(bundle.len(), 1);
+        assert_eq!(bundle[0].evidence_id, "ev-1");
+
+        // Confirm-upload ev-1 and ev-2.
+        let marked = store.mark_raw_evidence_synced(&["ev-1", "ev-2"]).unwrap();
+        assert_eq!(marked, 2);
+        assert_eq!(store.unsynced_raw_evidence_count().unwrap(), 1);
+
+        // Prune synced rows older than 00:30 → only ev-1 (synced + 00:00) goes;
+        // ev-2 is synced but at 01:00 (>= cutoff), ev-3 is un-synced → both kept.
+        let pruned = store
+            .prune_synced_raw_evidence_before("2026-05-28T00:30:00Z")
+            .unwrap();
+        assert_eq!(pruned, 1);
+        let remaining: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM raw_evidence", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 2, "ev-2 and ev-3 remain");
+        // CASCADE removed ev-1's decoded frame.
+        let decoded: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM decoded_frames", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(decoded, 0, "deleting ev-1 cascades to its decoded_frames");
+    }
+
+    #[test]
+    fn drain_bundle_returns_at_least_one_oversized_frame() {
+        let store = BullStore::open_in_memory().unwrap();
+        seed_raw(&store, "ev-big", "2026-05-28T00:00:00Z", &vec![7u8; 10_000]);
+        // Budget far below the single frame, but it must still drain.
+        let bundle = store.unsynced_raw_evidence_bundle(100).unwrap();
+        assert_eq!(bundle.len(), 1);
+        assert_eq!(bundle[0].evidence_id, "ev-big");
     }
 
     #[test]
