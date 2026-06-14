@@ -78,8 +78,9 @@ Legend: ⬜ pending · 🟡 in-progress · ✅ done.
 | **T2-4** | Verified: generic step discovery already classifies v18 `step_motion_counter` as `step_count`/device_counter (key contains "step", path under `$.body_summary.`) — no v18-specific code needed; regression test added | `step_packet_discovery_tests.rs` | ✅ |
 | T2-4-V | **852 tests (851+1), 0 failed**. Steps surface for free via existing discovery→ingest→`step_counter_samples`; Swift already calls `metrics.step_counter_ingest` | — | ✅ |
 | **T2-5** | Metrics correctness fold-in (tiger Ph 20–35/42): SpO₂/skin-temp/resp scaling, gravity2 → sleep-staging input, recovery Z-weights — only what surfaced numbers depend on | `metric_features.rs`, `sleep_staging.rs`, `metric_readiness.rs` | ⬜ |
-| **T2-6** | Swift: post-sync trigger of `biometrics.ingest_from_decoded`; thin read-back via existing query bridges | `BullSwift/HealthDataStore+*.swift` | ⬜ |
-| **T2-7** | UI surfacing of V24/v18 biometrics with honest unavailable states | `BullSwift/` views | ⬜ |
+| **T2-6** | Swift: `biometrics.ingest_from_decoded` added to `packetInputBridgeReports` (rides existing background pipeline → `packetInputReports`); `localBiometricDeviceID` convention defined. All local SQLite — no HealthKit, no BullAPI | `HealthDataStore+PacketInputs.swift` | ✅ |
+| **T2-7** | `DeviceBiometricsView` + model: reads `v24_between` / `gravity_rows_between` / `gravity2_between`, SpO₂ via `spo2_from_raw`, skin-temp raw/128; honest unavailable + uncalibrated states; linked under More → Biometric Engine; pbxproj entries added | `DeviceBiometricsView.swift`, `MoreView.swift`, `project.pbxproj` | ✅ |
+| T2-6/7-V | **Simulator build SUCCEEDED** (iPhone 17 Pro); new-file goose/RE sweep clean; only warning is the pre-existing `BullRustBridge` non-Sendable capture pattern shared with `BiometricEnginePreview`. Rust suite unchanged (852, 0 failed) | — | ✅ |
 | **V** | After each unit: `cargo build && cargo test --no-fail-fast`; `git grep -i goose` empty; RE sweep clean | — | ⬜ |
 | Final | Tracker updated; focused commits; hardware-verify pause | — | ⬜ |
 

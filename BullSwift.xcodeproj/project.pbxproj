@@ -17,6 +17,7 @@
 		A10000000000000000000073 /* BullSpoolArchiveUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000073 /* BullSpoolArchiveUploader.swift */; };
 		A10000000000000000000074 /* BullMetricSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000074 /* BullMetricSyncCoordinator.swift */; };
 		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
+		A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* DeviceBiometricsView.swift */; };
 		A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* RrHrConsistencyDebugView.swift */; };
 		A10000000000000000000004 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* OnboardingView.swift */; };
 		A10000000000000000000005 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ConnectionView.swift */; };
@@ -200,6 +201,7 @@
 		A20000000000000000000073 /* BullSpoolArchiveUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSpoolArchiveUploader.swift; sourceTree = "<group>"; };
 		A20000000000000000000074 /* BullMetricSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullMetricSyncCoordinator.swift; sourceTree = "<group>"; };
 		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
+		A20000000000000000000075 /* DeviceBiometricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBiometricsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000062 /* RrHrConsistencyDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RrHrConsistencyDebugView.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
@@ -423,6 +425,7 @@
 				A20000000000000000000073 /* BullSpoolArchiveUploader.swift */,
 				A20000000000000000000074 /* BullMetricSyncCoordinator.swift */,
 				A20000000000000000000061 /* BiometricEnginePreview.swift */,
+				A20000000000000000000075 /* DeviceBiometricsView.swift */,
 				A20000000000000000000062 /* RrHrConsistencyDebugView.swift */,
 				A20000000000000000000023 /* BullTheme.swift */,
 				A20000000000000000000004 /* OnboardingView.swift */,
@@ -743,6 +746,7 @@
 				A10000000000000000000074 /* BullMetricSyncCoordinator.swift in Sources */,
 				A10000000000000000000071 /* BullAccountSession.swift in Sources */,
 				A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */,
+				A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */,
 				A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */,
 				A10000000000000000000004 /* OnboardingView.swift in Sources */,
 				D10000000000000000000009 /* OnboardingModels.swift in Sources */,

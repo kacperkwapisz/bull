@@ -55,6 +55,13 @@ struct MoreView: View {
           Label("HRV Scale Check", systemImage: "checkmark.seal")
         }
         .accessibilityLabel("HRV scale consistency check")
+
+        NavigationLink {
+          DeviceBiometricsView(healthStore: healthStore)
+        } label: {
+          Label("Device Biometrics", systemImage: "drop.fill")
+        }
+        .accessibilityLabel("Device biometric streams")
       }
 
       Section("Device") {
