@@ -6,6 +6,9 @@ import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
+import { parseBundle } from "../services/parse-bundle.ts"
+import { and, eq, max, sql } from "drizzle-orm"
+import { uploadBundles } from "../db/schema.ts"
 import {
   dataSummary,
   getBundleForUser,
@@ -296,9 +299,56 @@ export function dataRoutes(env: Env) {
       return ok({ rows: await listUploads(db, userId, query.limit) })
     })
 
+  // Server-side parse: run bull-core over a pending bundle (thin-client).
+  const parse = route
+    .post("/v1/data/uploads/:id/parse")
+    .use(jwt)
+    .handle(async ({ ctx, params }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const store = getObjectStore(env)
+      if (!store) return json(503, { error: "storage_unavailable" })
+      if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) {
+        return json(503, { error: "parse_unavailable" })
+      }
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const id = (params as { id?: string }).id
+      if (!id) return json(400, { error: "missing_bundle_id" })
+      const result = await parseBundle(
+        db,
+        store,
+        { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR },
+        userId,
+        id,
+      )
+      if (result.status === "failed") return json(422, result)
+      return ok(result)
+    })
+
+  // App-to-server watermark: the newest data time the server has parsed, so the
+  // phone can upload only the delta (mirrors WHOOP's getMinHighWaterMark).
+  const highWatermark = route
+    .get("/v1/data/high-watermark")
+    .use(jwt)
+    .handle(async ({ ctx }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const rows = await db
+        .select({ processedThrough: max(uploadBundles.timeframeEnd) })
+        .from(uploadBundles)
+        .where(and(eq(uploadBundles.userId, sql`${userId}`), eq(uploadBundles.status, "parsed")))
+      const processedThrough = rows[0]?.processedThrough ?? null
+      return ok({ processed_through_ts: processedThrough })
+    })
+
   return new Hyper({ prefix: "" }).use([
     upload,
     download,
+    parse,
+    highWatermark,
     summary,
     metricsPush,
     metricsRestore,

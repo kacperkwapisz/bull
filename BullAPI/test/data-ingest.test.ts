@@ -20,6 +20,11 @@ function fakeStore() {
     async put(key, bytes, contentType) {
       objects.set(key, { bytes, contentType })
     },
+    async get(key) {
+      const object = objects.get(key)
+      if (!object) throw new Error(`object not found: ${key}`)
+      return object.bytes
+    },
     presignGet(key, ttl) {
       return `https://fake.r2.local/${key}?expires=${ttl}`
     },

@@ -16,6 +16,8 @@ import { hasObjectStore } from "./env.ts"
 export interface ObjectStore {
   /** Store bytes under key. Idempotent: re-putting the same key is safe. */
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void>
+  /** Fetch the raw object bytes (server-side parse reads bundles this way). */
+  get(key: string): Promise<Uint8Array>
   /** Short-lived presigned GET URL for downloading the object. */
   presignGet(key: string, expiresInSeconds: number): string
 }
@@ -44,6 +46,9 @@ export function getObjectStore(env: Env): ObjectStore | null {
   const store: ObjectStore = {
     async put(key, bytes, contentType) {
       await client.write(key, bytes, { type: contentType })
+    },
+    async get(key) {
+      return new Uint8Array(await client.file(key).arrayBuffer())
     },
     presignGet(key, expiresInSeconds) {
       return client.presign(key, { method: "GET", expiresIn: expiresInSeconds })

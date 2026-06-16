@@ -23,6 +23,11 @@ const envSchema = z.object({
   S3_REGION: z.string().min(1).default("auto"),
   S3_ACCESS_KEY_ID: z.string().min(1).optional(),
   S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+
+  // Server-side parse: path to the bull-bridge-serve binary and the directory
+  // holding per-user bull-core SQLite stores. Absent → parsing disabled (503).
+  BULL_CORE_BIN: z.string().min(1).optional(),
+  BULL_CORE_DATA_DIR: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
