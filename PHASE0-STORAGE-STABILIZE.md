@@ -116,7 +116,7 @@ Baseline at branch: **854 Rust tests / 0 failed**; 1.7 GB device DB **wiped**
 | **P0-3** | **Continuous drain** — capture pipeline triggers the drain (throttled 15s) so a long sync stays bounded mid-sync; small store also makes packet-input scans cheap (removes the other OOM path) | `BullAppModel*` | ✅ |
 | **P0-3** | **Trigger drain after capture/sync** (+ app background); run WAL checkpoint after a drain pass | `BullSwift` | ⬜ |
 | **P0-4** | **Tests** — WAL truncate, drain bundle/mark/prune + cascade, byte-cap prune, oversized passthrough, bridge wiring — done across P0-1/2a/2b/2d (Rust 860/0) | `store.rs`, `bridge.rs` | ✅ |
-| **P0-5** | **On-device verify** — re-sync a real large history; confirm DB stays small, WAL bounded, frames drain to R2, no crash. **Precondition: signed in** (drain needs an account token, else frames never upload/prune) | device | ⬜ |
+| **P0-5** | **On-device verify** — ✅ signed-in sync uploaded everything to the server; **no crash**. DB **1.7 GB → 246 MB**, **WAL 1.3 GB → 0** (checkpoint works). Steady-state ~246 MB = the retained 32 MB raw window + its decoded_frames JSON + free pages; bounded, not growing. (Tighten later in Phase 2 by dropping on-device `parsed_payload_json`.) | device | ✅ |
 | **V** | After each unit: `cargo build && cargo test --no-fail-fast`; `git grep -i goose` empty; RE sweep clean; build + install on iPhone | — | ⬜ |
 
 On-device historical compute stays **untouched** (temporary stand-in on the
