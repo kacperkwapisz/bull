@@ -105,7 +105,11 @@ private struct SyncToastHost: View {
             ble.syncFailureSheet = failure
           }
         } label: {
-          SyncStatusToastView(toast: toast)
+          SyncStatusToastView(
+            toast: toast,
+            progressFraction: ble.historicalSyncProgressFraction,
+            packetCount: ble.isHistoricalSyncing ? ble.historicalPacketCount : nil
+          )
         }
         .buttonStyle(.plain)
         .allowsHitTesting(toast.phase == .failed)
@@ -129,26 +133,24 @@ private struct SyncToastHost: View {
 
 private struct SyncStatusToastView: View {
   let toast: BullSyncToast
+  var progressFraction: Double? = nil
+  var packetCount: Int? = nil
   @Environment(\.colorScheme) private var colorScheme
 
+  private var isSyncing: Bool { toast.phase == .syncing }
+
   var body: some View {
-    HStack(spacing: 8) {
-      SyncToastIcon(systemImage: systemImage, tint: tint, isSyncing: toast.phase == .syncing)
-
-      Text(toast.title)
-        .font(.system(size: 14, weight: .bold))
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-
-      if toast.phase == .failed {
-        Image(systemName: "chevron.up")
-          .font(.system(size: 12, weight: .black))
-          .foregroundStyle(tint)
+    Group {
+      if isSyncing {
+        syncingContent
+      } else {
+        pillContent
       }
     }
     .padding(.horizontal, 13)
     .padding(.vertical, 8)
-    .fixedSize(horizontal: true, vertical: false)
+    .fixedSize(horizontal: !isSyncing, vertical: false)
+    .frame(width: isSyncing ? 230 : nil)
     .background {
       Capsule(style: .continuous)
         .fill(toastFill)
@@ -160,6 +162,54 @@ private struct SyncStatusToastView: View {
     .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 7)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityText)
+  }
+
+  // Compact pill for synced/failed (hugs content).
+  private var pillContent: some View {
+    HStack(spacing: 8) {
+      SyncToastIcon(systemImage: systemImage, tint: tint, isSyncing: false)
+      Text(toast.title)
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+      if toast.phase == .failed {
+        Image(systemName: "chevron.up")
+          .font(.system(size: 12, weight: .black))
+          .foregroundStyle(tint)
+      }
+    }
+  }
+
+  // Syncing: title row + a thin progress bar that stays until the sync finishes.
+  // Determinate when we have a trustworthy estimate; honest indeterminate sweep
+  // otherwise. Capped below 1.0 so it never looks stuck at the very end.
+  private var syncingContent: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        SyncToastIcon(systemImage: systemImage, tint: tint, isSyncing: true)
+        Text(toast.title)
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        if let packetCount {
+          Text("\(packetCount.formatted())")
+            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+      Group {
+        if let progressFraction {
+          ProgressView(value: min(max(progressFraction, 0), 0.95))
+        } else {
+          ProgressView() // indeterminate linear sweep
+        }
+      }
+      .progressViewStyle(.linear)
+      .tint(tint)
+      .scaleEffect(x: 1, y: 0.8, anchor: .center)
+    }
   }
 
   private var systemImage: String {
