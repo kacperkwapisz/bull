@@ -283,6 +283,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "metrics.resting_hr_daily_rollup",
     "metrics.resting_hr_features",
     "metrics.rr_hr_consistency",
+    "metrics.run_pipeline",
     "metrics.sleep_score_from_features",
     "metrics.sleep_staging",
     "metrics.step_capture_validation",
@@ -2369,6 +2370,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(rr_hr_consistency_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.run_pipeline" => request_args::<RunPipelineArgs>(&request)
+            .and_then(run_pipeline_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hrv_features" => request_args::<HrvFeaturesArgs>(&request)
             .and_then(hrv_features_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3782,6 +3787,253 @@ fn historical_watermarks_bridge(args: DrainDbArgs) -> BullResult<serde_json::Val
     let max = store.historical_watermark_max()?;
     serde_json::to_value(json!({ "watermarks": watermarks, "max_device_timestamp": max }))
         .map_err(|error| BullError::message(format!("cannot serialize watermarks: {error}")))
+}
+
+// A day/hour window, derived by the caller (phone Calendar / server clock) and
+// passed in, so the single compute orchestration lives here without porting
+// timezone math. Mirrors the Swift `DailyMetricWindow`.
+#[derive(Debug, Clone, Deserialize)]
+struct RunPipelineWindow {
+    date_key: String,
+    timezone: String,
+    start_iso: String,
+    end_iso: String,
+    start_time_unix_ms: i64,
+    end_time_unix_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct RunPipelineProfile {
+    #[serde(default)]
+    weight_kg: Option<f64>,
+    #[serde(default)]
+    age_years: Option<i64>,
+    #[serde(default)]
+    sex: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RunPipelineArgs {
+    database_path: String,
+    device_id: String,
+    daily_window: RunPipelineWindow,
+    hourly_window: RunPipelineWindow,
+    #[serde(default)]
+    profile: RunPipelineProfile,
+}
+
+/// The single ingest + rollup compute pipeline, callable identically by the
+/// device (today) and the server (thin-client). It re-dispatches the same
+/// bridge methods the device used to drive from Swift, in the same order, with
+/// the same per-step args and inter-step threading (resting-HR rollup feeds the
+/// energy rollups) — so there is one orchestration and no device/server drift.
+/// Day/hour windows + profile are supplied by the caller; everything else
+/// (ordering, thresholds, threading) lives here.
+fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
+    let db = args.database_path.as_str();
+    let daily = &args.daily_window;
+    let hourly = &args.hourly_window;
+
+    // Run a sub-step through the exact same dispatch the device uses.
+    let call = |method: &str, step_args: serde_json::Value| -> BullResult<serde_json::Value> {
+        let response = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: format!("pipeline:{method}"),
+            method: method.to_string(),
+            args: step_args,
+        });
+        if response.ok {
+            Ok(response.result.unwrap_or_else(|| json!({})))
+        } else {
+            let message = response
+                .error
+                .map(|error| error.message)
+                .unwrap_or_else(|| "unknown error".to_string());
+            Err(BullError::message(format!("{method} failed: {message}")))
+        }
+    };
+
+    // Shared base args for the full-history feature passes.
+    let base = || {
+        json!({
+            "database_path": db,
+            "start": "0000",
+            "end": "9999",
+            "min_owned_captures": 2,
+            "require_trusted_evidence": false,
+        })
+    };
+    let merge = |mut value: serde_json::Value, extra: serde_json::Value| -> serde_json::Value {
+        if let (Some(object), Some(extra_object)) = (value.as_object_mut(), extra.as_object()) {
+            for (key, val) in extra_object {
+                object.insert(key.clone(), val.clone());
+            }
+        }
+        value
+    };
+    // Apply the caller's profile to an energy-rollup arg object, mirroring Swift.
+    let with_profile = |mut value: serde_json::Value| -> serde_json::Value {
+        if let Some(object) = value.as_object_mut() {
+            if let Some(weight_kg) = args.profile.weight_kg {
+                if (25.0..=300.0).contains(&weight_kg) {
+                    object.insert("profile_weight_kg".to_string(), json!(weight_kg));
+                }
+            }
+            if let Some(age) = args.profile.age_years {
+                object.insert("profile_age_years".to_string(), json!(age));
+                let max_hr = (208.0 - 0.7 * age as f64).clamp(120.0, 210.0);
+                object.insert("max_hr_bpm".to_string(), json!(max_hr));
+            }
+            if let Some(sex) = args.profile.sex.as_ref() {
+                object.insert("profile_sex".to_string(), json!(sex));
+            }
+        }
+        value
+    };
+
+    let mut reports = serde_json::Map::new();
+
+    reports.insert(
+        "readiness".to_string(),
+        call(
+            "metrics.input_readiness",
+            json!({
+                "database_path": db, "start": "0000", "end": "9999",
+                "min_owned_captures": 2, "require_owned_captures": false,
+                "require_scores_ready": true,
+            }),
+        )?,
+    );
+    reports.insert("motion".to_string(), call("metrics.motion_features", base())?);
+    reports.insert(
+        "step_discovery".to_string(),
+        call("metrics.step_packet_discovery", merge(base(), json!({ "max_candidate_fields": 100 })))?,
+    );
+    reports.insert(
+        "step_counter_ingest".to_string(),
+        call("metrics.step_counter_ingest", merge(base(), json!({ "max_candidate_fields": 1000 })))?,
+    );
+    reports.insert(
+        "biometric_ingest".to_string(),
+        call(
+            "biometrics.ingest_from_decoded",
+            json!({ "database_path": db, "device_id": args.device_id, "start": "0000", "end": "9999" }),
+        )?,
+    );
+    reports.insert("heart_rate".to_string(), call("metrics.heart_rate_features", base())?);
+    reports.insert("vital_event".to_string(), call("metrics.vital_event_features", base())?);
+    reports.insert(
+        "hrv".to_string(),
+        call(
+            "metrics.hrv_features",
+            merge(base(), json!({ "min_rr_intervals_to_compute": 2, "baseline_min_days": 3, "require_baseline": false })),
+        )?,
+    );
+    reports.insert("window".to_string(), call("metrics.window_features", base())?);
+    reports.insert(
+        "resting_hr".to_string(),
+        call("metrics.resting_hr_features", merge(base(), json!({ "baseline_min_days": 3, "require_baseline": false })))?,
+    );
+    let resting_rollup = call(
+        "metrics.resting_hr_daily_rollup",
+        json!({
+            "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
+            "start": daily.start_iso, "end": daily.end_iso,
+            "min_owned_captures": 2, "require_trusted_evidence": false,
+            "baseline_min_days": 3, "require_baseline": false, "min_sample_count": 2,
+            "write_metric": true,
+        }),
+    )?;
+    let resting_hr_bpm = resting_rollup.get("resting_hr_bpm").and_then(serde_json::Value::as_f64);
+    reports.insert("resting_hr_rollup".to_string(), resting_rollup);
+    reports.insert(
+        "step_counter_rollup".to_string(),
+        call(
+            "metrics.step_counter_daily_rollup",
+            json!({
+                "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
+                "start_time_unix_ms": daily.start_time_unix_ms, "end_time_unix_ms": daily.end_time_unix_ms,
+                "min_sample_count": 2, "write_metric": true,
+            }),
+        )?,
+    );
+    reports.insert(
+        "step_counter_hourly_rollup".to_string(),
+        call(
+            "metrics.step_counter_hourly_rollup",
+            json!({
+                "database_path": db, "date_key": hourly.date_key, "timezone": hourly.timezone,
+                "start_time_unix_ms": hourly.start_time_unix_ms, "end_time_unix_ms": hourly.end_time_unix_ms,
+                "min_sample_count": 2, "write_metric": true,
+            }),
+        )?,
+    );
+    reports.insert(
+        "activity_unavailable_status".to_string(),
+        call(
+            "metrics.activity_unavailable_daily_status",
+            json!({
+                "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
+                "start_time_unix_ms": daily.start_time_unix_ms, "end_time_unix_ms": daily.end_time_unix_ms,
+                "min_sample_count": 2, "write_metric": true,
+            }),
+        )?,
+    );
+    // Energy rollups: daily-window ISO args + profile + threaded resting HR.
+    let energy_daily_args = || {
+        let mut value = with_profile(json!({
+            "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
+            "start": daily.start_iso, "end": daily.end_iso,
+            "min_owned_captures": 2, "require_trusted_evidence": false,
+            "min_heart_rate_samples": 2, "write_metric": true,
+        }));
+        if let (Some(object), Some(rhr)) = (value.as_object_mut(), resting_hr_bpm) {
+            object.insert("resting_hr_bpm".to_string(), json!(rhr));
+        }
+        value
+    };
+    reports.insert("energy_rollup".to_string(), call("metrics.energy_daily_rollup", energy_daily_args())?);
+    let mut energy_hourly = with_profile(json!({
+        "database_path": db, "date_key": hourly.date_key, "timezone": hourly.timezone,
+        "start": hourly.start_iso, "end": hourly.end_iso,
+        "min_owned_captures": 2, "require_trusted_evidence": false,
+        "min_heart_rate_samples": 2, "write_metric": true,
+    }));
+    if let (Some(object), Some(rhr)) = (energy_hourly.as_object_mut(), resting_hr_bpm) {
+        object.insert("resting_hr_bpm".to_string(), json!(rhr));
+    }
+    reports.insert("energy_hourly_rollup".to_string(), call("metrics.energy_hourly_rollup", energy_hourly)?);
+    reports.insert("energy_unavailable_status".to_string(), call("metrics.energy_unavailable_daily_status", energy_daily_args())?);
+    let recovery_daily_args = || {
+        json!({
+            "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
+            "start": daily.start_iso, "end": daily.end_iso,
+            "min_owned_captures": 2, "require_trusted_evidence": false,
+            "min_rr_intervals_to_compute": 2, "write_metric": true,
+        })
+    };
+    reports.insert("recovery_sensor_rollup".to_string(), call("metrics.recovery_sensor_daily_rollup", recovery_daily_args())?);
+    reports.insert("recovery_unavailable_status".to_string(), call("metrics.recovery_unavailable_daily_status", recovery_daily_args())?);
+
+    // List/aggregation steps over a trailing history window.
+    const DAY_MS: i64 = 86_400_000;
+    const HOUR_MS: i64 = 3_600_000;
+    let daily_history_start = daily.start_time_unix_ms - 29 * DAY_MS;
+    let hourly_history_start = hourly.start_time_unix_ms - 48 * HOUR_MS;
+    reports.insert(
+        "daily_activity".to_string(),
+        call("metrics.daily_activity_metrics", json!({ "database_path": db, "start_time_unix_ms": daily_history_start, "end_time_unix_ms": daily.end_time_unix_ms }))?,
+    );
+    reports.insert(
+        "hourly_activity".to_string(),
+        call("metrics.hourly_activity_metrics", json!({ "database_path": db, "start_time_unix_ms": hourly_history_start, "end_time_unix_ms": hourly.end_time_unix_ms }))?,
+    );
+    reports.insert(
+        "daily_recovery".to_string(),
+        call("metrics.daily_recovery_metrics", json!({ "database_path": db, "start_time_unix_ms": daily_history_start, "end_time_unix_ms": daily.end_time_unix_ms }))?,
+    );
+
+    Ok(json!({ "schema": "bull.metrics.run-pipeline.v1", "reports": reports }))
 }
 
 fn drain_frame_bundle_bridge(args: DrainFrameBundleArgs) -> BullResult<serde_json::Value> {
@@ -9262,6 +9514,46 @@ mod tests {
         let _store = crate::store::BullStore::open(std::path::Path::new(&path))
             .expect("open store for migration");
         (dir, path)
+    }
+
+    #[test]
+    fn run_pipeline_executes_every_step_and_returns_all_reports() {
+        let (_dir, db_path) = make_temp_db();
+        let response = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "pipeline".to_string(),
+            method: "metrics.run_pipeline".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "bull-local",
+                "daily_window": {
+                    "date_key": "2026-06-16", "timezone": "UTC",
+                    "start_iso": "2026-06-16T00:00:00Z", "end_iso": "2026-06-17T00:00:00Z",
+                    "start_time_unix_ms": 1781481600000_i64, "end_time_unix_ms": 1781568000000_i64
+                },
+                "hourly_window": {
+                    "date_key": "2026-06-16", "timezone": "UTC",
+                    "start_iso": "2026-06-16T12:00:00Z", "end_iso": "2026-06-16T13:00:00Z",
+                    "start_time_unix_ms": 1781524800000_i64, "end_time_unix_ms": 1781528400000_i64
+                },
+                "profile": { "weight_kg": 80.0, "age_years": 30, "sex": "male" }
+            }),
+        });
+        assert!(response.ok, "{:?}", response.error);
+        let result = response.result.unwrap();
+        let reports = result["reports"].as_object().expect("reports object");
+        // Every one of the 22 ordered steps must have produced a report.
+        for key in [
+            "readiness", "motion", "step_discovery", "step_counter_ingest", "biometric_ingest",
+            "heart_rate", "vital_event", "hrv", "window", "resting_hr", "resting_hr_rollup",
+            "step_counter_rollup", "step_counter_hourly_rollup", "activity_unavailable_status",
+            "energy_rollup", "energy_hourly_rollup", "energy_unavailable_status",
+            "recovery_sensor_rollup", "recovery_unavailable_status", "daily_activity",
+            "hourly_activity", "daily_recovery",
+        ] {
+            assert!(reports.contains_key(key), "missing pipeline report: {key}");
+        }
+        assert_eq!(reports.len(), 22, "expected exactly 22 pipeline steps");
     }
 
     #[test]
