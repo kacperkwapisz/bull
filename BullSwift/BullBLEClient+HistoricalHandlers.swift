@@ -24,7 +24,7 @@ extension BullBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
-      recordHistoricalPacketPage(from: payload)
+      recordHistoricalPacketTimestamp(from: payload)
       publishHistoricalPacketCountIfNeeded()
       scheduleHistoricalIdleCompletion(reason: "historical_data_idle")
       notifyHistoricalSyncProgress(
@@ -57,61 +57,49 @@ extension BullBLEClient {
     recomputeHistoricalSyncProgress()
   }
 
-  // MARK: - Historical sync progress (page-model based)
+  // MARK: - Historical sync progress (timestamp based)
 
-  /// Reset progress state at the start of (or after a failed) sync.
+  /// Oldest plausible historical timestamp we accept (a year before sync start),
+  /// to reject stale-clock outliers from skewing the span.
+  private static let historicalProgressMaxAgeSeconds: Double = 366 * 24 * 3600
+
+  /// Reset progress state at the start of (or after a failed) sync; anchor the
+  /// "end" of the backlog at ~now (the band records up to the present).
   func resetHistoricalSyncProgress() {
-    historicalSyncPageOldest = nil
-    historicalSyncPageEnd = nil
-    historicalSyncTotalPages = nil
-    historicalSyncLatestPage = nil
+    historicalSyncOldestTs = nil
+    historicalSyncLatestTs = nil
+    historicalSyncEndUnix = Date().timeIntervalSince1970
     historicalSyncProgressFraction = nil
   }
 
-  /// Capture the device page model on the first range response of a sync.
-  /// `totalPages` (pagesBehind) is the backlog from `pageOldest` to the newest
-  /// page; data packets then advance through that span.
-  func captureHistoricalSyncPageModel(pageOldest: UInt32?, pageEnd: UInt32?, totalPages: Int64?) {
-    guard isHistoricalSyncing,
-          historicalSyncTotalPages == nil,
-          let pageOldest, let totalPages, totalPages > 0 else {
-      return
+  /// Record an incoming historical packet's `timestamp_seconds` (payload offset
+  /// 7). Implausible values (stale clock / out of range) are ignored. Cheap;
+  /// the fraction is recomputed on the throttled publish path.
+  func recordHistoricalPacketTimestamp(from payload: [UInt8]) {
+    guard let ts = Self.readUInt32LE(payload, at: 7) else { return }
+    let tsValue = Double(ts)
+    let floor = historicalSyncEndUnix - Self.historicalProgressMaxAgeSeconds
+    let ceil = historicalSyncEndUnix + 86_400
+    guard tsValue >= floor, tsValue <= ceil else { return }
+    if historicalSyncOldestTs == nil || ts < historicalSyncOldestTs! {
+      historicalSyncOldestTs = ts
     }
-    historicalSyncPageOldest = pageOldest
-    historicalSyncPageEnd = pageEnd
-    historicalSyncTotalPages = totalPages
-    recomputeHistoricalSyncProgress()
+    if historicalSyncLatestTs == nil || ts > historicalSyncLatestTs! {
+      historicalSyncLatestTs = ts
+    }
   }
 
-  /// Record the page carried by an incoming historical data packet
-  /// (`counter_or_page`, payload offset 3). Cheap; the fraction is recomputed on
-  /// the throttled publish path.
-  func recordHistoricalPacketPage(from payload: [UInt8]) {
-    guard historicalSyncTotalPages != nil,
-          let page = Self.readUInt32LE(payload, at: 3) else {
-      return
-    }
-    historicalSyncLatestPage = page
-  }
-
-  /// Real progress = (latestPage - pageOldest) / totalPages, handling wrap at
-  /// pageEnd. nil (→ indeterminate spinner) until a page model + a data page are
-  /// known. Never goes backwards; capped below 1.0 until completion.
+  /// Real progress = (latestTs - oldestTs) / (syncStart - oldestTs). nil
+  /// (→ indeterminate spinner) until two plausible timestamps span a meaningful
+  /// window. Never goes backwards; capped below 1.0 until completion.
   func recomputeHistoricalSyncProgress() {
-    guard let oldest = historicalSyncPageOldest,
-          let total = historicalSyncTotalPages, total > 0,
-          let page = historicalSyncLatestPage else {
+    guard let oldest = historicalSyncOldestTs, let latest = historicalSyncLatestTs else {
       return
     }
-    let done: Int64
-    if page >= oldest {
-      done = Int64(page) - Int64(oldest)
-    } else if let end = historicalSyncPageEnd, end > oldest {
-      done = (Int64(end) - Int64(oldest)) + Int64(page) // wrapped past pageEnd
-    } else {
-      return
-    }
-    let fraction = min(0.99, max(0, Double(done) / Double(total)))
+    let span = historicalSyncEndUnix - Double(oldest)
+    guard span >= 60 else { return } // backlog too short to show a meaningful %
+    let done = Double(latest) - Double(oldest)
+    let fraction = min(0.99, max(0, done / span))
     historicalSyncProgressFraction = max(historicalSyncProgressFraction ?? 0, fraction)
   }
 

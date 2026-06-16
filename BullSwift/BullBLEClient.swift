@@ -267,13 +267,14 @@ final class BullBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
-  /// Device page model captured on the first GET_DATA_RANGE of the active sync,
-  /// plus the latest page seen in the data stream — the basis for real progress
-  /// (`(latestPage - pageOldest) / totalPages`, with wrap at pageEnd).
-  var historicalSyncPageOldest: UInt32?
-  var historicalSyncPageEnd: UInt32?
-  var historicalSyncTotalPages: Int64?
-  var historicalSyncLatestPage: UInt32?
+  /// Real progress basis: historical packets carry `timestamp_seconds`, and the
+  /// band records continuously up to ~now, so progress =
+  /// (latestTs - oldestTs) / (syncStart - oldestTs). The packet's
+  /// `counter_or_page` is a record counter (not the flash page), so it isn't
+  /// usable for progress.
+  var historicalSyncOldestTs: UInt32?
+  var historicalSyncLatestTs: UInt32?
+  var historicalSyncEndUnix: Double = 0
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0
