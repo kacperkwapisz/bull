@@ -90,11 +90,49 @@ not spooled-and-uploaded *and* separately hoarded in the DB.
 
 | Phase | What | Status |
 |-------|------|--------|
-| **0** | **Upload-drain + WAL checkpoint** — frames bundle → upload → delete on 2xx; unify with spool path; WAL truncate. Stops the crash; permanent plumbing (not interim). On-device compute untouched (temporary). | 🟡 |
-| 1 | **Server parses pending bundles** with `bull-core` → fills result tables. | ⬜ |
-| 2 | App **pulls results from `GET /v1/data/*`** + caches; **delete on-device historical compute**. | ⬜ |
-| 3 | Thin realtime preview path (the deferred FFI-lag fix), ephemeral, same parser. | ⬜ |
-| 4 | Cleanup → phone = live buffer + results cache + upload queue only. | ⬜ |
+| **0** | **Upload-drain + WAL checkpoint** — frames bundle → upload → delete on 2xx; WAL truncate. Stops the crash; permanent plumbing. | ✅ verified on device (3 GB → 246 MB) |
+| **1** | **Server-side parsing** — `bull-core` over the R2 bundles → Postgres result tables. | ⬜ |
+| **2** | App **pulls results from `GET /v1/data/*`** + caches; **retire on-device historical compute**. | ⬜ |
+| **3** | Thin realtime preview path (the deferred FFI-lag fix), ephemeral, same parser. | ⬜ |
+| **4** | Cleanup → phone = live buffer + results cache + upload queue only. | ⬜ |
+
+**Decisions locked:** hybrid thin-client (phone = pipe + viewer + live preview;
+server = system of record). One parser = `bull-core` in **Rust**, compiled for
+phone (lib) + server (WASM or sidecar) — **not** rewritten in TS. BullAPI stays
+Bun/TS as the app shell.
+
+### Phase 1 — Server-side parsing (next)
+Goal: turn the `pending` R2 bundles into the metrics the app reads.
+- [ ] P1-1: run `bull-core` server-side over a bundle — WASM-in-Bun **or** native
+      sidecar (decode + metric fns are pure; no `rusqlite` needed for parse path).
+- [ ] P1-2: parse pipeline — on upload (or a worker) decode frames → compute →
+      write `dailyRecovery/Sleep/Strain/Stress/Energy/vitalsDaily/spo2Samples`;
+      flip `upload_bundles.status` `pending → parsed` (`parseError` on fail).
+- [ ] P1-3: **fold in metrics-accuracy** (was "Tier 3" in TIGER-PORT-INVENTORY:
+      tiger Ph 20–35 + 42 — HRV RMSSD/Lipponen-Tarvainen, Cole-Kripke sleep,
+      strain/calories, exercise/Karvonen, readiness/ACWR, Phase-42 alignment).
+      This now runs **server-side**, RE-scrubbed, not on-device.
+- [ ] P1-4: idempotent re-parse (re-run improved algos over R2 history).
+
+### Phase 2 — App reads from server
+- [ ] P2-1: app fetches `GET /v1/data/*` → local results cache (offline view).
+- [ ] P2-2: dashboards read the cache, not on-device compute.
+- [ ] P2-3: **delete on-device historical metric computation**; drop on-device
+      `parsed_payload_json` retention → local DB shrinks far below 246 MB.
+
+### Phase 3 — Thin realtime preview
+- [ ] P3-1: lean live parser for the live tile (the FFI/JSON-lag fix).
+- [ ] P3-2: keep it in lockstep with `bull-core` via shared fixtures (or reuse
+      `bull-core` directly) — avoid two drifting parsers.
+
+### Phase 4 — Cleanup
+- [ ] P4-1: phone holds only live buffer + results cache + upload queue.
+- [ ] P4-2: retire any remaining redundant capture paths.
+
+### Parallel features (not migration-blocking)
+- [ ] **Historical sync progress bar** — real % from the device page model
+      (`pagesBehind` total + per-packet `counter_or_page`), with packet count +
+      ETA; text fallback when no range. Scoped; can land anytime.
 
 ---
 
