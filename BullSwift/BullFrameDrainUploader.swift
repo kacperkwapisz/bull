@@ -50,6 +50,15 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     var uploadedBundles = 0
     var uploadedFrames = 0
 
+    // Re-streamed data the server already has (timestamp ≤ upload watermark) is
+    // marked synced without re-uploading, so a band re-pull never resends it.
+    if let result = try? bridge.request(
+      method: "store.mark_already_uploaded_synced",
+      args: ["database_path": databasePath]
+    ), let marked = result["marked"] as? Int, marked > 0 {
+      log("drain.dedup_already_uploaded", "marked=\(marked)")
+    }
+
     for _ in 0..<Self.maxBundlesPerPass {
       let frames: [[String: Any]]
       do {
@@ -88,6 +97,16 @@ final class BullFrameDrainUploader: @unchecked Sendable {
         log("drain.upload_failed", "frames=\(ids.count) error=\(String(describing: error))")
         break
       }
+    }
+
+    // Advance the persistent upload watermark to the newest uploaded timestamp
+    // BEFORE pruning (pruning deletes the synced rows it reads). The historical
+    // sync skips re-streamed data at/under this mark instead of re-uploading it.
+    if uploadedFrames > 0 {
+      _ = try? bridge.request(
+        method: "store.advance_sync_watermark",
+        args: ["database_path": databasePath]
+      )
     }
 
     // Hard-bound the local store: keep only a small recent slice of synced

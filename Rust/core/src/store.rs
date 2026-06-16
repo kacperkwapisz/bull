@@ -2385,6 +2385,27 @@ impl BullStore {
             .unwrap_or(0))
     }
 
+    /// Mark as synced (without re-uploading) any unsynced raw frame whose decoded
+    /// `device_timestamp` is at/under the persistent upload watermark — i.e. data
+    /// the band re-streamed that the server already has. This stops re-uploads at
+    /// the source; the rows are then pruned like any synced frame. Returns the
+    /// number of frames marked. No-op until the watermark has advanced past 0.
+    pub fn mark_already_uploaded_synced(&self) -> BullResult<usize> {
+        let watermark = self.historical_sync_watermark()?;
+        if watermark <= 0 {
+            return Ok(0);
+        }
+        let changed = self.conn.execute(
+            "UPDATE raw_evidence SET synced = 1
+             WHERE synced = 0 AND evidence_id IN (
+                 SELECT evidence_id FROM decoded_frames
+                 WHERE device_timestamp IS NOT NULL AND device_timestamp <= ?1
+             )",
+            params![watermark],
+        )?;
+        Ok(changed)
+    }
+
     /// Advance the persistent upload watermark to the newest plausible
     /// `device_timestamp` among uploaded (synced) data packets. Monotonic — never
     /// moves backwards. Call after a drain marks frames synced and before

@@ -324,6 +324,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.historical_watermarks",
     "store.insert_gravity_rows",
     "store.maintain",
+    "store.mark_already_uploaded_synced",
     "store.mark_frames_synced",
     "store.prune_synced_frames",
     "store.prune_synced_to_cap",
@@ -2805,6 +2806,13 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(|args: DrainDbArgs| {
                 let store = open_bridge_store_hot(&args.database_path)?;
                 Ok(json!({ "watermark": store.advance_historical_sync_watermark()? }))
+            })
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.mark_already_uploaded_synced" => request_args::<DrainDbArgs>(&request)
+            .and_then(|args: DrainDbArgs| {
+                let store = open_bridge_store_hot(&args.database_path)?;
+                Ok(json!({ "marked": store.mark_already_uploaded_synced()? }))
             })
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
