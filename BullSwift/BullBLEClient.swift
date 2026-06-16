@@ -51,6 +51,10 @@ final class BullBLEClient: NSObject, ObservableObject {
   /// completed syncs, so it sharpens over time. The packet count is the
   /// always-real, live readout.
   @Published var historicalSyncProgressFraction: Double?
+  /// Estimated packets still to sync, and seconds remaining, for the progress
+  /// UI. nil until a backlog reading is available.
+  @Published var historicalSyncPacketsRemaining: Int?
+  @Published var historicalSyncEtaSeconds: Double?
   @Published var lastHistoricalSyncCompletedAt: Date?
   @Published var lastHistoricalRangeCommandStatus = "No GET_DATA_RANGE response"
   @Published var alarmCommandStatus = "No alarm command sent"
@@ -267,14 +271,13 @@ final class BullBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
-  /// Real progress basis: historical packets carry `timestamp_seconds`, and the
-  /// band records continuously up to ~now, so progress =
-  /// (latestTs - oldestTs) / (syncStart - oldestTs). The packet's
-  /// `counter_or_page` is a record counter (not the flash page), so it isn't
-  /// usable for progress.
-  var historicalSyncOldestTs: UInt32?
-  var historicalSyncLatestTs: UInt32?
-  var historicalSyncEndUnix: Double = 0
+  /// Progress basis: the device reports its remaining backlog as `pages_behind`
+  /// on GET_DATA_RANGE. Estimated total packets = backlog × packets-per-page
+  /// (learned from completed syncs; sensible default until then). The packet
+  /// header's `counter_or_page` is a record counter, not the page, so it isn't
+  /// usable; per-packet timestamps span too long a window to drive a %.
+  var historicalSyncBacklogPages: Int64?
+  var historicalSyncStartDate: Date?
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0

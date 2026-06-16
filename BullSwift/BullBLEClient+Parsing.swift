@@ -774,6 +774,8 @@ extension BullBLEClient {
         notes: notes
       )
     )
+    // Seed progress from the device's reported remaining backlog.
+    captureHistoricalSyncBacklog(pagesBehind)
   }
 
   func alarmResponseDetail(command: AlarmCommandKind, body: [UInt8]) -> String {

@@ -24,7 +24,6 @@ extension BullBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
-      recordHistoricalPacketTimestamp(from: payload)
       publishHistoricalPacketCountIfNeeded()
       scheduleHistoricalIdleCompletion(reason: "historical_data_idle")
       notifyHistoricalSyncProgress(
@@ -57,50 +56,75 @@ extension BullBLEClient {
     recomputeHistoricalSyncProgress()
   }
 
-  // MARK: - Historical sync progress (timestamp based)
+  // MARK: - Historical sync progress (backlog x packets-per-page)
 
-  /// Oldest plausible historical timestamp we accept (a year before sync start),
-  /// to reject stale-clock outliers from skewing the span.
-  private static let historicalProgressMaxAgeSeconds: Double = 366 * 24 * 3600
+  static let historicalPacketsPerPageKey = "bull.swift.historical.packets_per_page"
+  /// Sensible default until a sync completes and we learn the real ratio.
+  /// Derived from observed full-history volume (~2.7 packets/page); biased a
+  /// touch high so the bar trails reality rather than pinning at 99% early.
+  static let historicalDefaultPacketsPerPage: Double = 3.0
 
-  /// Reset progress state at the start of (or after a failed) sync; anchor the
-  /// "end" of the backlog at ~now (the band records up to the present).
+  private func historicalPacketsPerPage() -> Double {
+    let learned = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double
+    return (learned.map { $0 > 0 ? $0 : nil } ?? nil) ?? Self.historicalDefaultPacketsPerPage
+  }
+
+  /// Reset progress state at the start of (or after a failed) sync.
   func resetHistoricalSyncProgress() {
-    historicalSyncOldestTs = nil
-    historicalSyncLatestTs = nil
-    historicalSyncEndUnix = Date().timeIntervalSince1970
+    historicalSyncBacklogPages = nil
+    historicalSyncStartDate = Date()
     historicalSyncProgressFraction = nil
+    historicalSyncPacketsRemaining = nil
+    historicalSyncEtaSeconds = nil
   }
 
-  /// Record an incoming historical packet's `timestamp_seconds` (payload offset
-  /// 7). Implausible values (stale clock / out of range) are ignored. Cheap;
-  /// the fraction is recomputed on the throttled publish path.
-  func recordHistoricalPacketTimestamp(from payload: [UInt8]) {
-    guard let ts = Self.readUInt32LE(payload, at: 7) else { return }
-    let tsValue = Double(ts)
-    let floor = historicalSyncEndUnix - Self.historicalProgressMaxAgeSeconds
-    let ceil = historicalSyncEndUnix + 86_400
-    guard tsValue >= floor, tsValue <= ceil else { return }
-    if historicalSyncOldestTs == nil || ts < historicalSyncOldestTs! {
-      historicalSyncOldestTs = ts
-    }
-    if historicalSyncLatestTs == nil || ts > historicalSyncLatestTs! {
-      historicalSyncLatestTs = ts
-    }
-  }
-
-  /// Real progress = (latestTs - oldestTs) / (syncStart - oldestTs). nil
-  /// (→ indeterminate spinner) until two plausible timestamps span a meaningful
-  /// window. Never goes backwards; capped below 1.0 until completion.
-  func recomputeHistoricalSyncProgress() {
-    guard let oldest = historicalSyncOldestTs, let latest = historicalSyncLatestTs else {
+  /// Capture the device's remaining backlog (pages_behind) from the first range
+  /// response of a sync.
+  func captureHistoricalSyncBacklog(_ pagesBehind: Int64?) {
+    guard isHistoricalSyncing,
+          historicalSyncBacklogPages == nil,
+          let pagesBehind, pagesBehind > 0 else {
       return
     }
-    let span = historicalSyncEndUnix - Double(oldest)
-    guard span >= 60 else { return } // backlog too short to show a meaningful %
-    let done = Double(latest) - Double(oldest)
-    let fraction = min(0.99, max(0, done / span))
+    historicalSyncBacklogPages = pagesBehind
+    recomputeHistoricalSyncProgress()
+  }
+
+  /// Estimate progress, packets-remaining and ETA from packets-so-far against
+  /// (backlog pages × packets-per-page). nil (→ spinner) until a backlog reading
+  /// exists. Fraction never goes backwards; capped below 1.0 until completion.
+  func recomputeHistoricalSyncProgress() {
+    guard let backlog = historicalSyncBacklogPages, backlog > 0 else { return }
+    let estimatedTotal = Double(backlog) * historicalPacketsPerPage()
+    guard estimatedTotal > 0 else { return }
+    let received = Double(historicalPacketsReceivedThisSync)
+    let fraction = min(0.99, max(0, received / estimatedTotal))
     historicalSyncProgressFraction = max(historicalSyncProgressFraction ?? 0, fraction)
+
+    let remaining = max(0, Int(estimatedTotal.rounded()) - historicalPacketsReceivedThisSync)
+    historicalSyncPacketsRemaining = remaining
+    if let start = historicalSyncStartDate {
+      let elapsed = Date().timeIntervalSince(start)
+      if elapsed > 2, received > 0 {
+        let rate = received / elapsed // packets/sec
+        historicalSyncEtaSeconds = rate > 0 ? Double(remaining) / rate : nil
+      }
+    }
+  }
+
+  /// On a completed sync, learn the real packets-per-page (exponentially
+  /// smoothed, persisted) so future estimates sharpen, then clear.
+  func finalizeHistoricalSyncProgressEstimate() {
+    if let backlog = historicalSyncBacklogPages, backlog > 0, historicalPacketsReceivedThisSync > 0 {
+      let observed = Double(historicalPacketsReceivedThisSync) / Double(backlog)
+      let prior = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double
+      let blended = prior.map { 0.7 * $0 + 0.3 * observed } ?? observed
+      UserDefaults.standard.set(blended, forKey: Self.historicalPacketsPerPageKey)
+    }
+    historicalSyncBacklogPages = nil
+    historicalSyncProgressFraction = nil
+    historicalSyncPacketsRemaining = nil
+    historicalSyncEtaSeconds = nil
   }
 
   func handleAlarmValue(_ value: Data, characteristic: CBCharacteristic) {
@@ -683,7 +707,7 @@ extension BullBLEClient {
     historicalIdleWorkItem?.cancel()
     historicalRangeRetryWorkItem?.cancel()
     readySyncWorkItem?.cancel()
-    resetHistoricalSyncProgress()
+    finalizeHistoricalSyncProgressEstimate()
     let sawHistoricalMetadata = historyStartReceived || historyEndReceived || historyCompleteReceived
     pendingHistoricalCommand = nil
     historyEndAckQueued = false

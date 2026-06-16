@@ -467,7 +467,9 @@ private struct DeviceAdvancedPanel: View {
         if ble.isHistoricalSyncing {
           HistoricalSyncProgressBar(
             fraction: ble.historicalSyncProgressFraction,
-            packetCount: ble.historicalPacketCount
+            packetCount: ble.historicalPacketCount,
+            packetsRemaining: ble.historicalSyncPacketsRemaining,
+            etaSeconds: ble.historicalSyncEtaSeconds
           )
         }
         DeviceFactRow(systemName: "bolt.horizontal", label: "High freq", value: ble.highFrequencyHistorySyncDisplaySummary)
@@ -931,13 +933,15 @@ private let reconnectBannerBackground = Color(uiColor: UIColor { traits in
 private struct HistoricalSyncProgressBar: View {
   let fraction: Double?
   let packetCount: Int
+  let packetsRemaining: Int?
+  let etaSeconds: Double?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       if let fraction {
         ProgressView(value: min(max(fraction, 0), 1))
           .tint(.accentColor)
-        Text("\(Int((min(max(fraction, 0), 1)) * 100))% · \(packetCount.formatted()) packets")
+        Text(caption(percent: Int((min(max(fraction, 0), 1)) * 100)))
           .font(.caption)
           .foregroundStyle(.secondary)
       } else {
@@ -951,5 +955,26 @@ private struct HistoricalSyncProgressBar: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.vertical, 4)
+  }
+
+  private func caption(percent: Int) -> String {
+    var parts = ["\(percent)%", "\(packetCount.formatted()) synced"]
+    if let remaining = packetsRemaining, remaining > 0 {
+      parts.append("~\(remaining.formatted()) left")
+    }
+    if let eta = etaSeconds, eta.isFinite, eta > 0 {
+      parts.append("~\(Self.etaText(eta)) left")
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  private static func etaText(_ seconds: Double) -> String {
+    let total = Int(seconds.rounded())
+    if total >= 3600 {
+      return "\(total / 3600)h \((total % 3600) / 60)m"
+    } else if total >= 60 {
+      return "\(total / 60)m \(total % 60)s"
+    }
+    return "\(total)s"
   }
 }
