@@ -267,9 +267,13 @@ final class BullBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
-  /// Device-reported backlog (pages) captured on the first GET_DATA_RANGE of the
-  /// active sync; the basis for the progress estimate.
-  var historicalSyncInitialPagesBehind: Int64?
+  /// Device page model captured on the first GET_DATA_RANGE of the active sync,
+  /// plus the latest page seen in the data stream — the basis for real progress
+  /// (`(latestPage - pageOldest) / totalPages`, with wrap at pageEnd).
+  var historicalSyncPageOldest: UInt32?
+  var historicalSyncPageEnd: UInt32?
+  var historicalSyncTotalPages: Int64?
+  var historicalSyncLatestPage: UInt32?
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0

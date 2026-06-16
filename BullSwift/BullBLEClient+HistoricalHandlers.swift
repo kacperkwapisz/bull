@@ -24,6 +24,7 @@ extension BullBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
+      recordHistoricalPacketPage(from: payload)
       publishHistoricalPacketCountIfNeeded()
       scheduleHistoricalIdleCompletion(reason: "historical_data_idle")
       notifyHistoricalSyncProgress(
@@ -56,57 +57,62 @@ extension BullBLEClient {
     recomputeHistoricalSyncProgress()
   }
 
-  // MARK: - Historical sync progress estimate
-
-  static let historicalPacketsPerPageKey = "bull.swift.historical.packets_per_page"
+  // MARK: - Historical sync progress (page-model based)
 
   /// Reset progress state at the start of (or after a failed) sync.
   func resetHistoricalSyncProgress() {
-    historicalSyncInitialPagesBehind = nil
+    historicalSyncPageOldest = nil
+    historicalSyncPageEnd = nil
+    historicalSyncTotalPages = nil
+    historicalSyncLatestPage = nil
     historicalSyncProgressFraction = nil
   }
 
-  /// Capture the device's backlog on the first range response of a sync.
-  func captureHistoricalSyncBacklog(_ pagesBehind: Int64?) {
+  /// Capture the device page model on the first range response of a sync.
+  /// `totalPages` (pagesBehind) is the backlog from `pageOldest` to the newest
+  /// page; data packets then advance through that span.
+  func captureHistoricalSyncPageModel(pageOldest: UInt32?, pageEnd: UInt32?, totalPages: Int64?) {
     guard isHistoricalSyncing,
-          historicalSyncInitialPagesBehind == nil,
-          let pagesBehind, pagesBehind > 0 else {
+          historicalSyncTotalPages == nil,
+          let pageOldest, let totalPages, totalPages > 0 else {
       return
     }
-    historicalSyncInitialPagesBehind = pagesBehind
+    historicalSyncPageOldest = pageOldest
+    historicalSyncPageEnd = pageEnd
+    historicalSyncTotalPages = totalPages
     recomputeHistoricalSyncProgress()
   }
 
-  /// Estimate progress = packets so far / (backlog pages × learned packets-per-page).
-  /// nil when there's no backlog reading or no learned ratio yet (→ indeterminate).
-  func recomputeHistoricalSyncProgress() {
-    guard let initial = historicalSyncInitialPagesBehind, initial > 0,
-          let ratio = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double,
-          ratio > 0 else {
-      historicalSyncProgressFraction = nil
+  /// Record the page carried by an incoming historical data packet
+  /// (`counter_or_page`, payload offset 3). Cheap; the fraction is recomputed on
+  /// the throttled publish path.
+  func recordHistoricalPacketPage(from payload: [UInt8]) {
+    guard historicalSyncTotalPages != nil,
+          let page = Self.readUInt32LE(payload, at: 3) else {
       return
     }
-    let estimatedTotal = Double(initial) * ratio
-    guard estimatedTotal > 0 else {
-      historicalSyncProgressFraction = nil
-      return
-    }
-    // Cap below 1.0 until completion flips it; never go backwards within a sync.
-    let fraction = min(0.99, Double(historicalPacketsReceivedThisSync) / estimatedTotal)
-    historicalSyncProgressFraction = max(historicalSyncProgressFraction ?? 0, fraction)
+    historicalSyncLatestPage = page
   }
 
-  /// On a completed sync, fold the observed packets-per-page into the learned
-  /// ratio (exponential smoothing) so future estimates sharpen, then clear.
-  func finalizeHistoricalSyncProgressEstimate() {
-    if let initial = historicalSyncInitialPagesBehind, initial > 0, historicalPacketsReceivedThisSync > 0 {
-      let observed = Double(historicalPacketsReceivedThisSync) / Double(initial)
-      let prior = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double
-      let blended = prior.map { 0.7 * $0 + 0.3 * observed } ?? observed
-      UserDefaults.standard.set(blended, forKey: Self.historicalPacketsPerPageKey)
+  /// Real progress = (latestPage - pageOldest) / totalPages, handling wrap at
+  /// pageEnd. nil (→ indeterminate spinner) until a page model + a data page are
+  /// known. Never goes backwards; capped below 1.0 until completion.
+  func recomputeHistoricalSyncProgress() {
+    guard let oldest = historicalSyncPageOldest,
+          let total = historicalSyncTotalPages, total > 0,
+          let page = historicalSyncLatestPage else {
+      return
     }
-    historicalSyncInitialPagesBehind = nil
-    historicalSyncProgressFraction = nil
+    let done: Int64
+    if page >= oldest {
+      done = Int64(page) - Int64(oldest)
+    } else if let end = historicalSyncPageEnd, end > oldest {
+      done = (Int64(end) - Int64(oldest)) + Int64(page) // wrapped past pageEnd
+    } else {
+      return
+    }
+    let fraction = min(0.99, max(0, Double(done) / Double(total)))
+    historicalSyncProgressFraction = max(historicalSyncProgressFraction ?? 0, fraction)
   }
 
   func handleAlarmValue(_ value: Data, characteristic: CBCharacteristic) {
@@ -689,8 +695,7 @@ extension BullBLEClient {
     historicalIdleWorkItem?.cancel()
     historicalRangeRetryWorkItem?.cancel()
     readySyncWorkItem?.cancel()
-    // Learn packets-per-page from this completed sync, then clear progress.
-    finalizeHistoricalSyncProgressEstimate()
+    resetHistoricalSyncProgress()
     let sawHistoricalMetadata = historyStartReceived || historyEndReceived || historyCompleteReceived
     pendingHistoricalCommand = nil
     historyEndAckQueued = false

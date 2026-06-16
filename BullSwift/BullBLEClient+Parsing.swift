@@ -774,8 +774,8 @@ extension BullBLEClient {
         notes: notes
       )
     )
-    // Seed the progress estimate from the device's reported backlog.
-    captureHistoricalSyncBacklog(pagesBehind)
+    // Seed real progress from the device page model (oldest..newest backlog).
+    captureHistoricalSyncPageModel(pageOldest: pageOldest, pageEnd: pageEnd, totalPages: pagesBehind)
   }
 
   func alarmResponseDetail(command: AlarmCommandKind, body: [UInt8]) -> String {
