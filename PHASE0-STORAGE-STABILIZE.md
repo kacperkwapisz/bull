@@ -130,9 +130,12 @@ Goal: turn the `pending` R2 bundles into the metrics the app reads.
 - [ ] P4-2: retire any remaining redundant capture paths.
 
 ### Parallel features (not migration-blocking)
-- [ ] **Historical sync progress bar** — real % from the device page model
-      (`pagesBehind` total + per-packet `counter_or_page`), with packet count +
-      ETA; text fallback when no range. Scoped; can land anytime.
+- [x] **Historical sync progress bar** — ✅ done. Real estimate = packets-so-far /
+      (`pagesBehind` backlog × learned packets-per-page; ratio persisted +
+      smoothed across syncs). Determinate % bar once learned; spinner + live
+      packet count on the first sync. No protocol/BLE-flow changes. In DeviceView.
+      (Note: ratio is learned on completion, so the *next* sync after install is
+      the first to learn it; the one after shows %.)
 
 ---
 
