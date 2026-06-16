@@ -489,6 +489,7 @@ fn dedupe_storage_next_actions(
 fn required_columns() -> BTreeMap<&'static str, Vec<&'static str>> {
     let mut columns = BTreeMap::new();
     columns.insert("bull_schema_migrations", vec!["version", "applied_at"]);
+    columns.insert("sync_state", vec!["key", "value"]);
     columns.insert(
         "raw_evidence",
         vec![

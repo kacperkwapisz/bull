@@ -316,6 +316,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "sleep.validate_v1_release_gates",
     "sleep.validate_window_labels",
     "storage.check",
+    "store.advance_sync_watermark",
     "store.drain_frame_bundle",
     "store.ewma_baseline_fold_history",
     "store.ewma_baseline_update",
@@ -326,6 +327,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.mark_frames_synced",
     "store.prune_synced_frames",
     "store.prune_synced_to_cap",
+    "store.sync_watermark",
     "store.unsynced_frame_count",
     "timeline.from_decoded_frames",
     "ui_coverage.audit",
@@ -2790,6 +2792,20 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.historical_watermarks" => request_args::<DrainDbArgs>(&request)
             .and_then(historical_watermarks_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.sync_watermark" => request_args::<DrainDbArgs>(&request)
+            .and_then(|args: DrainDbArgs| {
+                let store = open_bridge_store_hot(&args.database_path)?;
+                Ok(json!({ "watermark": store.historical_sync_watermark()? }))
+            })
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.advance_sync_watermark" => request_args::<DrainDbArgs>(&request)
+            .and_then(|args: DrainDbArgs| {
+                let store = open_bridge_store_hot(&args.database_path)?;
+                Ok(json!({ "watermark": store.advance_historical_sync_watermark()? }))
+            })
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.drain_frame_bundle" => request_args::<DrainFrameBundleArgs>(&request)

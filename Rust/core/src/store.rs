@@ -11,8 +11,9 @@ use crate::{
     validation_labels::OFFICIAL_WHOOP_LABEL_POLICY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 17;
+pub const CURRENT_SCHEMA_VERSION: i64 = 18;
 pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
+const HISTORICAL_SYNC_WATERMARK_KEY: &str = "historical_sync_watermark";
 // Mobile maintenance caps. Raw payload bytes beyond these limits are
 // compacted oldest-first; curated metric tables are never touched. The caps
 // keep the on-device store small while Phase 2 (upload raw bundles to the
@@ -1212,6 +1213,11 @@ impl BullStore {
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
+            CREATE TABLE IF NOT EXISTS sync_state (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS algorithm_definitions (
                 algorithm_id TEXT NOT NULL,
                 version TEXT NOT NULL,
@@ -1783,7 +1789,8 @@ impl BullStore {
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (15);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (16);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (17);
-            PRAGMA user_version = 17;
+            INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (18);
+            PRAGMA user_version = 18;
             "#,
         )?;
         self.ensure_raw_evidence_columns()?;
@@ -2359,6 +2366,49 @@ impl BullStore {
             [],
             |row| row.get::<_, Option<i64>>(0),
         )?)
+    }
+
+    /// Persistent "newest data already uploaded" watermark, in `device_timestamp`
+    /// seconds. Unlike `historical_watermark_max` (which reads live rows and so
+    /// resets when synced rows are pruned), this survives pruning, so the
+    /// historical sync can skip re-streamed data it has already uploaded.
+    /// Defaults to 0 until the first upload advances it.
+    pub fn historical_sync_watermark(&self) -> BullResult<i64> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM sync_state WHERE key = ?1",
+                params![HISTORICAL_SYNC_WATERMARK_KEY],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
+    }
+
+    /// Advance the persistent upload watermark to the newest plausible
+    /// `device_timestamp` among uploaded (synced) data packets. Monotonic — never
+    /// moves backwards. Call after a drain marks frames synced and before
+    /// pruning. Returns the new watermark.
+    pub fn advance_historical_sync_watermark(&self) -> BullResult<i64> {
+        let synced_max: Option<i64> = self.conn.query_row(
+            "SELECT MAX(d.device_timestamp)
+             FROM decoded_frames d
+             JOIN raw_evidence r ON d.evidence_id = r.evidence_id
+             WHERE r.synced = 1
+               AND d.device_timestamp BETWEEN 1600000000 AND 2000000000",
+            [],
+            |row| row.get::<_, Option<i64>>(0),
+        )?;
+        let current = self.historical_sync_watermark()?;
+        let next = synced_max.map(|value| value.max(current)).unwrap_or(current);
+        if next > current {
+            self.conn.execute(
+                "INSERT INTO sync_state (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![HISTORICAL_SYNC_WATERMARK_KEY, next],
+            )?;
+        }
+        Ok(next)
     }
 
     pub fn start_capture_session(&self, input: CaptureSessionInput<'_>) -> BullResult<bool> {
@@ -9019,6 +9069,7 @@ pub fn known_tables() -> &'static [&'static str] {
         "bull_schema_migrations",
         "raw_evidence",
         "decoded_frames",
+        "sync_state",
         "algorithm_definitions",
         "algorithm_runs",
         "metric_values",
@@ -9275,6 +9326,39 @@ mod tests {
         assert_eq!(watermarks[1].packet_type, 21);
         assert_eq!(watermarks[1].max_device_timestamp, 9_000);
         assert_eq!(store.historical_watermark_max().unwrap(), Some(9_000));
+    }
+
+    #[test]
+    fn sync_watermark_advances_from_uploaded_and_persists() {
+        let store = BullStore::open_in_memory().unwrap();
+        let insert_decoded = |frame: &str, ts: i64| {
+            store
+                .conn
+                .execute(
+                    "INSERT INTO decoded_frames (frame_id, evidence_id, device_type, raw_len,
+                         header_len, declared_len, payload_hex, payload_crc_hex, header_crc_valid,
+                         payload_crc_valid, packet_type, device_timestamp, parsed_payload_json,
+                         parser_version, warnings_json)
+                     VALUES (?1,?1,'BULL',0,0,0,'','',1,1,20,?2,'null','test','[]')",
+                    params![frame, ts],
+                )
+                .unwrap();
+        };
+        // Two uploaded packets + one newer still-pending packet.
+        seed_raw(&store, "u1", "2026-06-16T00:00:00Z", &[1u8; 8]);
+        insert_decoded("u1", 1_781_000_000);
+        seed_raw(&store, "u2", "2026-06-16T00:00:00Z", &[2u8; 8]);
+        insert_decoded("u2", 1_781_500_000);
+        seed_raw(&store, "pending", "2026-06-16T00:00:00Z", &[3u8; 8]);
+        insert_decoded("pending", 1_781_900_000);
+
+        assert_eq!(store.historical_sync_watermark().unwrap(), 0, "starts at 0");
+        store.mark_raw_evidence_synced(&["u1", "u2"]).unwrap();
+        let advanced = store.advance_historical_sync_watermark().unwrap();
+        assert_eq!(advanced, 1_781_500_000, "advances to newest uploaded, not the pending one");
+        assert_eq!(store.historical_sync_watermark().unwrap(), 1_781_500_000, "persisted");
+        // Monotonic: re-advancing with no newer synced data holds steady.
+        assert_eq!(store.advance_historical_sync_watermark().unwrap(), 1_781_500_000);
     }
 
     #[test]
