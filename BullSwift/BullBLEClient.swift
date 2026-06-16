@@ -44,6 +44,13 @@ final class BullBLEClient: NSObject, ObservableObject {
   @Published var isHistoricalSyncing = false
   @Published var historicalSyncStatus = "idle"
   @Published var historicalPacketCount = 0
+  /// Fraction in 0...1 for the historical sync progress bar, or nil when it
+  /// can't be estimated yet (first-ever sync / no backlog reading) — callers
+  /// then show an indeterminate bar. The estimate uses the device's reported
+  /// backlog (pagesBehind) and a packets-per-page ratio learned from prior
+  /// completed syncs, so it sharpens over time. The packet count is the
+  /// always-real, live readout.
+  @Published var historicalSyncProgressFraction: Double?
   @Published var lastHistoricalSyncCompletedAt: Date?
   @Published var lastHistoricalRangeCommandStatus = "No GET_DATA_RANGE response"
   @Published var alarmCommandStatus = "No alarm command sent"
@@ -260,6 +267,9 @@ final class BullBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
+  /// Device-reported backlog (pages) captured on the first GET_DATA_RANGE of the
+  /// active sync; the basis for the progress estimate.
+  var historicalSyncInitialPagesBehind: Int64?
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0

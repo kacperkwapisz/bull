@@ -53,6 +53,60 @@ extension BullBLEClient {
 
     lastHistoricalPacketCountPublishedAt = date
     historicalPacketCount = historicalPacketsReceivedThisSync
+    recomputeHistoricalSyncProgress()
+  }
+
+  // MARK: - Historical sync progress estimate
+
+  static let historicalPacketsPerPageKey = "bull.swift.historical.packets_per_page"
+
+  /// Reset progress state at the start of (or after a failed) sync.
+  func resetHistoricalSyncProgress() {
+    historicalSyncInitialPagesBehind = nil
+    historicalSyncProgressFraction = nil
+  }
+
+  /// Capture the device's backlog on the first range response of a sync.
+  func captureHistoricalSyncBacklog(_ pagesBehind: Int64?) {
+    guard isHistoricalSyncing,
+          historicalSyncInitialPagesBehind == nil,
+          let pagesBehind, pagesBehind > 0 else {
+      return
+    }
+    historicalSyncInitialPagesBehind = pagesBehind
+    recomputeHistoricalSyncProgress()
+  }
+
+  /// Estimate progress = packets so far / (backlog pages × learned packets-per-page).
+  /// nil when there's no backlog reading or no learned ratio yet (→ indeterminate).
+  func recomputeHistoricalSyncProgress() {
+    guard let initial = historicalSyncInitialPagesBehind, initial > 0,
+          let ratio = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double,
+          ratio > 0 else {
+      historicalSyncProgressFraction = nil
+      return
+    }
+    let estimatedTotal = Double(initial) * ratio
+    guard estimatedTotal > 0 else {
+      historicalSyncProgressFraction = nil
+      return
+    }
+    // Cap below 1.0 until completion flips it; never go backwards within a sync.
+    let fraction = min(0.99, Double(historicalPacketsReceivedThisSync) / estimatedTotal)
+    historicalSyncProgressFraction = max(historicalSyncProgressFraction ?? 0, fraction)
+  }
+
+  /// On a completed sync, fold the observed packets-per-page into the learned
+  /// ratio (exponential smoothing) so future estimates sharpen, then clear.
+  func finalizeHistoricalSyncProgressEstimate() {
+    if let initial = historicalSyncInitialPagesBehind, initial > 0, historicalPacketsReceivedThisSync > 0 {
+      let observed = Double(historicalPacketsReceivedThisSync) / Double(initial)
+      let prior = UserDefaults.standard.object(forKey: Self.historicalPacketsPerPageKey) as? Double
+      let blended = prior.map { 0.7 * $0 + 0.3 * observed } ?? observed
+      UserDefaults.standard.set(blended, forKey: Self.historicalPacketsPerPageKey)
+    }
+    historicalSyncInitialPagesBehind = nil
+    historicalSyncProgressFraction = nil
   }
 
   func handleAlarmValue(_ value: Data, characteristic: CBCharacteristic) {
@@ -635,6 +689,8 @@ extension BullBLEClient {
     historicalIdleWorkItem?.cancel()
     historicalRangeRetryWorkItem?.cancel()
     readySyncWorkItem?.cancel()
+    // Learn packets-per-page from this completed sync, then clear progress.
+    finalizeHistoricalSyncProgressEstimate()
     let sawHistoricalMetadata = historyStartReceived || historyEndReceived || historyCompleteReceived
     pendingHistoricalCommand = nil
     historyEndAckQueued = false
@@ -680,6 +736,7 @@ extension BullBLEClient {
     historicalIdleWorkItem?.cancel()
     historicalRangeRetryWorkItem?.cancel()
     readySyncWorkItem?.cancel()
+    resetHistoricalSyncProgress()
     pendingHistoricalCommand = nil
     historyEndAckQueued = false
     historyEndAckSentThisBurst = false

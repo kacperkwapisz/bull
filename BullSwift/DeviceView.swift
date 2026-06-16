@@ -464,6 +464,12 @@ private struct DeviceAdvancedPanel: View {
         DeviceFactRow(systemName: "heart", label: "Live HR", value: heartRateSummary)
         DeviceFactRow(systemName: "dot.radiowaves.left.and.right", label: "Connection", value: ble.connectionState.capitalized)
         DeviceFactRow(systemName: "arrow.triangle.2.circlepath", label: "Historical sync", value: ble.historicalSyncStatus.capitalized)
+        if ble.isHistoricalSyncing {
+          HistoricalSyncProgressBar(
+            fraction: ble.historicalSyncProgressFraction,
+            packetCount: ble.historicalPacketCount
+          )
+        }
         DeviceFactRow(systemName: "bolt.horizontal", label: "High freq", value: ble.highFrequencyHistorySyncDisplaySummary)
         DeviceFactRow(systemName: "lungs", label: "RR packets", value: model.respiratoryPacketWatchStatus)
         DeviceFactRow(systemName: "cpu", label: "Rust", value: model.rustStatus)
@@ -916,3 +922,34 @@ private let reconnectBannerBackground = Color(uiColor: UIColor { traits in
     ? UIColor(red: 0.14, green: 0.12, blue: 0.08, alpha: 1)
     : UIColor(red: 1.0, green: 0.96, blue: 0.88, alpha: 1)
 })
+
+// MARK: - Historical sync progress
+
+/// Real-progress bar for an active historical sync. Determinate once a
+/// packets-per-page ratio has been learned (shows %); otherwise a spinner with
+/// the always-real live packet count.
+private struct HistoricalSyncProgressBar: View {
+  let fraction: Double?
+  let packetCount: Int
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let fraction {
+        ProgressView(value: min(max(fraction, 0), 1))
+          .tint(.accentColor)
+        Text("\(Int((min(max(fraction, 0), 1)) * 100))% · \(packetCount.formatted()) packets")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("\(packetCount.formatted()) packets synced…")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.vertical, 4)
+  }
+}

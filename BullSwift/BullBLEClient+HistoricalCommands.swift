@@ -36,6 +36,7 @@ extension BullBLEClient {
     historicalSyncStatus = "syncing"
     historicalPacketCount = 0
     historicalPacketsReceivedThisSync = 0
+    resetHistoricalSyncProgress()
     lastHistoricalPacketCountPublishedAt = Date.distantPast
     lastHistoricalSyncProgressCallbackAt = Date.distantPast
     lastHistoricalSyncProgressCallbackStatus = ""
