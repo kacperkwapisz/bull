@@ -12,6 +12,10 @@ path = "src/lib.rs"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [[bin]]
+name = "bull-bridge-serve"
+path = "src/bin/bull-bridge-serve.rs"
+
+[[bin]]
 name = "bull-fixture-index"
 path = "src/bin/bull-fixture-index.rs"
 
