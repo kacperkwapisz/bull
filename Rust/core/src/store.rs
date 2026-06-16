@@ -7,11 +7,11 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     BullError, BullResult,
-    protocol::{DeviceType, ParsedFrame},
+    protocol::{DeviceType, ParsedFrame, ParsedPayload},
     validation_labels::OFFICIAL_WHOOP_LABEL_POLICY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 16;
+pub const CURRENT_SCHEMA_VERSION: i64 = 17;
 pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
 // Mobile maintenance caps. Raw payload bytes beyond these limits are
 // compacted oldest-first; curated metric tables are never touched. The caps
@@ -245,6 +245,12 @@ pub struct StoreMaintenanceReport {
     /// True when the checkpoint could not fully reclaim the WAL because another
     /// connection still held a read mark (best-effort; retried next maintenance).
     pub wal_checkpoint_busy: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoricalWatermark {
+    pub packet_type: i64,
+    pub max_device_timestamp: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1199,6 +1205,7 @@ impl BullStore {
                 packet_type_name TEXT,
                 sequence INTEGER,
                 command_or_event INTEGER,
+                device_timestamp INTEGER,
                 parsed_payload_json TEXT NOT NULL DEFAULT 'null',
                 parser_version TEXT NOT NULL,
                 warnings_json TEXT NOT NULL,
@@ -1775,7 +1782,8 @@ impl BullStore {
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (14);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (15);
             INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (16);
-            PRAGMA user_version = 16;
+            INSERT OR IGNORE INTO bull_schema_migrations(version) VALUES (17);
+            PRAGMA user_version = 17;
             "#,
         )?;
         self.ensure_raw_evidence_columns()?;
@@ -2268,6 +2276,7 @@ impl BullStore {
             .map_err(|error| BullError::message(error.to_string()))?;
         let warnings_json = serde_json::to_string(&input.parsed.warnings)
             .map_err(|error| BullError::message(error.to_string()))?;
+        let device_timestamp = data_packet_timestamp_seconds(input.parsed.parsed_payload.as_ref());
 
         let mut statement = self.conn.prepare_cached(
             r#"
@@ -2286,10 +2295,11 @@ impl BullStore {
                 packet_type_name,
                 sequence,
                 command_or_event,
+                device_timestamp,
                 parsed_payload_json,
                 parser_version,
                 warnings_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             "#,
         )?;
         let changed = statement.execute(params![
@@ -2307,11 +2317,48 @@ impl BullStore {
             input.parsed.packet_type_name,
             input.parsed.sequence.map(i64::from),
             input.parsed.command_or_event.map(i64::from),
+            device_timestamp,
             parsed_payload_json,
             input.parser_version,
             warnings_json
         ])?;
         Ok(changed > 0)
+    }
+
+    /// Incremental-sync watermark: the newest `device_timestamp` already stored,
+    /// per `packet_type`. Anything at or below a type's watermark is already
+    /// synced. Rows without a packet type or timestamp do not contribute.
+    pub fn historical_watermarks(&self) -> BullResult<Vec<HistoricalWatermark>> {
+        let mut statement = self.conn.prepare_cached(
+            r#"
+            SELECT packet_type, MAX(device_timestamp)
+            FROM decoded_frames
+            WHERE device_timestamp IS NOT NULL AND packet_type IS NOT NULL
+            GROUP BY packet_type
+            ORDER BY packet_type
+            "#,
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(HistoricalWatermark {
+                packet_type: row.get(0)?,
+                max_device_timestamp: row.get(1)?,
+            })
+        })?;
+        let mut watermarks = Vec::new();
+        for row in rows {
+            watermarks.push(row?);
+        }
+        Ok(watermarks)
+    }
+
+    /// The single newest `device_timestamp` stored across all data packets, or
+    /// `None` when nothing timestamped has been stored yet.
+    pub fn historical_watermark_max(&self) -> BullResult<Option<i64>> {
+        Ok(self.conn.query_row(
+            "SELECT MAX(device_timestamp) FROM decoded_frames WHERE device_timestamp IS NOT NULL",
+            [],
+            |row| row.get::<_, Option<i64>>(0),
+        )?)
     }
 
     pub fn start_capture_session(&self, input: CaptureSessionInput<'_>) -> BullResult<bool> {
@@ -7391,11 +7438,22 @@ impl BullStore {
                 "parsed_payload_json",
                 "parsed_payload_json TEXT NOT NULL DEFAULT 'null'",
             ),
+            // The data packet's own timestamp_seconds, surfaced as a column so the
+            // incremental-sync watermark (MAX per packet_type) is a cheap indexed
+            // query and survives a future move away from on-device parsed JSON.
+            ("device_timestamp", "device_timestamp INTEGER"),
         ] {
             if !columns.contains(column) {
                 self.conn
                     .execute(&format!("ALTER TABLE decoded_frames ADD COLUMN {ddl}"), [])?;
             }
+        }
+        let columns = self.table_columns_unchecked("decoded_frames")?;
+        if columns.contains("device_timestamp") && columns.contains("packet_type") {
+            self.conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_decoded_frames_watermark
+                     ON decoded_frames(packet_type, device_timestamp);",
+            )?;
         }
         Ok(())
     }
@@ -8940,6 +8998,18 @@ fn device_type_name(device_type: DeviceType) -> &'static str {
     }
 }
 
+/// The data packet's own `timestamp_seconds`, used as the incremental-sync
+/// watermark. Only data packets carry the historical timeline; other payloads
+/// (commands, responses, raw) have no watermark contribution.
+fn data_packet_timestamp_seconds(payload: Option<&ParsedPayload>) -> Option<i64> {
+    match payload {
+        Some(ParsedPayload::DataPacket {
+            timestamp_seconds, ..
+        }) => timestamp_seconds.map(i64::from),
+        _ => None,
+    }
+}
+
 fn is_known_table(table: &str) -> bool {
     known_tables().contains(&table)
 }
@@ -9174,6 +9244,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM decoded_frames", [], |r| r.get(0))
             .unwrap();
         assert_eq!(decoded, 0, "deleting ev-1 cascades to its decoded_frames");
+    }
+
+    #[test]
+    fn historical_watermark_reports_max_device_timestamp_per_type() {
+        let store = BullStore::open_in_memory().unwrap();
+        let insert = |frame: &str, packet_type: i64, ts: i64| {
+            seed_raw(&store, frame, "2026-05-28T00:00:00Z", &[0u8; 16]);
+            store
+                .conn
+                .execute(
+                    "INSERT INTO decoded_frames (frame_id, evidence_id, device_type, raw_len,
+                         header_len, declared_len, payload_hex, payload_crc_hex, header_crc_valid,
+                         payload_crc_valid, packet_type, device_timestamp, parsed_payload_json,
+                         parser_version, warnings_json)
+                     VALUES (?1,?1,'BULL',0,0,0,'','',1,1,?2,?3,'null','test','[]')",
+                    params![frame, packet_type, ts],
+                )
+                .unwrap();
+        };
+        insert("a", 20, 1_000);
+        insert("b", 20, 1_500); // newest for type 20
+        insert("c", 21, 9_000); // newest for type 21
+        insert("d", 21, 8_000);
+
+        let watermarks = store.historical_watermarks().unwrap();
+        assert_eq!(watermarks.len(), 2);
+        assert_eq!(watermarks[0].packet_type, 20);
+        assert_eq!(watermarks[0].max_device_timestamp, 1_500);
+        assert_eq!(watermarks[1].packet_type, 21);
+        assert_eq!(watermarks[1].max_device_timestamp, 9_000);
+        assert_eq!(store.historical_watermark_max().unwrap(), Some(9_000));
     }
 
     #[test]

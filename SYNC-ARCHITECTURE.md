@@ -29,11 +29,11 @@ keeps a lightweight on-device decode for immediate display.
 | # | Task | Where | Status |
 |---|------|-------|--------|
 | A-1 | **Drop the historical % / ETA progress bar.** It has no stable total and misled more than it helped. Replace with an honest indeterminate state: "Syncing — N packets". Keep packet count as telemetry. | `DeviceView.swift` | ⬜ |
-| A-2 | **`device_timestamp` on `raw_evidence`** (migration) — the packet's own timestamp_seconds, extracted at capture. Backfill best-effort from existing decoded rows. | `store.rs` | ⬜ |
-| A-3 | **Structural dedup** — unique index on `(device_timestamp, packet_type)` (or content `sha256`); inserts become `INSERT OR IGNORE`. Re-sends are harmless no-ops. | `store.rs` | ⬜ |
-| A-4 | **Watermark getter** — `historical_watermark()` = `MAX(device_timestamp)`; bridge method. | `store.rs`, `bridge.rs` | ⬜ |
-| A-5 | **Skip-already-synced on receipt** — drop historical frames with `timestamp <= watermark` before write/process; remove the % plumbing (`historicalSyncProgressFraction` et al.). | `BullBLEClient+*` | ⬜ |
-| A-6 | **Probe `SEND_HISTORICAL_DATA` "since" arg** — if the strap accepts a start timestamp/sequence, pass the watermark to cut the re-pull at the source. If not, dedup + skip still keep state correct. | BLE | ⬜ |
+| A-2 | **`device_timestamp` on `decoded_frames`** (schema v17) — the data packet's own `timestamp_seconds`, populated at insert; indexed `(packet_type, device_timestamp)`. | `store.rs` | ✅ |
+| A-3 | ~~Structural content/timestamp dedup~~ **Rejected.** Content (`sha256`) dedup breaks the `evidence_id` pipeline (a deduped raw insert orphans the following `decoded_frames` insert → FK violation) and would drop byte-identical realtime samples. A `(device_timestamp, packet_type)` unique index is lossy for sub-second realtime. Dedup is done by **skip-on-receipt** (A-5) instead. | — | ✅ (decided) |
+| A-4 | **Watermark getters** — `historical_watermarks()` (`MAX(device_timestamp)` per `packet_type`) + `historical_watermark_max()`; bridge `store.historical_watermarks`. | `store.rs`, `bridge.rs` | ✅ |
+| A-5 | **Skip-already-synced on receipt** (the dedup mechanism) — on the historical path, drop frames whose `timestamp <= watermark[packet_type]` before write. Scoped to historical sync, so realtime is untouched. Drive the determinate bar off new-vs-known. | `BullBLEClient+*` | ⬜ |
+| A-6 | **`SEND_HISTORICAL_DATA` has no "since" arg** (confirmed: empty payload). Incremental at the band is driven by the `historicalDataResult` ACK advancing the read pointer (already implemented). Verify on-device whether the ACK actually advances across sessions. | BLE | ⬜ |
 
 ## Phase B — Gap integrity
 
@@ -62,6 +62,11 @@ keeps a lightweight on-device decode for immediate display.
 
 - A-1..A-5 directly fix the "150k packets every sync" UX; they are reversible and
   need zero server change.
+- **A-3 learning:** Bull stores raw (`evidence_id` PK) then decoded (`frame_id`,
+  FK→raw) as a 1:1 pair. Structural content dedup collapses that pair and orphans
+  the decoded insert; and byte-identical realtime frames are legitimately
+  distinct. So dedup must happen *before* the pair is written — i.e.
+  skip-on-receipt against the watermark — not via a DB unique constraint.
 - D folds in the metrics-accuracy work (server-side, one parser).
 - Verify after each unit: `cargo build && cargo test --no-fail-fast`,
   `git grep -i goose` empty, RE sweep clean, build + install on device.

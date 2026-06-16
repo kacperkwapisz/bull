@@ -319,6 +319,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.ewma_baseline_fold_history",
     "store.ewma_baseline_update",
     "store.gravity_rows_between",
+    "store.historical_watermarks",
     "store.insert_gravity_rows",
     "store.maintain",
     "store.mark_frames_synced",
@@ -2782,6 +2783,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(unsynced_frame_count_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.historical_watermarks" => request_args::<DrainDbArgs>(&request)
+            .and_then(historical_watermarks_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.drain_frame_bundle" => request_args::<DrainFrameBundleArgs>(&request)
             .and_then(drain_frame_bundle_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -3766,6 +3771,17 @@ struct PruneSyncedFramesArgs {
 fn unsynced_frame_count_bridge(args: DrainDbArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store_hot(&args.database_path)?;
     Ok(json!({ "count": store.unsynced_raw_evidence_count()? }))
+}
+
+/// Incremental-sync watermark: newest stored `device_timestamp` per packet_type,
+/// plus the overall max. The historical sync uses this to skip records it has
+/// already pulled.
+fn historical_watermarks_bridge(args: DrainDbArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let watermarks = store.historical_watermarks()?;
+    let max = store.historical_watermark_max()?;
+    serde_json::to_value(json!({ "watermarks": watermarks, "max_device_timestamp": max }))
+        .map_err(|error| BullError::message(format!("cannot serialize watermarks: {error}")))
 }
 
 fn drain_frame_bundle_bridge(args: DrainFrameBundleArgs) -> BullResult<serde_json::Value> {
