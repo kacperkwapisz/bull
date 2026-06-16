@@ -605,6 +605,7 @@ private struct DeviceFactRow: View {
 private struct DeviceActionGrid: View {
   @ObservedObject var model: BullAppModel
   @ObservedObject var ble: BullBLEClient
+  @State private var showEraseConfirm = false
 
   private let columns = [
     GridItem(.flexible(), spacing: 10),
@@ -669,6 +670,21 @@ private struct DeviceActionGrid: View {
         ble.forgetRememberedDevice()
       }
       .disabled(!ble.hasRememberedDevice)
+
+      DeviceActionButton(title: "Clear Band", systemName: "trash.slash", role: .destructive) {
+        showEraseConfirm = true
+      }
+      .disabled(ble.connectionState != "ready")
+    }
+    .confirmationDialog(
+      "Clear all data stored on the band?",
+      isPresented: $showEraseConfirm,
+      titleVisibility: .visible
+    ) {
+      Button("Clear Band Data", role: .destructive) { ble.eraseBandData() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This erases the band's stored buffer. Any data not yet synced to this phone is lost permanently. Already-synced data is safe.")
     }
   }
 }

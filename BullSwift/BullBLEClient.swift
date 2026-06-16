@@ -79,6 +79,7 @@ final class BullBLEClient: NSObject, ObservableObject {
   @Published var lastClockCommandFrameHex = ""
   @Published var lastClockResponsePayloadHex = ""
   @Published var syncToast: BullSyncToast?
+  @Published var bandEraseStatus: String?
   @Published var lastSyncFailure: BullSyncFailure?
   @Published var syncFailureSheet: BullSyncFailure?
   @Published var debugCommandStatus = "No debug command sent"

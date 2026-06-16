@@ -263,6 +263,60 @@ extension BullBLEClient {
     return sequence
   }
 
+  // MARK: - Band management
+
+  /// FORCE_TRIM command number; the all-sentinel payload trims the entire
+  /// stored-data buffer ("erase strap data").
+  static let forceTrimCommandNumber: UInt8 = 25
+  static let forceTrimEraseAllPayload: [UInt8] = [0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE]
+
+  /// Clear the band's stored data buffer (FORCE_TRIM, erase-all sentinel).
+  /// Destructive on the band — callers must confirm with the user first. Any
+  /// unsynced data still on the band is lost; already-uploaded data is safe.
+  func eraseBandData() {
+    guard let activePeripheral, let commandCharacteristic else {
+      bandEraseStatus = "No connected band."
+      return
+    }
+    guard connectionState == "ready" else {
+      bandEraseStatus = "Connect the band first (state: \(connectionState))."
+      return
+    }
+    guard supportsV5SensorCommands else {
+      bandEraseStatus = "Band command channel unavailable."
+      return
+    }
+    guard let writeType = writeType(for: commandCharacteristic) else {
+      bandEraseStatus = "Band command characteristic is not writable."
+      return
+    }
+
+    let sequence = nextHistoricalSequence()
+    let frame = Self.buildV5CommandFrame(
+      sequence: sequence,
+      command: Self.forceTrimCommandNumber,
+      data: Self.forceTrimEraseAllPayload
+    )
+    activePeripheral.writeValue(frame, for: commandCharacteristic, type: writeType)
+    bandEraseStatus = "Cleared band data."
+    emitCommandWrite(
+      source: "ble.management",
+      commandName: "FORCE_TRIM",
+      commandNumber: Self.forceTrimCommandNumber,
+      sequence: sequence,
+      payload: Data(Self.forceTrimEraseAllPayload),
+      frame: frame,
+      peripheral: activePeripheral,
+      characteristic: commandCharacteristic,
+      writeType: writeType
+    )
+    record(
+      source: "ble.management",
+      title: "band.erase.sent",
+      body: "FORCE_TRIM seq=\(sequence) payload=\(Data(Self.forceTrimEraseAllPayload).hexString) frame=\(frame.hexString)"
+    )
+  }
+
   func scheduleClockCommandTimeout(kind: ClockCommandKind, sequence: UInt8) {
     clockCommandTimeoutWorkItem?.cancel()
     let workItem = DispatchWorkItem { [weak self] in
