@@ -264,9 +264,14 @@ final class HealthDataStore: ObservableObject {
     selectedAlgorithmByFamily[family] = algorithmID
   }
 
+  /// Load the server-computed packet-derived input reports into
+  /// `packetInputReports`. The server runs the same bull-core methods over the
+  /// user's data and stores the map; the app reads it verbatim rather than
+  /// computing on-device. No on-device fallback by design — if the server has
+  /// nothing yet, screens show honest unavailable states.
   func runPacketInputs(completion: (() -> Void)? = nil) {
     guard !packetInputIsRunning else {
-      packetInputStatus = "Packet-derived input extraction already running..."
+      packetInputStatus = "Loading inputs from server..."
       completion?()
       return
     }
@@ -274,27 +279,21 @@ final class HealthDataStore: ObservableObject {
     let runID = UUID()
     packetInputRunID = runID
     packetInputIsRunning = true
-    let databasePath = databasePath
-    packetInputStatus = "Extracting packet-derived inputs..."
+    packetInputStatus = "Loading inputs from server..."
 
-    packetInputQueue.async { [weak self] in
-      let result = HealthDataStore.packetInputBridgeReports(databasePath: databasePath)
-      DispatchQueue.main.async { [weak self] in
-        guard let self, self.packetInputRunID == runID else {
-          return
-        }
-        self.packetInputIsRunning = false
-        switch result {
-        case .success(let reports):
-          let _signpost = bullSignpostBegin(BullSignpost.bridge, "packetInputReports.assign")
-          self.packetInputReports = reports
-          bullSignpostEnd(_signpost)
-          self.packetInputStatus = "Bridge packet-derived inputs extracted"
-        case .failure(let error):
-          self.packetInputStatus = "Bridge input extraction blocked: \(HealthDataStore.shortError(error))"
-        }
-        completion?()
+    Task { [weak self] in
+      let reports = await Self.fetchServerInputReports()
+      guard let self, self.packetInputRunID == runID else {
+        return
       }
+      self.packetInputIsRunning = false
+      if reports.isEmpty {
+        self.packetInputStatus = "No server-computed inputs yet"
+      } else {
+        self.packetInputReports = reports
+        self.packetInputStatus = "Inputs loaded from server"
+      }
+      completion?()
     }
   }
 

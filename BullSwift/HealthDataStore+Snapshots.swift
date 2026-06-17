@@ -79,6 +79,27 @@ extension HealthDataStore {
     return raw
   }
 
+  /// Fetch the server-computed packet-derived input report map (HRV, resting HR,
+  /// steps, energy, motion, vital events, daily/hourly rollups). The server runs
+  /// the same bull-core methods over the user's data and stores the map; the app
+  /// reads it verbatim into `packetInputReports` rather than computing on-device.
+  /// `nonisolated` so the network work runs off the main actor. Returns an empty
+  /// map on any failure so screens fall back to honest unavailable states.
+  nonisolated static func fetchServerInputReports() async -> [String: [String: Any]] {
+    guard let token = CoachAuthKeychain.load() else { return [:] }
+    let url = CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/inputs")
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 30
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let reports = json["reports"] as? [String: [String: Any]]
+    else { return [:] }
+    return reports
+  }
+
   func runSleepScore() {
     packetScoreStatus = "Extracting bridge sleep score..."
     let baseArgs = bridgeBaseArgs(requireTrustedEvidence: false)
