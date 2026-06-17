@@ -254,6 +254,13 @@ async function computeUserStore(
 // runs at a time — prevents concurrent writers to the same per-user SQLite store
 // and redundant re-compute. Caps drain CPU at a single core.
 let draining = false
+// Compute (run_pipeline + score scans) re-reads the WHOLE per-user store, so it
+// is expensive and grows with history. Throttle it: at most one drain that does
+// real work per this interval, regardless of how often uploads arrive. New data
+// is therefore at most this stale — fine for daily scores, and it keeps CPU from
+// pegging on a trickle of uploads.
+let lastDrainAt = 0
+const DRAIN_INTERVAL_MS = 5 * 60_000
 
 /**
  * Drain pending bundles across ALL users (bounded, oldest first). Imports every
@@ -268,6 +275,7 @@ export async function parseAllPending(
   limit = 200,
 ): Promise<number> {
   if (draining) return 0
+  if (Date.now() - lastDrainAt < DRAIN_INTERVAL_MS) return 0
   draining = true
   try {
     const pending = await db
@@ -280,7 +288,10 @@ export async function parseAllPending(
       .where(eq(uploadBundles.status, "pending"))
       .orderBy(uploadBundles.createdAt)
       .limit(limit)
+    // Only consume the throttle window when there is actual work, so an idle
+    // poll doesn't delay the next real drain.
     if (pending.length === 0) return 0
+    lastDrainAt = Date.now()
 
     const byUser = new Map<string, { id: string; storageKey: string }[]>()
     for (const bundle of pending) {
