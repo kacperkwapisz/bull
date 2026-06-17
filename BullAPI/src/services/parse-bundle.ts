@@ -206,7 +206,7 @@ export async function parseBundle(
       device_model: DEVICE_MODEL,
       frame_hex: frame.payload_hex,
       sensitivity: "user-owned-capture",
-      device_type: "Bull" as const,
+      device_type: "BULL" as const,
     }))
 
     await core.request("capture.import_frame_batch", {

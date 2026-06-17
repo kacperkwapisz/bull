@@ -99,7 +99,6 @@ jobs:
           docker run -d --name bull-api-smoke -p 13000:3000 \
             -e JWT_SECRET \
             -e BULL_UPSTREAM_API_KEY \
-            -e HYPER_SKIP_LISTEN=1 \
             bull-api:ci
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:13000/health | grep -q '"ok":true'; then

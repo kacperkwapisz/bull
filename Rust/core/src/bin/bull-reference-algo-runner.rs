@@ -339,12 +339,30 @@ fn run_external_reference_algorithm(
             EXTERNAL_REFERENCE_OUTPUT_SCHEMA,
         );
 
-    let process_output = command.output().map_err(|error| {
-        BullError::message(format!(
-            "cannot run external reference provider {}: {error}",
-            executable.display()
-        ))
-    })?;
+    // Retry on ETXTBSY: when tests run in parallel, another thread can fork+exec
+    // while this just-written provider script is still held open elsewhere,
+    // briefly making it "Text file busy". A few short retries clear the race
+    // without masking real spawn failures.
+    // ETXTBSY ("Text file busy") is errno 26 on Linux and macOS.
+    const ETXTBSY: i32 = 26;
+    let process_output = {
+        let mut attempt = 0;
+        loop {
+            match command.output() {
+                Ok(output) => break output,
+                Err(error) if error.raw_os_error() == Some(ETXTBSY) && attempt < 10 => {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(25 * attempt));
+                }
+                Err(error) => {
+                    return Err(BullError::message(format!(
+                        "cannot run external reference provider {}: {error}",
+                        executable.display()
+                    )));
+                }
+            }
+        }
+    };
     let stdout_sha256 = sha256_hex(&process_output.stdout);
     let stderr_sha256 = sha256_hex(&process_output.stderr);
     if !process_output.status.success() {
