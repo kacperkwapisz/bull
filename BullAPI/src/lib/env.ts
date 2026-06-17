@@ -28,6 +28,10 @@ const envSchema = z.object({
   // holding per-user bull-core SQLite stores. Absent → parsing disabled (503).
   BULL_CORE_BIN: z.string().min(1).optional(),
   BULL_CORE_DATA_DIR: z.string().min(1).optional(),
+
+  // Git commit the image was built from, injected at docker build time. Surfaced
+  // on /health so a running deploy is identifiable (catches stale-image rolls).
+  GIT_SHA: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

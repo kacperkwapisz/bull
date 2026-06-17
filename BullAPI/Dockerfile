@@ -31,6 +31,10 @@ RUN bun install --frozen-lockfile --production
 FROM base AS release
 ENV NODE_ENV=production
 ENV PORT=3000
+# Commit the image was built from (passed by CI as --build-arg GIT_SHA=...).
+# Surfaced on /health so a running deploy is identifiable.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 # Server-side parse sidecar: the API spawns this binary over stdio, and keeps
 # per-user bull-core SQLite stores under the data dir. Mount a persistent volume
 # at /app/data in production so parsed compute state survives restarts.

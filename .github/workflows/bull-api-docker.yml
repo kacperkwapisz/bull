@@ -69,6 +69,8 @@ jobs:
           # Rust/core (the API spawns it for server-side parsing).
           context: .
           file: BullAPI/Dockerfile
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

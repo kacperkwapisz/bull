@@ -85,6 +85,8 @@ jobs:
           # from Rust/core (kept in sync with bull-api-docker.yml).
           context: .
           file: BullAPI/Dockerfile
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           push: false
           load: true
           tags: bull-api:ci

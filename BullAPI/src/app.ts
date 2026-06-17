@@ -14,6 +14,7 @@ const health = route.get("/health").handle(async () =>
   ok({
     ok: true,
     service: "bull-api",
+    revision: env.GIT_SHA ?? "unknown",
     upstream: env.BULL_UPSTREAM_BASE_URL,
     model_default: env.BULL_MODEL_DEFAULT,
     model_deep: env.BULL_MODEL_DEEP,
