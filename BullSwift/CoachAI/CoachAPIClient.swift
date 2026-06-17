@@ -134,6 +134,27 @@ struct CoachAPIClient {
   /// keyed by day). Returns the server's `ingested` counts. Every value
   /// originates from the connected device's own sensors.
   @discardableResult
+  /// Upload the connected user's profile + device timezone so server-side
+  /// compute can derive energy and bucket daily rollups on the local day.
+  func pushProfile(body: [String: Any], token: String) async throws {
+    guard JSONSerialization.isValidJSONObject(body) else {
+      throw CoachAPIError.invalidBody
+    }
+    var request = URLRequest(url: CoachAPIConfiguration.dataProfileURL)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.timeoutInterval = 30
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw CoachAPIError.invalidResponse
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      throw CoachAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+    }
+  }
+
   func pushDailyMetrics(body: [String: Any], token: String) async throws -> [String: Any] {
     guard JSONSerialization.isValidJSONObject(body) else {
       throw CoachAPIError.invalidBody

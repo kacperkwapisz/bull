@@ -38,4 +38,10 @@ enum CoachAPIConfiguration {
   static var dataMetricsURL: URL {
     baseURL.appendingPathComponent("v1/data/metrics")
   }
+
+  /// Profile + timezone upload so server-side compute can derive energy and
+  /// bucket daily rollups on the user's local calendar day.
+  static var dataProfileURL: URL {
+    baseURL.appendingPathComponent("v1/data/profile")
+  }
 }

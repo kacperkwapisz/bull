@@ -68,6 +68,9 @@ extension BullAppModel {
         // install once the session is signed in).
         self.metricSyncCoordinator.restore()
         self.metricSyncCoordinator.push(source: "device_launch_sync")
+        // Upload profile + timezone so server-side compute has weight/age/sex
+        // for energy and the user's local day for daily rollups.
+        self.metricSyncCoordinator.pushProfile()
       }
     }
   }
@@ -90,6 +93,7 @@ extension BullAppModel {
     // app backgrounds, independent of the overnight-guard state below.
     if phase == "background" || phase == "inactive" {
       metricSyncCoordinator.push(source: "device_background_sync")
+      metricSyncCoordinator.pushProfile()
       // Nudge the drain on background, but batched (force:false): upload only if
       // a full batch has accumulated, so frequent fg/bg toggles don't emit tiny
       // sliver bundles. Anything under the batch threshold is flushed on the
