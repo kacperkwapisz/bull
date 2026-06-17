@@ -293,11 +293,17 @@ export async function parseBundle(
       await ingestMetrics(db, userId, scorePush)
 
       // export_curated wrote daily_sleep.raw as the rollup row; replace it with
-      // the full sleep score report (the shape the app's sleep views expect).
+      // the full sleep score report. Attribute it to the latest *sleep* day (a
+      // night maps to its own day, which can lag the latest vitals/recovery day)
+      // so the row the app fetches (newest sleep) carries the report.
+      const sleepDays = (exported.body?.sleep as Array<{ day?: unknown }> | undefined)
+        ?.map((row) => row.day)
+        .filter((value): value is string => typeof value === "string") ?? []
+      const latestSleepDay = sleepDays.length > 0 ? sleepDays.sort().at(-1)! : day
       await db
         .update(dailySleep)
         .set({ raw: sleepReport })
-        .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, day)))
+        .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, latestSleepDay)))
     }
 
     await db
