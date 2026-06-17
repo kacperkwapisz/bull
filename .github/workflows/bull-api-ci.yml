@@ -5,11 +5,15 @@ on:
     branches: ["main"]
     paths:
       - "BullAPI/**"
+      - "Rust/core/**"
+      - ".dockerignore"
       - ".github/workflows/bull-api-ci.yml"
       - ".github/workflows/bull-api-docker.yml"
   pull_request:
     paths:
       - "BullAPI/**"
+      - "Rust/core/**"
+      - ".dockerignore"
       - ".github/workflows/bull-api-ci.yml"
       - ".github/workflows/bull-api-docker.yml"
   workflow_dispatch:
@@ -77,7 +81,9 @@ jobs:
       - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: BullAPI
+          # Root context so the Dockerfile can compile the bull-core sidecar
+          # from Rust/core (kept in sync with bull-api-docker.yml).
+          context: .
           file: BullAPI/Dockerfile
           push: false
           load: true

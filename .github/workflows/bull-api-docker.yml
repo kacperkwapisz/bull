@@ -10,6 +10,8 @@ on:
     branches: ["main"]
     paths:
       - "BullAPI/**"
+      - "Rust/core/**"
+      - ".dockerignore"
       - ".github/workflows/bull-api-docker.yml"
     tags:
       - "bull-api-v*"
@@ -63,7 +65,9 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: BullAPI
+          # Root context so the image can compile the bull-core sidecar from
+          # Rust/core (the API spawns it for server-side parsing).
+          context: .
           file: BullAPI/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}

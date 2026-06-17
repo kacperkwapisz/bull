@@ -1,0 +1,33 @@
+# The Bull API image builds from the REPO ROOT context so it can compile the
+# bull-core parse sidecar (Rust/core). Keep the context lean — only BullAPI/ and
+# Rust/core/ source are consumed; everything heavy or irrelevant is excluded.
+
+.git
+**/.DS_Store
+**/node_modules
+
+# iOS app, prebuilt native libs, local build output — unused by the API image
+BullSwift
+BullSwift.xcodeproj
+BullWorkoutLiveActivityExtension
+build
+tmp
+Scripts
+docs
+
+# Prebuilt device/sim static libs and the 13G+ Rust build cache
+Rust/iphoneos
+Rust/iphonesimulator
+Rust/core/target
+
+# Secrets / env — provided at runtime, never baked into the image
+**/.env
+**/.env.*
+!**/.env.example
+
+# Docs
+**/*.md
+
+# BullAPI local-only
+BullAPI/bundles
+BullAPI/test
