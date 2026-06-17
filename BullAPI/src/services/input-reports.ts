@@ -14,6 +14,7 @@
  */
 
 import type { BullCore } from "../lib/bull-core.ts"
+import type { UserProfile } from "./profile.ts"
 
 // Keys the connected device's surfaced biometric streams are stored under in the
 // per-user compute store (gravity, SpO2, skin temp, resp). Must match the id the
@@ -29,17 +30,56 @@ interface MetricWindow {
   endMs: number
 }
 
-/**
- * UTC day window [start-of-day, +1d). The device computed these in its local
- * timezone; server-side we use UTC until the app uploads its timezone, so the
- * daily rollups bucket on the UTC calendar day.
- */
-function dailyWindow(now: Date): MetricWindow {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const end = new Date(start.getTime() + 86_400_000)
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n)
+}
+
+/** Offset (ms) of `tz` at the given UTC instant: localWall − utcWall. */
+function tzOffsetMs(utcMs: number, tz: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+  const parts = dtf.formatToParts(new Date(utcMs))
+  const get = (type: string): number => {
+    const part = parts.find((p) => p.type === type)
+    return part ? Number(part.value) : 0
+  }
+  const asUTC = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second"),
+  )
+  return asUTC - utcMs
+}
+
+/** The UTC instant for wall-clock (y, m, d, h) in `tz`. Handles day overflow
+ * (d+1) and DST via the offset at the resulting instant. */
+function zonedToUtc(y: number, m: number, d: number, h: number, tz: string): Date {
+  const guess = Date.UTC(y, m - 1, d, h, 0, 0)
+  return new Date(guess - tzOffsetMs(guess, tz))
+}
+
+/** Local calendar day window [start-of-day, start-of-next-day) for `tz`. */
+function dailyWindow(now: Date, tz: string): MetricWindow {
+  const local = new Date(now.getTime() + tzOffsetMs(now.getTime(), tz))
+  const y = local.getUTCFullYear()
+  const m = local.getUTCMonth() + 1
+  const d = local.getUTCDate()
+  const start = zonedToUtc(y, m, d, 0, tz)
+  const end = zonedToUtc(y, m, d + 1, 0, tz)
   return {
-    dateKey: start.toISOString().slice(0, 10),
-    timezone: "UTC",
+    dateKey: `${y}-${pad2(m)}-${pad2(d)}`,
+    timezone: tz,
     startISO: start.toISOString(),
     endISO: end.toISOString(),
     startMs: start.getTime(),
@@ -47,15 +87,18 @@ function dailyWindow(now: Date): MetricWindow {
   }
 }
 
-/** UTC hour window [start-of-hour, +1h). */
-function hourlyWindow(now: Date): MetricWindow {
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()),
-  )
+/** Local hour window [start-of-hour, +1h) for `tz`. */
+function hourlyWindow(now: Date, tz: string): MetricWindow {
+  const local = new Date(now.getTime() + tzOffsetMs(now.getTime(), tz))
+  const y = local.getUTCFullYear()
+  const m = local.getUTCMonth() + 1
+  const d = local.getUTCDate()
+  const h = local.getUTCHours()
+  const start = zonedToUtc(y, m, d, h, tz)
   const end = new Date(start.getTime() + 3_600_000)
   return {
-    dateKey: start.toISOString().slice(0, 10),
-    timezone: "UTC",
+    dateKey: `${y}-${pad2(m)}-${pad2(d)}`,
+    timezone: tz,
     startISO: start.toISOString(),
     endISO: end.toISOString(),
     startMs: start.getTime(),
@@ -67,6 +110,38 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
+/** Whole years from a `yyyy-MM-dd` birth date to now, or undefined if invalid /
+ * outside the plausible 13..120 range. */
+function ageYearsFrom(dateOfBirth: string | null | undefined): number | undefined {
+  if (!dateOfBirth) return undefined
+  const dob = new Date(`${dateOfBirth}T00:00:00Z`)
+  if (Number.isNaN(dob.getTime())) return undefined
+  const now = new Date()
+  let years = now.getUTCFullYear() - dob.getUTCFullYear()
+  const monthDelta = now.getUTCMonth() - dob.getUTCMonth()
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < dob.getUTCDate())) years -= 1
+  return years >= 13 && years <= 120 ? years : undefined
+}
+
+/** Energy-model args derived from the user's profile (weight/age/sex). Each is
+ * included only when valid, so calorie output degrades honestly when a field is
+ * missing instead of being guessed. */
+function profileEnergyArgs(profile: UserProfile | null | undefined): Record<string, number | string> {
+  const args: Record<string, number | string> = {}
+  if (!profile) return args
+  if (profile.weightGrams != null) {
+    const weightKg = profile.weightGrams / 1000
+    if (weightKg >= 25 && weightKg <= 300) args.profile_weight_kg = weightKg
+  }
+  const age = ageYearsFrom(profile.dateOfBirth)
+  if (age !== undefined) {
+    args.profile_age_years = age
+    args.max_hr_bpm = Math.max(120, Math.min(210, 208 - 0.7 * age))
+  }
+  if (profile.sex === "male" || profile.sex === "female") args.profile_sex = profile.sex
+  return args
+}
+
 /**
  * Run the full packet-derived input pipeline over `dbPath` and return the report
  * map keyed exactly as the app expects (motion, hrv, resting_hr, energy_rollup,
@@ -76,10 +151,13 @@ function numberOrUndefined(value: unknown): number | undefined {
 export async function computeInputReports(
   core: BullCore,
   dbPath: string,
-  now: Date = new Date(),
+  options: { profile?: UserProfile | null; now?: Date } = {},
 ): Promise<Record<string, unknown>> {
-  const daily = dailyWindow(now)
-  const hourly = hourlyWindow(now)
+  const now = options.now ?? new Date()
+  const tz = options.profile?.timezone || "UTC"
+  const daily = dailyWindow(now, tz)
+  const hourly = hourlyWindow(now, tz)
+  const energyProfileArgs = profileEnergyArgs(options.profile)
   const base = {
     database_path: dbPath,
     start: "0000",
@@ -180,9 +258,9 @@ export async function computeInputReports(
   })
 
   // Energy needs the resting-HR rollup as an input; daily and hourly share the
-  // same base args (profile fields — weight/age/sex — are omitted until the app
-  // uploads its profile, so calorie output is degraded but everything else is
-  // computed).
+  // same base args plus the profile-derived energy fields (weight/age/sex). Any
+  // profile field that's missing is simply omitted, so calorie output degrades
+  // honestly instead of guessing.
   const energyDailyArgs = {
     database_path: dbPath,
     date_key: daily.dateKey,
@@ -193,6 +271,7 @@ export async function computeInputReports(
     require_trusted_evidence: false,
     min_heart_rate_samples: 2,
     write_metric: true,
+    ...energyProfileArgs,
     ...(restingHrBpm !== undefined ? { resting_hr_bpm: restingHrBpm } : {}),
   }
   await call("energy_rollup", "metrics.energy_daily_rollup", energyDailyArgs)
@@ -206,6 +285,7 @@ export async function computeInputReports(
     require_trusted_evidence: false,
     min_heart_rate_samples: 2,
     write_metric: true,
+    ...energyProfileArgs,
     ...(restingHrBpm !== undefined ? { resting_hr_bpm: restingHrBpm } : {}),
   })
   await call("energy_unavailable_status", "metrics.energy_unavailable_daily_status", energyDailyArgs)

@@ -120,6 +120,28 @@ export const dailyRecovery = pgTable(
   }),
 )
 
+// Per-user profile + timezone the app uploads so server-side compute can derive
+// energy/calorie estimates (weight, age, sex) and bucket daily rollups on the
+// user's local calendar day. Optional fields: compute degrades gracefully when
+// absent (honest output, no guessed values).
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    weightGrams: integer("weight_grams"),
+    dateOfBirth: date("date_of_birth"),
+    sex: text("sex"),
+    timezone: text("timezone"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userUnique: uniqueIndex("user_profiles_user_uq").on(t.userId),
+  }),
+)
+
 // The full packet-derived input-report map (motion, HRV, resting HR, steps,
 // energy, vital events, daily/hourly rollups, honest-unavailable statuses)
 // computed server-side over the user's store. The app reads this verbatim to

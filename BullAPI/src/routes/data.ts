@@ -7,6 +7,7 @@ import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
+import { profilePushSchema, upsertProfile } from "../services/profile.ts"
 import { and, eq, max, sql } from "drizzle-orm"
 import { uploadBundles } from "../db/schema.ts"
 import {
@@ -303,6 +304,22 @@ export function dataRoutes(env: Env) {
       return ok({ rows })
     })
 
+  // Profile upload: the user's own weight/DOB/sex + device timezone, so
+  // server-side compute can derive energy and bucket daily rollups on the
+  // user's local calendar day. Upsert; re-uploading replaces.
+  const profilePush = route
+    .post("/v1/data/profile")
+    .body(profilePushSchema)
+    .use(jwt)
+    .handle(async ({ ctx, body }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      await upsertProfile(db, userId, body)
+      return created({ ok: true })
+    })
+
   // Packet-derived input reports (the whole dashboard input layer) computed
   // server-side. One latest map per user; honest-empty until first compute.
   const inputs = route
@@ -357,7 +374,7 @@ export function dataRoutes(env: Env) {
     })
 
   // App-to-server watermark: the newest data time the server has parsed, so the
-  // phone can upload only the delta (mirrors WHOOP's getMinHighWaterMark).
+  // phone can upload only the delta instead of re-sending already-parsed history.
   const highWatermark = route
     .get("/v1/data/high-watermark")
     .use(jwt)
@@ -389,6 +406,7 @@ export function dataRoutes(env: Env) {
     energy,
     vitals,
     spo2,
+    profilePush,
     inputs,
     uploads,
   ])

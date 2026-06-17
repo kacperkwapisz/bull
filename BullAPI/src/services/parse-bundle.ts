@@ -19,6 +19,7 @@ import { dailySleep, inputReports, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
 import { computeInputReports } from "./input-reports.ts"
 import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
+import { getUserProfile } from "./profile.ts"
 import { BullCore } from "../lib/bull-core.ts"
 import type { ObjectStore } from "../lib/object-store.ts"
 
@@ -258,8 +259,10 @@ async function computeUserStore(
 
   // Packet-derived input reports (HRV, resting HR, steps, energy, motion, vital
   // events, daily/hourly rollups) — the map the app reads to render dashboards.
-  // One latest row per user, computed over the whole store.
-  const inputReportsMap = await computeInputReports(core, dbPath)
+  // One latest row per user, computed over the whole store. The user's profile
+  // (weight/age/sex/timezone) drives energy estimates + local-day bucketing.
+  const profile = await getUserProfile(db, userId)
+  const inputReportsMap = await computeInputReports(core, dbPath, { profile })
   await db
     .insert(inputReports)
     .values({ userId, raw: inputReportsMap })
