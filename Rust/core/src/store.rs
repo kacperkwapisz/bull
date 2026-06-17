@@ -6103,6 +6103,25 @@ impl BullStore {
         Ok(removed)
     }
 
+    /// Delete frames captured strictly before `captured_at_exclusive` (RFC3339),
+    /// regardless of sync state. The `decoded_frames` cascade removes their
+    /// decoded rows too. Used server-side to bound the per-user compute store to
+    /// a rolling baseline window once each day's results are folded into the
+    /// durable result store: the workspace only needs recent history to compute
+    /// current scores, not the full archive. Returns the number of
+    /// raw_evidence rows removed.
+    pub fn prune_raw_evidence_before(
+        &self,
+        captured_at_exclusive: &str,
+    ) -> BullResult<usize> {
+        validate_required("captured_at_exclusive", captured_at_exclusive)?;
+        let removed = self.conn.execute(
+            "DELETE FROM raw_evidence WHERE captured_at < ?1",
+            params![captured_at_exclusive],
+        )?;
+        Ok(removed)
+    }
+
     pub fn decoded_frames_between(
         &self,
         start: &str,
@@ -9266,6 +9285,27 @@ mod tests {
                 capture_session_id: None,
             })
             .unwrap();
+    }
+
+    #[test]
+    fn prune_raw_evidence_before_deletes_regardless_of_sync_state() {
+        let store = BullStore::open_in_memory().unwrap();
+        seed_raw(&store, "old-unsynced", "2026-03-01T00:00:00Z", &[0u8; 50]);
+        seed_raw(&store, "old-synced", "2026-03-02T00:00:00Z", &[0u8; 50]);
+        seed_raw(&store, "recent", "2026-05-01T00:00:00Z", &[0u8; 50]);
+        store.mark_raw_evidence_synced(&["old-synced"]).unwrap();
+
+        // Cutoff after both March frames — both are deleted, including the
+        // un-synced one (unlike the synced-only prune); the May frame stays.
+        let removed = store
+            .prune_raw_evidence_before("2026-04-01T00:00:00Z")
+            .unwrap();
+        assert_eq!(removed, 2);
+        let remaining: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM raw_evidence", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1, "only the recent frame remains");
     }
 
     #[test]

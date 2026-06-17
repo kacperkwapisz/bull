@@ -23,6 +23,12 @@ import type { ObjectStore } from "../lib/object-store.ts"
 
 const DEVICE_MODEL = "WHOOP 5.0 Bull"
 const LOCAL_BIOMETRIC_DEVICE_ID = "bull-local"
+// Rolling window of raw frames the per-user compute store keeps. Once a day's
+// results are folded into the durable Postgres tables, the workspace only needs
+// recent history to compute current scores/baselines — pruning older frames
+// keeps every compute cheap regardless of total history. Frames are pruned by
+// captured_at (receive time), which is how the score engine windows them.
+const STORE_RETENTION_DAYS = 60
 
 // Nightly sleep-score tuning. Mirrors the device's read-time score call
 // (HealthDataStore+Utilities.swift `sleepScoreReport`); kept here so the server
@@ -248,6 +254,14 @@ async function computeUserStore(
     .update(dailySleep)
     .set({ raw: sleepReport })
     .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, latestSleepDay)))
+
+  // Bound the workspace: results are now durable in Postgres, so drop raw frames
+  // older than the baseline window. Keeps each compute's full-store scan cheap.
+  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
+  await core.request("store.prune_raw_evidence_before", {
+    database_path: dbPath,
+    captured_before: cutoff,
+  })
 }
 
 // Serializes all drains (background interval + per-upload trigger) so only one
