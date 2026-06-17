@@ -14,76 +14,69 @@ extension HealthDataStore {
     runPacketScores()
   }
 
+  /// Load the server-computed score reports for the most recent day. The server
+  /// runs the same parser/algorithms and stores each family's full report; the
+  /// app reads them verbatim into `packetScoreReports` rather than recomputing
+  /// on-device. No on-device fallback by design — if the server has nothing yet,
+  /// the screens show honest unavailable states.
   func runPacketScores() {
     packetScoresComputeInFlight = true
-    packetScoreStatus = "Extracting bridge packet-derived scores..."
-    let baseArgs = bridgeBaseArgs(requireTrustedEvidence: false)
-    let recoveryArgs = baseArgs.merging(recoveryScoreBridgeArgs()) { _, new in new }
-    let strainArgs = baseArgs.merging([
-      "resting_start": "0000",
-      "resting_end": "9999",
-      "resting_baseline_min_days": 3,
-    ]) { _, new in new }
-    let stressArgs = baseArgs.merging([
-      "resting_start": "0000",
-      "resting_end": "9999",
-      "hrv_start": "0000",
-      "hrv_end": "9999",
-      "hrv_baseline_start": "0000",
-      "hrv_baseline_end": "9999",
-      "resting_baseline_min_days": 3,
-      "hrv_min_rr_intervals_to_compute": 2,
-      "hrv_baseline_min_days": 3,
-    ]) { _, new in new }
+    packetScoreStatus = "Loading scores from server..."
+    Task { [weak self] in
+      let reports = await Self.fetchServerScoreReports()
+      guard let self else { return }
+      if let sleep = reports["sleep"] {
+        self.packetScoreReports["sleep"] = sleep
+        self.refreshPrimarySleepFromScoreReport()
+        self.loadNightlySleepHistory()
+      }
+      if let strain = reports["strain"] { self.packetScoreReports["strain"] = strain }
+      if let recovery = reports["recovery"] { self.packetScoreReports["recovery"] = recovery }
+      if let stress = reports["stress"] { self.packetScoreReports["stress"] = stress }
+      self.packetScoresComputeInFlight = false
+      self.packetScoreStatus = reports.isEmpty
+        ? "No server-computed scores yet"
+        : "Scores loaded from server"
+    }
+  }
 
-    let bridge = self.bridge
-    packetInputQueue.async { [weak self] in
-      do {
-        let sleepReport = try bridge.request(
-          method: "metrics.sleep_score_from_features",
-          args: baseArgs.merging([
-            "sleep_need_minutes": 480.0,
-            "low_motion_threshold_0_to_1": 0.05,
-            "disturbance_motion_threshold_0_to_1": 0.20,
-            "target_midpoint_minutes_since_midnight": 180.0,
-            "history_import_in_progress": false,
-            "algorithm_id": "bull.sleep.v1",
-            "persist_nightly": true,
-          ]) { _, new in new }
-        )
-        let strainReport = try bridge.request(
-          method: "metrics.strain_score_from_features",
-          args: strainArgs
-        )
-        let recoveryReport = try bridge.request(
-          method: "metrics.recovery_score_from_features",
-          args: recoveryArgs
-        )
-        let stressReport = try bridge.request(
-          method: "metrics.stress_score_from_features",
-          args: stressArgs
-        )
-
-        DispatchQueue.main.async { [weak self] in
-          guard let self else { return }
-          self.packetScoreReports["sleep"] = sleepReport
-          self.refreshPrimarySleepFromScoreReport()
-          self.loadNightlySleepHistory()
-          self.packetScoreReports["strain"] = strainReport
-          self.packetScoreReports["recovery"] = recoveryReport
-          self.packetScoreReports["stress"] = stressReport
-          self.packetScoresComputeInFlight = false
-          self.packetScoreStatus = "Bridge packet-derived scores recomputed"
-        }
-      } catch {
-        let shortErr = Self.shortError(error)
-        DispatchQueue.main.async { [weak self] in
-          guard let self else { return }
-          self.packetScoresComputeInFlight = false
-          self.packetScoreStatus = "Bridge score run blocked: \(shortErr)"
-        }
+  /// Fetch the latest stored report for each score family from the server.
+  /// `nonisolated` so the network work runs off the main actor.
+  nonisolated static func fetchServerScoreReports() async -> [String: [String: Any]] {
+    guard let token = CoachAuthKeychain.load() else { return [:] }
+    var out: [String: [String: Any]] = [:]
+    for family in ["recovery", "sleep", "strain", "stress"] {
+      if let report = await fetchServerScoreReport(family: family, token: token) {
+        out[family] = report
       }
     }
+    return out
+  }
+
+  /// GET /v1/data/<family>?limit=1 and pull the newest row's `raw` (the full
+  /// score report the parse pipeline stored). Returns nil on any failure so the
+  /// caller leaves that family's screen in its unavailable state.
+  nonisolated private static func fetchServerScoreReport(
+    family: String,
+    token: String
+  ) async -> [String: Any]? {
+    var components = URLComponents(
+      url: CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/\(family)"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [URLQueryItem(name: "limit", value: "1")]
+    guard let url = components?.url else { return nil }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 30
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let rows = json["rows"] as? [[String: Any]],
+      let raw = rows.first?["raw"] as? [String: Any]
+    else { return nil }
+    return raw
   }
 
   func runSleepScore() {
