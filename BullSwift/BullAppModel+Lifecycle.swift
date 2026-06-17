@@ -90,9 +90,11 @@ extension BullAppModel {
     // app backgrounds, independent of the overnight-guard state below.
     if phase == "background" || phase == "inactive" {
       metricSyncCoordinator.push(source: "device_background_sync")
-      // Flush any held sub-batch sliver before the app suspends so accumulated
-      // frames aren't stranded locally between sessions.
-      frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
+      // Nudge the drain on background, but batched (force:false): upload only if
+      // a full batch has accumulated, so frequent fg/bg toggles don't emit tiny
+      // sliver bundles. Anything under the batch threshold is flushed on the
+      // next launch's forced drain, so nothing is stranded.
+      frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath())
     }
 
     guard overnightGuardActive else {
