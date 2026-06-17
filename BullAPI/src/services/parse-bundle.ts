@@ -15,7 +15,7 @@
 import { inflateRawSync } from "node:zlib"
 import { and, eq } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
-import { uploadBundles } from "../db/schema.ts"
+import { dailySleep, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
 import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
 import { BullCore } from "../lib/bull-core.ts"
@@ -230,10 +230,11 @@ export async function parseBundle(
     // Persist per-night sleep scores into the store's daily tables so the
     // curated export below carries them (run_pipeline does ingest+rollups; the
     // sleep score is a separate read-time step that also writes the nightly row).
-    await core.request("metrics.sleep_score_from_features", {
-      database_path: dbPath,
-      ...SLEEP_SCORE_ARGS,
-    })
+    // Keep the full report — the app reads it verbatim instead of recomputing.
+    const sleepReport = await core.request<Record<string, unknown>>(
+      "metrics.sleep_score_from_features",
+      { database_path: dbPath, ...SLEEP_SCORE_ARGS },
+    )
 
     // Read the curated per-day rows bull-core just computed and fold them into
     // the Postgres result tables via the same idempotent upsert the device's
@@ -252,18 +253,18 @@ export async function parseBundle(
     // Read-time scores (recovery/strain/stress), computed the same way the
     // device does, attributed to the most recent day with data. Sequential
     // calls — the sidecar handles one stdio request at a time.
-    const recoveryReport = await core.request("metrics.recovery_score_from_features", {
-      database_path: dbPath,
-      ...SCORE_ARGS,
-    })
-    const strainReport = await core.request("metrics.strain_score_from_features", {
-      database_path: dbPath,
-      ...SCORE_ARGS,
-    })
-    const stressReport = await core.request("metrics.stress_score_from_features", {
-      database_path: dbPath,
-      ...SCORE_ARGS,
-    })
+    const recoveryReport = await core.request<Record<string, unknown>>(
+      "metrics.recovery_score_from_features",
+      { database_path: dbPath, ...SCORE_ARGS },
+    )
+    const strainReport = await core.request<Record<string, unknown>>(
+      "metrics.strain_score_from_features",
+      { database_path: dbPath, ...SCORE_ARGS },
+    )
+    const stressReport = await core.request<Record<string, unknown>>(
+      "metrics.stress_score_from_features",
+      { database_path: dbPath, ...SCORE_ARGS },
+    )
     const day = latestExportDay(exported.body)
     if (day) {
       const recoveryScore = scoreValue(recoveryReport)
@@ -271,6 +272,10 @@ export async function parseBundle(
       const stressScore = scoreValue(stressReport)
       const vitalsForDay = (exported.body?.vitals as Array<Record<string, unknown>> | undefined)
         ?.find((row) => row.day === day)
+      // Store the full report in each family's `raw` so the app loads it into
+      // packetScoreReports verbatim (same shape it used to compute on-device).
+      // Reports are pushed even when a score is null so the app always has all
+      // four (e.g. to render honest "why unavailable" states).
       const scorePush = metricsPushSchema.parse({
         source: "server_parse",
         recovery: [
@@ -279,12 +284,20 @@ export async function parseBundle(
             recovery_score: recoveryScore,
             hrv_ms: (vitalsForDay?.hrv_ms as number | null | undefined) ?? null,
             resting_hr_bpm: (vitalsForDay?.resting_hr_bpm as number | null | undefined) ?? null,
+            raw: recoveryReport,
           },
         ],
-        strain: strainScore != null ? [{ day, strain_score: strainScore }] : [],
-        stress: stressScore != null ? [{ day, stress_score: stressScore }] : [],
+        strain: [{ day, strain_score: strainScore, raw: strainReport }],
+        stress: [{ day, stress_score: stressScore, raw: stressReport }],
       })
       await ingestMetrics(db, userId, scorePush)
+
+      // export_curated wrote daily_sleep.raw as the rollup row; replace it with
+      // the full sleep score report (the shape the app's sleep views expect).
+      await db
+        .update(dailySleep)
+        .set({ raw: sleepReport })
+        .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, day)))
     }
 
     await db
