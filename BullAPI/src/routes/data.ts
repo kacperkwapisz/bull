@@ -6,7 +6,7 @@ import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
-import { parseBundle, parsePendingBundles } from "../services/parse-bundle.ts"
+import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { and, eq, max, sql } from "drizzle-orm"
 import { uploadBundles } from "../db/schema.ts"
 import {
@@ -98,21 +98,18 @@ export function dataRoutes(env: Env) {
         ...(summary !== undefined ? { summary } : {}),
       })
 
-      // Thin-client compute: parse pending bundles server-side without blocking
-      // the upload response. Fire-and-forget; the sweep also catches up any
-      // bundle a prior crash/restart left pending. No-op unless the sidecar is
-      // configured (BULL_CORE_BIN/DATA_DIR).
+      // Thin-client compute: drain pending bundles server-side without blocking
+      // the upload response. Fire-and-forget + batched (one compute per user per
+      // cycle) + globally serialized, so a flood of tiny bundles doesn't trigger
+      // a full pipeline each. No-op unless the sidecar is configured.
       if (env.BULL_CORE_BIN && env.BULL_CORE_DATA_DIR) {
         const binaryPath = env.BULL_CORE_BIN
         const dataDir = env.BULL_CORE_DATA_DIR
-        void parsePendingBundles(db, store, { binaryPath, dataDir }, userId).catch(
-          (error: unknown) => {
-            console.error("[parse] background sweep failed", {
-              userId,
-              error: error instanceof Error ? error.message : String(error),
-            })
-          },
-        )
+        void parseAllPending(db, store, { binaryPath, dataDir }).catch((error: unknown) => {
+          console.error("[parse] drain failed", {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
       }
 
       return created(result)

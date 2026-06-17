@@ -79,7 +79,7 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
         if (draining) return
         draining = true
         try {
-          const n = await parseAllPending(db, store, config, 25)
+          const n = await parseAllPending(db, store, config)
           if (n > 0) console.log(`[parse] background drain parsed ${n} pending bundle(s)`)
         } catch (error) {
           console.error("[parse] background drain failed", error)
