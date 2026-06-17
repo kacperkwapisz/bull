@@ -21,6 +21,12 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   static let syncedRetentionByteCap = 32 * 1024 * 1024
   /// Safety bound on bundles drained per pass (each pass is re-entrant-safe).
   private static let maxBundlesPerPass = 512
+  /// Minimum decoded payload to bother uploading on a non-forced (continuous)
+  /// drain. Small slivers are held locally until this much accumulates so a
+  /// live capture produces a handful of sizable bundles instead of hundreds of
+  /// tiny ones (each of which would cost a full server-side parse). Forced
+  /// drains (launch/background) flush everything regardless.
+  static let minBatchPayloadBytes = 256 * 1024
 
   private let queue = DispatchQueue(label: "com.bull.swift.frame-drain", qos: .utility)
   private var isRunning = false
@@ -32,20 +38,20 @@ final class BullFrameDrainUploader: @unchecked Sendable {
 
   /// Drain the buffer for `databasePath`. Safe to call on launch/foreground and
   /// after a sync; runs are serialized and skip while one is active.
-  func drain(databasePath: String) {
+  func drain(databasePath: String, force: Bool = false) {
     queue.async { [weak self] in
       guard let self, !self.isRunning else { return }
       guard let token = CoachAuthKeychain.load() else { return }
       self.isRunning = true
       Task { [weak self] in
         guard let self else { return }
-        await self.runDrain(databasePath: databasePath, token: token)
+        await self.runDrain(databasePath: databasePath, token: token, force: force)
         self.queue.async { self.isRunning = false }
       }
     }
   }
 
-  private func runDrain(databasePath: String, token: String) async {
+  private func runDrain(databasePath: String, token: String, force: Bool = false) async {
     let bridge = BullRustBridge()
     var uploadedBundles = 0
     var uploadedFrames = 0
@@ -59,7 +65,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
       log("drain.dedup_already_uploaded", "marked=\(marked)")
     }
 
-    for _ in 0..<Self.maxBundlesPerPass {
+    for pass in 0..<Self.maxBundlesPerPass {
       let frames: [[String: Any]]
       do {
         let response = try bridge.request(
@@ -75,6 +81,21 @@ final class BullFrameDrainUploader: @unchecked Sendable {
         break
       }
       if frames.isEmpty { break }
+
+      // Batch gate: on a non-forced (continuous) drain, hold the buffer until at
+      // least minBatchPayloadBytes has accumulated so we don't fragment into
+      // tiny bundles. The first bundle holds up to 2MB of the oldest unsynced
+      // data, so its size reflects what's available; once we commit to draining,
+      // later passes upload the rest unconditionally.
+      if pass == 0 && !force {
+        let pendingBytes = frames.reduce(0) {
+          $0 + (($1["payload_hex"] as? String)?.count ?? 0) / 2
+        }
+        if pendingBytes < Self.minBatchPayloadBytes {
+          log("drain.batch_hold", "pending=\(pendingBytes) min=\(Self.minBatchPayloadBytes)")
+          break
+        }
+      }
 
       let ids = frames.compactMap { $0["evidence_id"] as? String }
       guard let body = Self.encodeBundle(frames) else {

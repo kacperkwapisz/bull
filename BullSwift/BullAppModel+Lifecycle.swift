@@ -58,8 +58,10 @@ extension BullAppModel {
         // and are removed locally once the server confirms the upload.
         self.spoolArchiveUploader.archiveFinishedSessions()
         // Drain the captured raw-frame buffer to the user's account and prune
-        // the synced+aged copies so the local store stays bounded.
-        self.frameDrainUploader.drain(databasePath: databasePath)
+        // the synced+aged copies so the local store stays bounded. Forced: flush
+        // everything on launch, including any sub-batch sliver held back during
+        // capture.
+        self.frameDrainUploader.drain(databasePath: databasePath, force: true)
         // Restore curated metric history from the long-term store, then push
         // anything computed locally that the server is missing. Idempotent on
         // both ends, so this is safe on every launch (and rehydrates a fresh
@@ -88,6 +90,9 @@ extension BullAppModel {
     // app backgrounds, independent of the overnight-guard state below.
     if phase == "background" || phase == "inactive" {
       metricSyncCoordinator.push(source: "device_background_sync")
+      // Flush any held sub-batch sliver before the app suspends so accumulated
+      // frames aren't stranded locally between sessions.
+      frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
     }
 
     guard overnightGuardActive else {
