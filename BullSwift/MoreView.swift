@@ -43,13 +43,6 @@ struct MoreView: View {
 
       Section("Biometric Engine") {
         NavigationLink {
-          BiometricEnginePreviewView(healthStore: healthStore)
-        } label: {
-          Label("Biometric Engine", systemImage: "waveform.path.ecg.rectangle")
-        }
-        .accessibilityLabel("Biometric Engine preview")
-
-        NavigationLink {
           RrHrConsistencyDebugView(healthStore: healthStore)
         } label: {
           Label("HRV Scale Check", systemImage: "checkmark.seal")

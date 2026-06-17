@@ -8,7 +8,9 @@ extension HealthDataStore {
   /// the Health/Sleep cards populate when the screen opens instead of requiring
   /// the developer "Run Packet-Derived Scores" button.
   func computePacketScoresIfNeeded() {
-    guard packetScoreReports["sleep"] == nil, !packetScoresComputeInFlight else {
+    // Always refresh from the server when not already in flight; the cache keeps
+    // the cards populated while the fetch runs.
+    guard !packetScoresComputeInFlight else {
       return
     }
     runPacketScores()
@@ -33,6 +35,9 @@ extension HealthDataStore {
       if let strain = reports["strain"] { self.packetScoreReports["strain"] = strain }
       if let recovery = reports["recovery"] { self.packetScoreReports["recovery"] = recovery }
       if let stress = reports["stress"] { self.packetScoreReports["stress"] = stress }
+      if !reports.isEmpty {
+        Self.saveReportsCache(self.packetScoreReports, name: "scores")
+      }
       self.packetScoresComputeInFlight = false
       self.packetScoreStatus = reports.isEmpty
         ? "No server-computed scores yet"
@@ -79,6 +84,53 @@ extension HealthDataStore {
     return raw
   }
 
+  // MARK: - Server report cache
+  //
+  // The score/input report maps come from the server and are otherwise in-memory
+  // only, so a relaunch shows "--" until the network fetch returns. Persisting
+  // the last successful fetch to disk lets the app paint the last-known values
+  // immediately on launch, then refresh from the server in the background.
+
+  nonisolated static func reportsCacheURL(_ name: String) -> URL? {
+    guard let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+      return nil
+    }
+    return dir.appendingPathComponent("bull-reports-\(name).json")
+  }
+
+  nonisolated static func saveReportsCache(_ reports: [String: [String: Any]], name: String) {
+    guard
+      !reports.isEmpty,
+      let url = reportsCacheURL(name),
+      JSONSerialization.isValidJSONObject(reports),
+      let data = try? JSONSerialization.data(withJSONObject: reports)
+    else { return }
+    try? data.write(to: url, options: .atomic)
+  }
+
+  nonisolated static func loadReportsCache(_ name: String) -> [String: [String: Any]] {
+    guard
+      let url = reportsCacheURL(name),
+      let data = try? Data(contentsOf: url),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]]
+    else { return [:] }
+    return json
+  }
+
+  /// Populate the report maps from the on-disk cache so launch shows last-known
+  /// values instantly. The server refresh overwrites these once it returns.
+  func loadCachedServerReports() {
+    let scores = Self.loadReportsCache("scores")
+    if !scores.isEmpty {
+      packetScoreReports = scores
+      refreshPrimarySleepFromScoreReport()
+    }
+    let inputs = Self.loadReportsCache("inputs")
+    if !inputs.isEmpty {
+      packetInputReports = inputs
+    }
+  }
+
   /// Fetch the server-computed packet-derived input report map (HRV, resting HR,
   /// steps, energy, motion, vital events, daily/hourly rollups). The server runs
   /// the same bull-core methods over the user's data and stores the map; the app
@@ -98,41 +150,6 @@ extension HealthDataStore {
       let reports = json["reports"] as? [String: [String: Any]]
     else { return [:] }
     return reports
-  }
-
-  func runSleepScore() {
-    packetScoreStatus = "Extracting bridge sleep score..."
-    let baseArgs = bridgeBaseArgs(requireTrustedEvidence: false)
-    let bridge = self.bridge
-    packetInputQueue.async { [weak self] in
-      do {
-        let sleepReport = try bridge.request(
-          method: "metrics.sleep_score_from_features",
-          args: baseArgs.merging([
-            "sleep_need_minutes": 480.0,
-            "low_motion_threshold_0_to_1": 0.05,
-            "disturbance_motion_threshold_0_to_1": 0.20,
-            "target_midpoint_minutes_since_midnight": 180.0,
-            "history_import_in_progress": false,
-            "algorithm_id": "bull.sleep.v1",
-            "persist_nightly": true,
-          ]) { _, new in new }
-        )
-        DispatchQueue.main.async { [weak self] in
-          guard let self else { return }
-          self.packetScoreReports["sleep"] = sleepReport
-          self.refreshPrimarySleepFromScoreReport()
-          self.loadNightlySleepHistory()
-          self.packetScoreStatus = "Bridge sleep score recomputed"
-        }
-      } catch {
-        let shortErr = Self.shortError(error)
-        DispatchQueue.main.async { [weak self] in
-          guard let self else { return }
-          self.packetScoreStatus = "Bridge sleep score blocked: \(shortErr)"
-        }
-      }
-    }
   }
 
   func runReferenceComparisons() {

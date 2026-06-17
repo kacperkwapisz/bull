@@ -108,9 +108,13 @@ final class HealthDataStore: ObservableObject {
     ) { [weak self] _ in
       Task { @MainActor in
         self?.runPacketScores()
+        self?.runPacketInputs()
         self?.writeDebugOverview()
       }
     }
+    // Paint last-known server values immediately so a relaunch doesn't flash
+    // "--" before the network refresh returns.
+    loadCachedServerReports()
     writeDebugOverview()
   }
 
@@ -164,7 +168,9 @@ final class HealthDataStore: ObservableObject {
   }
 
   func refreshPacketInputsIfNeeded() {
-    guard packetInputReports.isEmpty, packetInputStatus == "No run" else {
+    // Always refresh from the server when not already in flight; the cache keeps
+    // the screen populated while the fetch runs.
+    guard !packetInputIsRunning else {
       return
     }
     runPacketInputs()
@@ -291,6 +297,7 @@ final class HealthDataStore: ObservableObject {
         self.packetInputStatus = "No server-computed inputs yet"
       } else {
         self.packetInputReports = reports
+        Self.saveReportsCache(reports, name: "inputs")
         self.packetInputStatus = "Inputs loaded from server"
       }
       completion?()
@@ -310,12 +317,14 @@ final class HealthDataStore: ObservableObject {
   }
 
   func refreshSleepAfterBandSync(packetCount: Int) {
-    bandSleepImportStatus = "Band sync captured \(packetCount) packets | extracting sleep inputs..."
+    bandSleepImportStatus = "Band sync captured \(packetCount) packets | loading from server..."
+    // Band data is uploaded to the server, which parses and computes; refresh
+    // the server-backed inputs and scores rather than computing on-device.
     runPacketInputs { [weak self] in
       guard let self else {
         return
       }
-      self.runSleepScore()
+      self.runPacketScores()
       self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
     }
   }

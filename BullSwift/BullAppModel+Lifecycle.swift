@@ -62,14 +62,9 @@ extension BullAppModel {
         // everything on launch, including any sub-batch sliver held back during
         // capture.
         self.frameDrainUploader.drain(databasePath: databasePath, force: true)
-        // Restore curated metric history from the long-term store, then push
-        // anything computed locally that the server is missing. Idempotent on
-        // both ends, so this is safe on every launch (and rehydrates a fresh
-        // install once the session is signed in).
-        self.metricSyncCoordinator.restore()
-        self.metricSyncCoordinator.push(source: "device_launch_sync")
         // Upload profile + timezone so server-side compute has weight/age/sex
-        // for energy and the user's local day for daily rollups.
+        // for energy and the user's local day for daily rollups. (Curated
+        // metrics are computed server-side now, so there's no device-side push.)
         self.metricSyncCoordinator.pushProfile()
       }
     }
@@ -89,10 +84,9 @@ extension BullAppModel {
     let power = Self.currentOvernightPowerState()
     ble.record(source: "app.lifecycle", title: "scene_phase", body: "\(phase) | \(power.summary)")
 
-    // Persist locally-computed curated metrics to the long-term store as the
-    // app backgrounds, independent of the overnight-guard state below.
+    // Keep the server's copy of the user's profile/timezone current as the app
+    // backgrounds, independent of the overnight-guard state below.
     if phase == "background" || phase == "inactive" {
-      metricSyncCoordinator.push(source: "device_background_sync")
       metricSyncCoordinator.pushProfile()
       // Nudge the drain on background, but batched (force:false): upload only if
       // a full batch has accumulated, so frequent fg/bg toggles don't emit tiny
