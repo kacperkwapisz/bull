@@ -120,6 +120,26 @@ export const dailyRecovery = pgTable(
   }),
 )
 
+// The full packet-derived input-report map (motion, HRV, resting HR, steps,
+// energy, vital events, daily/hourly rollups, honest-unavailable statuses)
+// computed server-side over the user's store. The app reads this verbatim to
+// populate its dashboards — one latest row per user, re-derivable from the raw
+// bundles at any time.
+export const inputReports = pgTable(
+  "input_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    raw: jsonb("raw").notNull(),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userUnique: uniqueIndex("input_reports_user_uq").on(t.userId),
+  }),
+)
+
 export const dailySleep = pgTable(
   "daily_sleep",
   {

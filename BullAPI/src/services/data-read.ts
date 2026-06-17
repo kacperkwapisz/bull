@@ -11,6 +11,7 @@ import {
   dailySleep,
   dailyStrain,
   dailyStress,
+  inputReports,
   spo2Samples,
   uploadBundles,
   vitalsDaily,
@@ -228,4 +229,15 @@ export async function dataSummary(db: Db, userId: string): Promise<DataSummary> 
     latest_recovery_day: rec[0]?.latest ?? null,
     latest_sleep_day: slp[0]?.latest ?? null,
   }
+}
+
+/** Latest packet-derived input-report map for a user (the dashboard read), or
+ * null if nothing has been computed yet (honest-empty). */
+export async function getInputReports(db: Db, userId: string) {
+  const rows = await db
+    .select({ raw: inputReports.raw, computedAt: inputReports.computedAt })
+    .from(inputReports)
+    .where(eq(inputReports.userId, userId))
+    .limit(1)
+  return rows[0] ?? null
 }

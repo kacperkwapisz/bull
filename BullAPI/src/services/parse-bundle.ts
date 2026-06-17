@@ -15,8 +15,9 @@
 import { inflateRawSync } from "node:zlib"
 import { and, eq, inArray } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
-import { dailySleep, uploadBundles } from "../db/schema.ts"
+import { dailySleep, inputReports, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
+import { computeInputReports } from "./input-reports.ts"
 import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
 import { BullCore } from "../lib/bull-core.ts"
 import type { ObjectStore } from "../lib/object-store.ts"
@@ -254,6 +255,18 @@ async function computeUserStore(
     .update(dailySleep)
     .set({ raw: sleepReport })
     .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, latestSleepDay)))
+
+  // Packet-derived input reports (HRV, resting HR, steps, energy, motion, vital
+  // events, daily/hourly rollups) — the map the app reads to render dashboards.
+  // One latest row per user, computed over the whole store.
+  const inputReportsMap = await computeInputReports(core, dbPath)
+  await db
+    .insert(inputReports)
+    .values({ userId, raw: inputReportsMap })
+    .onConflictDoUpdate({
+      target: inputReports.userId,
+      set: { raw: inputReportsMap, computedAt: new Date() },
+    })
 
   // Bound the workspace: results are now durable in Postgres, so drop raw frames
   // older than the baseline window. Keeps each compute's full-store scan cheap.

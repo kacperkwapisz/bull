@@ -12,6 +12,7 @@ import { uploadBundles } from "../db/schema.ts"
 import {
   dataSummary,
   getBundleForUser,
+  getInputReports,
   listEnergy,
   listRecovery,
   listSleep,
@@ -302,6 +303,20 @@ export function dataRoutes(env: Env) {
       return ok({ rows })
     })
 
+  // Packet-derived input reports (the whole dashboard input layer) computed
+  // server-side. One latest map per user; honest-empty until first compute.
+  const inputs = route
+    .get("/v1/data/inputs")
+    .use(jwt)
+    .handle(async ({ ctx }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const row = await getInputReports(db, userId)
+      return ok({ reports: row?.raw ?? {}, computed_at: row?.computedAt ?? null })
+    })
+
   const uploads = route
     .get("/v1/data/uploads")
     .query(listQuery)
@@ -374,6 +389,7 @@ export function dataRoutes(env: Env) {
     energy,
     vitals,
     spo2,
+    inputs,
     uploads,
   ])
 }
