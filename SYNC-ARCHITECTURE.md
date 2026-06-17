@@ -32,7 +32,7 @@ keeps a lightweight on-device decode for immediate display.
 | A-2 | **`device_timestamp` on `decoded_frames`** (schema v17) — the data packet's own `timestamp_seconds`, populated at insert; indexed `(packet_type, device_timestamp)`. | `store.rs` | ✅ |
 | A-3 | ~~Structural content/timestamp dedup~~ **Rejected.** Content (`sha256`) dedup breaks the `evidence_id` pipeline (a deduped raw insert orphans the following `decoded_frames` insert → FK violation) and would drop byte-identical realtime samples. A `(device_timestamp, packet_type)` unique index is lossy for sub-second realtime. Dedup is done by **skip-on-receipt** (A-5) instead. | — | ✅ (decided) |
 | A-4 | **Watermark getters** — `historical_watermarks()` (`MAX(device_timestamp)` per `packet_type`) + `historical_watermark_max()`; bridge `store.historical_watermarks`. | `store.rs`, `bridge.rs` | ✅ |
-| A-5 | **Skip-already-synced on receipt** (the dedup mechanism) — on the historical path, drop frames whose `timestamp <= watermark[packet_type]` before write. Scoped to historical sync, so realtime is untouched. Drive the determinate bar off new-vs-known. | `BullBLEClient+*` | ⬜ |
+| A-5 | **Skip-already-uploaded re-pulls** (the dedup mechanism) — persistent `historical_sync_watermark` (schema v18, `sync_state` table, survives pruning); each drain marks already-uploaded frames (`device_timestamp <= watermark`) synced without re-uploading, then advances the watermark after a confirmed upload. A band re-pull is never resent. (Done at the drain boundary rather than the receive path; receive-path skip to also avoid local re-decode is a later battery optimization.) | `store.rs`, `BullFrameDrainUploader.swift` | ✅ |
 | A-6 | **`SEND_HISTORICAL_DATA` has no "since" arg** (confirmed: empty payload). Incremental at the band is driven by the `historicalDataResult` ACK advancing the read pointer (already implemented). Verify on-device whether the ACK actually advances across sessions. | BLE | ⬜ |
 
 ## Phase B — Gap integrity
@@ -53,10 +53,11 @@ keeps a lightweight on-device decode for immediate display.
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
-| D-1 | **Run `bull-core` server-side** (WASM-in-Bun or native sidecar). | BullAPI | ⬜ |
-| D-2 | **Parse pipeline** — bundle → decode → compute → write Postgres result tables → flip `upload_bundles.status` pending→parsed. Idempotent re-parse. | BullAPI | ⬜ |
-| D-3 | **`GET /v1/data/high-watermark?device_id=…`** → `{ processed_through_ts }`; advance after a bundle is parsed. | BullAPI | ⬜ |
-| D-4 | **Phone uploads only the delta** above the server watermark; prune locally after 2xx. | drain worker | ⬜ |
+| D-1 | **Run `bull-core` server-side** — native `bull-bridge-serve` sidecar (newline JSON over stdio), bundled in the API image via a multi-stage musl build (root build context). | BullAPI, Dockerfile | ✅ |
+| D-2 | **Parse pipeline** — bundle → import frames → `run_pipeline` → sleep score (persist) → recovery/strain/stress scores → fold into Postgres result tables (`dailySleep`/`vitalsDaily`/`dailyRecovery`/`dailyStrain`/`dailyStress`) → flip `pending→parsed`. Idempotent. **Auto-triggered** by a fire-and-forget pending-sweep on upload. | BullAPI | ✅ |
+| D-3 | **`GET /v1/data/high-watermark`** → newest parsed `timeframeEnd`; read APIs (`/v1/data/recovery|sleep|strain|stress|energy|vitals|spo2`) already serve the result tables. | BullAPI | ✅ |
+| D-4 | **Phone uploads only the delta** above the server watermark; **drain-to-empty** after 2xx. Skip-already-uploaded (A-5) covers the upload dedup; switching the cap to drain-to-empty waits until the app reads from the server (else local screens blank). | drain worker | ⬜ (post-deploy) |
+| D-5 | **App reads results from the server** and **drops on-device compute** — the device-side thin-client switch. Server read APIs exist; this must be validated against a deployed, populated server, so it is the post-deploy phase. | `HealthDataStore+*`, views | ⬜ (post-deploy) |
 
 ## Notes
 
