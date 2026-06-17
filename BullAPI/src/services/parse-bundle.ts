@@ -174,6 +174,31 @@ export async function parsePendingBundles(
 }
 
 /**
+ * Drain pending bundles across ALL users (bounded, oldest first). Driven by a
+ * server interval so a backlog clears on its own without waiting for an upload
+ * to trigger a per-user sweep. Returns the number successfully parsed.
+ */
+export async function parseAllPending(
+  db: Db,
+  store: ObjectStore,
+  config: ParseBundleConfig,
+  limit = 25,
+): Promise<number> {
+  const pending = await db
+    .select({ id: uploadBundles.id, userId: uploadBundles.userId })
+    .from(uploadBundles)
+    .where(eq(uploadBundles.status, "pending"))
+    .orderBy(uploadBundles.createdAt)
+    .limit(limit)
+  let parsed = 0
+  for (const { id, userId } of pending) {
+    const result = await parseBundle(db, store, config, userId, id)
+    if (result.status === "parsed") parsed += 1
+  }
+  return parsed
+}
+
+/**
  * Parse one bundle end-to-end. Idempotent: re-parsing a bundle re-imports its
  * frames (deduped in bull-core) and re-runs compute (idempotent by timestamp).
  */

@@ -6,7 +6,9 @@ import { loadEnv, corsOrigins } from "./lib/env.ts"
 import { authRoutes } from "./routes/auth.ts"
 import { coachRoutes } from "./routes/coach.ts"
 import { dataRoutes } from "./routes/data.ts"
-import { ensureSchema, pingDb } from "./db/client.ts"
+import { ensureSchema, getDb, pingDb } from "./db/client.ts"
+import { getObjectStore } from "./lib/object-store.ts"
+import { parseAllPending } from "./services/parse-bundle.ts"
 
 const env = loadEnv()
 
@@ -63,4 +65,30 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
     idleTimeout: 120, // seconds without socket activity; heartbeats arrive every 10s
   })
   console.log(`bull-api listening on http://${server.hostname}:${server.port}`)
+
+  // Background parse drain: clear any pending-bundle backlog without waiting for
+  // an upload to trigger a per-user sweep (e.g. after a large historical sync).
+  // No-op unless the sidecar + DB + object store are all configured.
+  if (env.BULL_CORE_BIN && env.BULL_CORE_DATA_DIR) {
+    const db = getDb(env)
+    const store = getObjectStore(env)
+    if (db && store) {
+      const config = { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR }
+      let draining = false
+      const timer = setInterval(async () => {
+        if (draining) return
+        draining = true
+        try {
+          const n = await parseAllPending(db, store, config, 25)
+          if (n > 0) console.log(`[parse] background drain parsed ${n} pending bundle(s)`)
+        } catch (error) {
+          console.error("[parse] background drain failed", error)
+        } finally {
+          draining = false
+        }
+      }, 30_000)
+      // Don't let the drain timer keep the process alive on its own.
+      timer.unref?.()
+    }
+  }
 }
