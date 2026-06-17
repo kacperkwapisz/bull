@@ -17,11 +17,30 @@ import { eq } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
+import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
 import { BullCore } from "../lib/bull-core.ts"
 import type { ObjectStore } from "../lib/object-store.ts"
 
 const DEVICE_MODEL = "WHOOP 5.0 Bull"
 const LOCAL_BIOMETRIC_DEVICE_ID = "bull-local"
+
+// Nightly sleep-score tuning. Mirrors the device's read-time score call
+// (HealthDataStore+Utilities.swift `sleepScoreReport`); kept here so the server
+// produces the same per-night scores. "0000"/"9999" are full-range scan bounds
+// (not timestamps), so no window derivation is needed.
+const SLEEP_SCORE_ARGS = {
+  start: "0000",
+  end: "9999",
+  min_owned_captures: 2,
+  require_trusted_evidence: false,
+  sleep_need_minutes: 480.0,
+  low_motion_threshold_0_to_1: 0.05,
+  disturbance_motion_threshold_0_to_1: 0.2,
+  target_midpoint_minutes_since_midnight: 180.0,
+  history_import_in_progress: false,
+  algorithm_id: "bull.sleep.v1",
+  persist_nightly: true,
+} as const
 
 interface BundleFrameLine {
   evidence_id: string
@@ -40,6 +59,15 @@ export interface ParseBundleResult {
   frameCount: number
   status: "parsed" | "failed"
   reports?: Record<string, unknown>
+  ingested?: {
+    readonly recovery: number
+    readonly sleep: number
+    readonly strain: number
+    readonly stress: number
+    readonly energy: number
+    readonly vitals: number
+    readonly spo2: number
+  }
   error?: string
 }
 
@@ -121,11 +149,28 @@ export async function parseBundle(
       },
     )
 
-    // NOTE: writing the consolidated daily rows into the Postgres result tables
-    // (dailyRecovery/dailySleep/etc.) is the next stage — it requires folding
-    // the granular bull-core metric rows + scores into one row per day. The
-    // compute above is what proves server-side parsing; results read-back lands
-    // next. Mark the bundle parsed so the watermark advances.
+    // Persist per-night sleep scores into the store's daily tables so the
+    // curated export below carries them (run_pipeline does ingest+rollups; the
+    // sleep score is a separate read-time step that also writes the nightly row).
+    await core.request("metrics.sleep_score_from_features", {
+      database_path: dbPath,
+      ...SLEEP_SCORE_ARGS,
+    })
+
+    // Read the curated per-day rows bull-core just computed and fold them into
+    // the Postgres result tables via the same idempotent upsert the device's
+    // curated sync uses. Populates dailySleep (score + stages) and vitalsDaily
+    // (resting HR, HRV, respiratory rate, skin temp, SpO2), keyed per day.
+    const exported = await core.request<{ body?: Record<string, unknown> }>(
+      "metrics.export_curated",
+      { database_path: dbPath, source: "server_parse" },
+    )
+    let ingest: Awaited<ReturnType<typeof ingestMetrics>> | undefined
+    if (exported.body) {
+      const push = metricsPushSchema.parse(exported.body)
+      ingest = await ingestMetrics(db, userId, push)
+    }
+
     await db
       .update(uploadBundles)
       .set({ status: "parsed", parsedAt: new Date(), parseError: null })
@@ -136,6 +181,7 @@ export async function parseBundle(
       frameCount: frames.length,
       status: "parsed",
       ...(pipeline.reports !== undefined ? { reports: pipeline.reports } : {}),
+      ...(ingest !== undefined ? { ingested: ingest } : {}),
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
