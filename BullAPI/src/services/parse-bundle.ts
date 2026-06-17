@@ -13,7 +13,7 @@
  */
 
 import { inflateRawSync } from "node:zlib"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
@@ -41,6 +41,57 @@ const SLEEP_SCORE_ARGS = {
   algorithm_id: "bull.sleep.v1",
   persist_nightly: true,
 } as const
+
+// Read-time score tuning, identical to the device's recovery/strain/stress
+// calls (HealthDataStore+Utilities.swift). "0000"/"9999" are full-range scan
+// bounds, so the score reflects the most recent computable day.
+const SCORE_ARGS = {
+  start: "0000",
+  end: "9999",
+  min_owned_captures: 2,
+  require_trusted_evidence: false,
+  hrv_start: "0000",
+  hrv_end: "9999",
+  hrv_baseline_start: "0000",
+  hrv_baseline_end: "9999",
+  resting_start: "0000",
+  resting_end: "9999",
+  sleep_start: "0000",
+  sleep_end: "9999",
+  prior_strain_start: "0000",
+  prior_strain_end: "9999",
+  resting_baseline_min_days: 3,
+  hrv_min_rr_intervals_to_compute: 2,
+  hrv_baseline_min_days: 3,
+  sleep_need_minutes: 480.0,
+  low_motion_threshold_0_to_1: 0.05,
+  disturbance_motion_threshold_0_to_1: 0.2,
+  target_midpoint_minutes_since_midnight: 180.0,
+  prior_strain_resting_baseline_min_days: 3,
+} as const
+
+/** Pull the 0-100 score out of a *_score_from_features report. */
+function scoreValue(report: unknown): number | null {
+  const output = (report as { score_result?: { output?: { score_0_to_100?: unknown } } })
+    ?.score_result?.output?.score_0_to_100
+  return typeof output === "number" ? output : null
+}
+
+/** Most recent day present in the curated export, or null when empty. */
+function latestExportDay(body: Record<string, unknown> | undefined): string | null {
+  if (!body) return null
+  const days: string[] = []
+  for (const key of ["sleep", "vitals"]) {
+    const rows = body[key]
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        const day = (row as { day?: unknown }).day
+        if (typeof day === "string") days.push(day)
+      }
+    }
+  }
+  return days.length > 0 ? days.sort().at(-1)! : null
+}
 
 interface BundleFrameLine {
   evidence_id: string
@@ -93,6 +144,33 @@ function pipelineWindows(now: Date) {
 
 function deviceStorePath(dataDir: string, userId: string): string {
   return `${dataDir.replace(/\/$/, "")}/${userId}.sqlite`
+}
+
+/**
+ * Parse all still-pending bundles for a user (bounded), oldest first. Called
+ * fire-and-forget after an upload so freshly-arrived data is computed promptly,
+ * and so a bundle missed by a crash/restart is caught up on the next upload.
+ * Errors are isolated per bundle; a failure marks that bundle `failed` and the
+ * sweep continues.
+ */
+export async function parsePendingBundles(
+  db: Db,
+  store: ObjectStore,
+  config: ParseBundleConfig,
+  userId: string,
+  limit = 25,
+): Promise<ParseBundleResult[]> {
+  const pending = await db
+    .select({ id: uploadBundles.id })
+    .from(uploadBundles)
+    .where(and(eq(uploadBundles.userId, userId), eq(uploadBundles.status, "pending")))
+    .orderBy(uploadBundles.createdAt)
+    .limit(limit)
+  const results: ParseBundleResult[] = []
+  for (const { id } of pending) {
+    results.push(await parseBundle(db, store, config, userId, id))
+  }
+  return results
 }
 
 /**
@@ -169,6 +247,44 @@ export async function parseBundle(
     if (exported.body) {
       const push = metricsPushSchema.parse(exported.body)
       ingest = await ingestMetrics(db, userId, push)
+    }
+
+    // Read-time scores (recovery/strain/stress), computed the same way the
+    // device does, attributed to the most recent day with data. Sequential
+    // calls — the sidecar handles one stdio request at a time.
+    const recoveryReport = await core.request("metrics.recovery_score_from_features", {
+      database_path: dbPath,
+      ...SCORE_ARGS,
+    })
+    const strainReport = await core.request("metrics.strain_score_from_features", {
+      database_path: dbPath,
+      ...SCORE_ARGS,
+    })
+    const stressReport = await core.request("metrics.stress_score_from_features", {
+      database_path: dbPath,
+      ...SCORE_ARGS,
+    })
+    const day = latestExportDay(exported.body)
+    if (day) {
+      const recoveryScore = scoreValue(recoveryReport)
+      const strainScore = scoreValue(strainReport)
+      const stressScore = scoreValue(stressReport)
+      const vitalsForDay = (exported.body?.vitals as Array<Record<string, unknown>> | undefined)
+        ?.find((row) => row.day === day)
+      const scorePush = metricsPushSchema.parse({
+        source: "server_parse",
+        recovery: [
+          {
+            day,
+            recovery_score: recoveryScore,
+            hrv_ms: (vitalsForDay?.hrv_ms as number | null | undefined) ?? null,
+            resting_hr_bpm: (vitalsForDay?.resting_hr_bpm as number | null | undefined) ?? null,
+          },
+        ],
+        strain: strainScore != null ? [{ day, strain_score: strainScore }] : [],
+        stress: stressScore != null ? [{ day, stress_score: stressScore }] : [],
+      })
+      await ingestMetrics(db, userId, scorePush)
     }
 
     await db
