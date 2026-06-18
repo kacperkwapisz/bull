@@ -8,6 +8,13 @@ import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { profilePushSchema, upsertProfile } from "../services/profile.ts"
 import { pushTokenSchema, upsertPushToken } from "../services/push-tokens.ts"
+import {
+  computeJournalInsights,
+  journalUpsertSchema,
+  listJournalEntries,
+  upsertJournalEntry,
+} from "../services/journal.ts"
+import { JOURNAL_CATALOG } from "../services/journal-catalog.ts"
 import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
 import {
   dataSummary,
@@ -339,6 +346,60 @@ export function dataRoutes(env: Env) {
       }
     })
 
+  // Journal: upsert one day's logged behaviors (+ optional note).
+  const journalUpsert = route
+    .post("/v1/data/journal")
+    .body(journalUpsertSchema)
+    .use(jwt)
+    .handle(async ({ ctx, body }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      await upsertJournalEntry(db, userId, body)
+      return created({ ok: true })
+    })
+
+  // Journal history for the entry UI.
+  const journalList = route
+    .get("/v1/data/journal")
+    .query(listQuery)
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      return ok({
+        rows: await listJournalEntries(db, userId, {
+          ...(query.from !== undefined ? { from: query.from } : {}),
+          ...(query.to !== undefined ? { to: query.to } : {}),
+          limit: query.limit,
+        }),
+      })
+    })
+
+  // Default behavior catalog for the picker (static; users add custom tags too).
+  const journalCatalog = route
+    .get("/v1/data/journal/catalog")
+    .use(jwt)
+    .handle(async () => ok({ tags: JOURNAL_CATALOG }))
+
+  // Behavior → metric insights (correlation, not causation), computed in core.
+  const journalInsights = route
+    .get("/v1/data/journal/insights")
+    .query(z.object({ metric: z.enum(["recovery", "sleep"]).default("recovery") }))
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      const result = await computeJournalInsights(env, db, userId, query.metric)
+      if (result === null) return json(503, { error: "compute_unavailable" })
+      return ok({ insights: result })
+    })
+
   const uploads = route
     .get("/v1/data/uploads")
     .query(listQuery)
@@ -393,6 +454,10 @@ export function dataRoutes(env: Env) {
     profilePush,
     pushToken,
     inputs,
+    journalUpsert,
+    journalList,
+    journalCatalog,
+    journalInsights,
     dataQuery,
     uploads,
   ])

@@ -371,6 +371,33 @@ export const vitalsDaily = pgTable(
   }),
 )
 
+/**
+ * Journal: user-logged daily behaviors (and an optional note), keyed by
+ * (user, local day). These are the user's own self-reported habits — never
+ * physiological data — and feed the behavior → recovery/sleep insight engine.
+ */
+export const journalEntries = pgTable(
+  "journal_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    // Array of { tag, amount? } the user logged for the day.
+    behaviors: jsonb("behaviors")
+      .$type<{ tag: string; amount?: number | undefined }[]>()
+      .notNull()
+      .default([]),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDayUnique: uniqueIndex("journal_entries_user_day_uq").on(t.userId, t.day),
+  }),
+)
+
 export type User = typeof users.$inferSelect
 export type AppleIdentity = typeof appleIdentities.$inferSelect
 export type Device = typeof devices.$inferSelect
@@ -382,3 +409,4 @@ export type DailyStrain = typeof dailyStrain.$inferSelect
 export type DailyStress = typeof dailyStress.$inferSelect
 export type DailyEnergy = typeof dailyEnergy.$inferSelect
 export type VitalsDaily = typeof vitalsDaily.$inferSelect
+export type JournalEntry = typeof journalEntries.$inferSelect
