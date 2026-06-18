@@ -9,7 +9,6 @@ import {
   listStrain,
   listStress,
   listVitals,
-  restoreMetrics,
 } from "../src/services/data-read.ts"
 
 const TEST_DB = process.env.TEST_DATABASE_URL
@@ -19,7 +18,7 @@ const TEST_DB = process.env.TEST_DATABASE_URL
 // (and the local run) provide a throwaway database.
 const maybe = TEST_DB ? describe : describe.skip
 
-maybe("curated metrics push + restore + idempotency (Postgres)", () => {
+maybe("curated metrics ingest + idempotency (Postgres)", () => {
   const env = {
     DATABASE_URL: TEST_DB,
     APPLE_ISSUER: "https://appleid.apple.com",
@@ -30,7 +29,7 @@ maybe("curated metrics push + restore + idempotency (Postgres)", () => {
     await ensureSchema(env)
   })
 
-  test("push curated rows, restore them, re-push is idempotent", async () => {
+  test("ingest curated rows, read them back, re-push is idempotent", async () => {
     const db = getDb(env)
     expect(db).not.toBeNull()
     if (!db) return
@@ -70,16 +69,15 @@ maybe("curated metrics push + restore + idempotency (Postgres)", () => {
       spo2: 1,
     })
 
-    // Restore returns the full curated history for the range, per family.
-    const restored = await restoreMetrics(db, userId, { from: "2026-06-01", to: "2026-06-30", limit: 200 })
-    expect(restored.recovery).toHaveLength(1)
-    expect(restored.recovery[0]?.recoveryScore).toBe(71)
-    expect(restored.strain[0]?.strainScore).toBe(12.4)
-    expect(restored.strain[0]?.source).toBe("device_nightly_compute")
-    expect(restored.stress[0]?.highStressMinutes).toBe(42)
-    expect(restored.energy[0]?.energyBank).toBe(0.7)
-    expect(restored.vitals[0]?.respiratoryRate).toBe(14.2)
-    expect(restored.vitals[0]?.spo2Pct).toBe(96)
+    // Read back the curated rows per family (the shape display surfaces read).
+    const ingestedStrain = await listStrain(db, userId, { limit: 200 })
+    expect(ingestedStrain[0]?.strainScore).toBe(12.4)
+    expect(ingestedStrain[0]?.source).toBe("device_nightly_compute")
+    expect((await listStress(db, userId, { limit: 200 }))[0]?.highStressMinutes).toBe(42)
+    expect((await listEnergy(db, userId, { limit: 200 }))[0]?.energyBank).toBe(0.7)
+    const ingestedVitals = await listVitals(db, userId, { limit: 200 })
+    expect(ingestedVitals[0]?.respiratoryRate).toBe(14.2)
+    expect(ingestedVitals[0]?.spo2Pct).toBe(96)
 
     // Summary counts every family.
     const summary = await dataSummary(db, userId)

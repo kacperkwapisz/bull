@@ -5,12 +5,9 @@ import type { Env } from "../lib/env.ts"
 import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
-import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { profilePushSchema, upsertProfile } from "../services/profile.ts"
 import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
-import { and, eq, max, sql } from "drizzle-orm"
-import { uploadBundles } from "../db/schema.ts"
 import {
   dataSummary,
   getBundleForUser,
@@ -23,7 +20,6 @@ import {
   listStress,
   listUploads,
   listVitals,
-  restoreMetrics,
 } from "../services/data-read.ts"
 
 const DOWNLOAD_URL_TTL_SECONDS = 15 * 60
@@ -202,41 +198,6 @@ export function dataRoutes(env: Env) {
     })
 
   // Push: idempotent curated daily rows computed on-device. Independent of the
-  // raw-archive object store; writes only the curated projection tables.
-  // JSON body validated by metricsPushSchema; re-pushing a day is an upsert.
-  const metricsPush = route
-    .post("/v1/data/metrics")
-    .body(metricsPushSchema)
-    .use(jwt)
-    .handle(async ({ ctx, body }) => {
-      const db = getDb(env)
-      if (!db) return json(503, { error: "persistence_unavailable" })
-      const userId = userIdFrom(ctx)
-      if (!userId) return json(403, { error: "user_scope_required" })
-      const counts = await ingestMetrics(db, userId, body)
-      return created({ ingested: counts })
-    })
-
-  // Restore: full curated metric history for a day range, in the shape the
-  // device's Rust core re-imports to hydrate its local daily_* tables on a
-  // fresh install. Honest empty states: families with no rows return [].
-  const metricsRestore = route
-    .get("/v1/data/metrics")
-    .query(listQuery)
-    .use(jwt)
-    .handle(async ({ ctx, query }) => {
-      const db = getDb(env)
-      if (!db) return json(503, { error: "persistence_unavailable" })
-      const userId = userIdFrom(ctx)
-      if (!userId) return json(403, { error: "user_scope_required" })
-      const data = await restoreMetrics(db, userId, {
-        ...(query.from !== undefined ? { from: query.from } : {}),
-        ...(query.to !== undefined ? { to: query.to } : {}),
-        limit: query.limit,
-      })
-      return ok(data)
-    })
-
   const strain = route
     .get("/v1/data/strain")
     .query(listQuery)
@@ -401,32 +362,11 @@ export function dataRoutes(env: Env) {
       return ok(result)
     })
 
-  // App-to-server watermark: the newest data time the server has parsed, so the
-  // phone can upload only the delta instead of re-sending already-parsed history.
-  const highWatermark = route
-    .get("/v1/data/high-watermark")
-    .use(jwt)
-    .handle(async ({ ctx }) => {
-      const db = getDb(env)
-      if (!db) return json(503, { error: "persistence_unavailable" })
-      const userId = userIdFrom(ctx)
-      if (!userId) return json(403, { error: "user_scope_required" })
-      const rows = await db
-        .select({ processedThrough: max(uploadBundles.timeframeEnd) })
-        .from(uploadBundles)
-        .where(and(eq(uploadBundles.userId, sql`${userId}`), eq(uploadBundles.status, "parsed")))
-      const processedThrough = rows[0]?.processedThrough ?? null
-      return ok({ processed_through_ts: processedThrough })
-    })
-
   return new Hyper({ prefix: "" }).use([
     upload,
     download,
     parse,
-    highWatermark,
     summary,
-    metricsPush,
-    metricsRestore,
     recovery,
     sleep,
     strain,

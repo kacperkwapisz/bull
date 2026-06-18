@@ -32,13 +32,6 @@ enum CoachAPIConfiguration {
     baseURL.appendingPathComponent("v1/data/uploads")
   }
 
-  /// Curated daily-metrics sync (Track A): POST pushes locally-computed rows to
-  /// the long-term store; GET restores history into the local store on a fresh
-  /// install. Same URL for both verbs.
-  static var dataMetricsURL: URL {
-    baseURL.appendingPathComponent("v1/data/metrics")
-  }
-
   /// Profile + timezone upload so server-side compute can derive energy and
   /// bucket daily rollups on the user's local calendar day.
   static var dataProfileURL: URL {

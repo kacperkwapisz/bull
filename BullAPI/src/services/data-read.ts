@@ -152,23 +152,6 @@ export async function listUploads(db: Db, userId: string, limit: number) {
     .limit(limit)
 }
 
-/**
- * Full curated metric history for a day range, in the shape the device's Rust
- * core re-imports to hydrate its local `daily_*` tables on a fresh install.
- * Honest empty states: families with no rows come back as empty arrays.
- */
-export async function restoreMetrics(db: Db, userId: string, range: DayRange) {
-  const [recovery, sleep, strain, stress, energy, vitals] = await Promise.all([
-    listRecovery(db, userId, range),
-    listSleep(db, userId, range),
-    listStrain(db, userId, range),
-    listStress(db, userId, range),
-    listEnergy(db, userId, range),
-    listVitals(db, userId, range),
-  ])
-  return { recovery, sleep, strain, stress, energy, vitals }
-}
-
 export interface DataSummary {
   readonly recovery_days: number
   readonly sleep_days: number
