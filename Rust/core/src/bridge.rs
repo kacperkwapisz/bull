@@ -2181,21 +2181,49 @@ pub fn openwhoop_reference_report_payload() -> serde_json::Value {
 }
 
 pub fn handle_bridge_request_json(request_json: &str) -> String {
-    let response = match serde_json::from_str::<BridgeRequest>(request_json) {
-        Ok(request) => handle_bridge_request(request),
-        Err(error) => BridgeResponse {
-            schema: BRIDGE_RESPONSE_SCHEMA.to_string(),
-            request_id: "unknown".to_string(),
-            ok: false,
-            result: None,
-            error: Some(BridgeError {
-                code: "invalid_json".to_string(),
-                message: error.to_string(),
-            }),
-            timing: None,
-        },
-    };
+    // A panic in any method must not take down the whole bridge: the on-device
+    // FFI bridge and the server sidecar both reuse this one process across many
+    // requests, so an unwinding panic on a single malformed frame would abort
+    // every queued request behind it. Convert panics into a structured error
+    // response so one bad input fails in isolation and the offending message is
+    // preserved for diagnosis instead of being lost to a closed pipe.
+    let request_id = serde_json::from_str::<BridgeRequest>(request_json)
+        .ok()
+        .map(|request| request.request_id)
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        match serde_json::from_str::<BridgeRequest>(request_json) {
+            Ok(request) => handle_bridge_request(request),
+            Err(error) => BridgeResponse {
+                schema: BRIDGE_RESPONSE_SCHEMA.to_string(),
+                request_id: "unknown".to_string(),
+                ok: false,
+                result: None,
+                error: Some(BridgeError {
+                    code: "invalid_json".to_string(),
+                    message: error.to_string(),
+                }),
+                timing: None,
+            },
+        }
+    }))
+    .unwrap_or_else(|payload| {
+        let message = panic_payload_message(&payload);
+        bridge_error(&request_id, "panic", format!("bridge method panicked: {message}"))
+    });
     serialize_response(&response)
+}
+
+/// Best-effort extraction of a human-readable message from a panic payload.
+fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
 }
 
 pub fn handle_bridge_request(request: BridgeRequest) -> BridgeResponse {
@@ -2225,6 +2253,8 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
     }
 
     match request.method.as_str() {
+        #[cfg(test)]
+        "debug.force_panic" => panic!("forced panic for catch_unwind test"),
         "core.version" => bridge_ok(&request.request_id, core_version_payload()),
         "core.list_methods" => bridge_ok(&request.request_id, core_list_methods_payload()),
         "behavior.insights" => request_args::<BehaviorInsightsArgs>(&request)
@@ -9486,9 +9516,20 @@ mod tests {
         let block = &src[start..start + catchall];
 
         let mut found: Vec<String> = Vec::new();
+        let mut skip_next_test_only_arm = false;
         for line in block.lines() {
             let trimmed = line.trim_start();
+            // `#[cfg(test)]`-gated arms (e.g. debug.force_panic) are not real
+            // bridge methods and must not be registered in BRIDGE_METHODS.
+            if trimmed.starts_with("#[cfg(test)]") {
+                skip_next_test_only_arm = true;
+                continue;
+            }
             if !trimmed.starts_with('"') {
+                continue;
+            }
+            if skip_next_test_only_arm {
+                skip_next_test_only_arm = false;
                 continue;
             }
             // Match `"some.method" =>` at line start.
@@ -9513,6 +9554,37 @@ mod tests {
             "BRIDGE_METHODS is out of sync with the dispatcher. \
              Either add the new method to BRIDGE_METHODS (keep it sorted) \
              or remove the stale entry."
+        );
+    }
+
+    /// A panic inside a bridge method must surface as a structured `panic`
+    /// error response, never as a process-killing unwind — otherwise one bad
+    /// frame aborts every queued request behind it on the shared sidecar.
+    #[test]
+    fn bridge_method_panic_becomes_error_response_not_unwind() {
+        // Silence the default panic hook for this one expected panic so the
+        // test output stays clean.
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let request = serde_json::json!({
+            "schema": BRIDGE_REQUEST_SCHEMA,
+            "request_id": "panic-1",
+            "method": "debug.force_panic",
+            "args": {}
+        })
+        .to_string();
+        let response_json = handle_bridge_request_json(&request);
+        std::panic::set_hook(prev);
+
+        let response: BridgeResponse = serde_json::from_str(&response_json).unwrap();
+        assert!(!response.ok, "panicking method must report ok=false");
+        assert_eq!(response.request_id, "panic-1");
+        let error = response.error.expect("panic must produce an error");
+        assert_eq!(error.code, "panic");
+        assert!(
+            error.message.contains("forced panic for catch_unwind test"),
+            "panic message should be preserved, got: {}",
+            error.message
         );
     }
 

@@ -163,3 +163,13 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# Server sidecar profile. The bull-bridge-serve process is long-lived and
+# handles many requests in sequence; a panic on one malformed frame must be
+# caught (see handle_bridge_request_json) and returned as an error response
+# rather than aborting the whole process and failing every queued request
+# behind it. catch_unwind only works when panics unwind, so this profile keeps
+# unwinding (unlike release, which aborts to keep the iOS binary small).
+[profile.server]
+inherits = "release"
+panic = "unwind"

@@ -18,7 +18,9 @@ WORKDIR /build
 RUN apk add --no-cache musl-dev gcc
 COPY Rust/core ./core
 WORKDIR /build/core
-RUN cargo build --release --locked --bin bull-bridge-serve
+# Build with the `server` profile (release optimisations + panic=unwind) so the
+# sidecar catches per-frame panics instead of aborting the whole process.
+RUN cargo build --profile server --locked --bin bull-bridge-serve
 
 # --- Bun base -------------------------------------------------------------
 FROM oven/bun:1.3.2-alpine AS base
@@ -50,7 +52,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY BullAPI/package.json BullAPI/bun.lock BullAPI/tsconfig.json BullAPI/hyper.config.json BullAPI/hyper.lock.json BullAPI/drizzle.config.ts ./
 COPY BullAPI/src ./src
 COPY BullAPI/docker-entrypoint.sh ./docker-entrypoint.sh
-COPY --from=rust /build/core/target/release/bull-bridge-serve /app/bin/bull-bridge-serve
+COPY --from=rust /build/core/target/server/bull-bridge-serve /app/bin/bull-bridge-serve
 
 RUN chmod +x docker-entrypoint.sh /app/bin/bull-bridge-serve \
   && addgroup -g 1001 -S bull && adduser -S bull -u 1001 -G bull \
