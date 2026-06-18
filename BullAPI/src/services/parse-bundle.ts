@@ -346,7 +346,7 @@ export async function parseAllPending(
 
     let parsed = 0
     for (const [userId, bundles] of byUser) {
-      const core = new BullCore(config.binaryPath)
+      let core = new BullCore(config.binaryPath)
       const dbPath = deviceStorePath(config.dataDir, userId)
       const importedIds: string[] = []
       try {
@@ -355,10 +355,20 @@ export async function parseAllPending(
             await importBundleFrames(store, core, dbPath, bundle.storageKey)
             importedIds.push(bundle.id)
           } catch (error) {
+            const message = errorMessage(error)
             await db
               .update(uploadBundles)
-              .set({ status: "failed", parseError: errorMessage(error) })
+              .set({ status: "failed", parseError: message })
               .where(eq(uploadBundles.id, bundle.id))
+            // If a bundle hard-crashed the sidecar (segfault/abort that
+            // catch_unwind can't intercept), the process is now dead and every
+            // remaining import in this batch would cascade-fail with the same
+            // "closed unexpectedly". Respawn a fresh sidecar so one poison
+            // bundle costs one failure, not the whole batch.
+            if (sidecarDied(message)) {
+              core.close()
+              core = new BullCore(config.binaryPath)
+            }
           }
         }
         if (importedIds.length > 0) {
@@ -390,6 +400,12 @@ export async function parseAllPending(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** True when an error means the sidecar process itself died (EOF on stdout),
+ * as opposed to a structured parse error the sidecar returned while alive. */
+function sidecarDied(message: string): boolean {
+  return message.includes("closed unexpectedly")
 }
 
 /**
