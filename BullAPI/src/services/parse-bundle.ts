@@ -150,7 +150,7 @@ function pipelineWindows(now: Date) {
   return { daily: window(dayStart, dayEnd), hourly: window(hourStart, hourEnd) }
 }
 
-function deviceStorePath(dataDir: string, userId: string): string {
+export function deviceStorePath(dataDir: string, userId: string): string {
   return `${dataDir.replace(/\/$/, "")}/${userId}.sqlite`
 }
 

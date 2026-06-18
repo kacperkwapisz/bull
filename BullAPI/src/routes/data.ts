@@ -8,6 +8,7 @@ import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { ingestMetrics, metricsPushSchema } from "../services/metrics-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { profilePushSchema, upsertProfile } from "../services/profile.ts"
+import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
 import { and, eq, max, sql } from "drizzle-orm"
 import { uploadBundles } from "../db/schema.ts"
 import {
@@ -334,6 +335,33 @@ export function dataRoutes(env: Env) {
       return ok({ reports: row?.raw ?? {}, computed_at: row?.computedAt ?? null })
     })
 
+  // Read-through proxy: run a whitelisted read-only bull-core method against the
+  // user's server-side store so display surfaces (nightly sleep, biometric
+  // streams, recorded activity) read from the server instead of a local store.
+  const dataQuery = route
+    .post("/v1/data/query")
+    .body(
+      z.object({
+        method: z.string().min(1),
+        args: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+      }),
+    )
+    .use(jwt)
+    .handle(async ({ ctx, body }) => {
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      if (!isQueryableMethod(body.method)) return json(400, { error: "method_not_allowed" })
+      try {
+        const result = await runDataQuery(env, userId, body.method, body.args)
+        return ok({ result: result ?? null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message === "sidecar_unavailable") return json(503, { error: "compute_unavailable" })
+        if (message.startsWith("method_not_allowed")) return json(400, { error: "method_not_allowed" })
+        return json(500, { error: "query_failed" })
+      }
+    })
+
   const uploads = route
     .get("/v1/data/uploads")
     .query(listQuery)
@@ -408,6 +436,7 @@ export function dataRoutes(env: Env) {
     spo2,
     profilePush,
     inputs,
+    dataQuery,
     uploads,
   ])
 }
