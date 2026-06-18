@@ -19,13 +19,9 @@ import { deviceStorePath } from "./parse-bundle.ts"
 const READ_METHODS = new Set<string>([
   "sleep.list_nightly",
   "biometrics.stream_summary",
-  "biometrics.spo2_from_raw",
   "activity.list_sessions",
   "activity.list_metrics",
 ])
-
-// Pure functions that derive a value from their args and need no user store.
-const PURE_METHODS = new Set<string>(["biometrics.spo2_from_raw"])
 
 export function isQueryableMethod(method: string): boolean {
   return READ_METHODS.has(method)
@@ -48,20 +44,35 @@ export async function runDataQuery(
   if (!env.BULL_CORE_BIN) {
     throw new Error("sidecar_unavailable")
   }
+  if (!env.BULL_CORE_DATA_DIR) {
+    throw new Error("sidecar_unavailable")
+  }
   const core = new BullCore(env.BULL_CORE_BIN)
   try {
-    if (PURE_METHODS.has(method)) {
-      return await core.request(method, args)
-    }
-    if (!env.BULL_CORE_DATA_DIR) {
-      throw new Error("sidecar_unavailable")
-    }
     const dbPath = deviceStorePath(env.BULL_CORE_DATA_DIR, userId)
     if (!existsSync(dbPath)) {
       return null
     }
     // Server-resolved store path always wins over any client-supplied value.
-    return await core.request(method, { ...args, database_path: dbPath })
+    const result = await core.request(method, { ...args, database_path: dbPath })
+
+    // Single round-trip enrichment: the stream summary carries the latest raw
+    // SpO2 red/ir pair; convert it to a percentage on the same core process so
+    // the client needs one request and the SpO2 formula stays single-sourced in
+    // bull-core (no on-device or duplicated conversion).
+    if (method === "biometrics.stream_summary" && result && typeof result === "object") {
+      const r = result as Record<string, unknown>
+      const red = typeof r["latest_spo2_red"] === "number" ? r["latest_spo2_red"] : undefined
+      const ir = typeof r["latest_spo2_ir"] === "number" ? r["latest_spo2_ir"] : undefined
+      if (red !== undefined && ir !== undefined) {
+        const conv = (await core.request("biometrics.spo2_from_raw", { red, ir })) as
+          | Record<string, unknown>
+          | null
+        r["latest_spo2_pct"] =
+          conv && typeof conv["spo2_pct"] === "number" ? conv["spo2_pct"] : null
+      }
+    }
+    return result
   } finally {
     core.close()
   }

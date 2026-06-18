@@ -37,16 +37,9 @@ final class DeviceBiometricsModel: ObservableObject {
         method: "biometrics.stream_summary",
         args: ["device_id": deviceID]
       ) {
-        // Latest SpO2 via the uncalibrated raw conversion (one tiny call).
-        var latestSpo2: Double?
-        if let red = Self.intValue(rollup["latest_spo2_red"]),
-          let ir = Self.intValue(rollup["latest_spo2_ir"]) {
-          let converted = await HealthDataStore.fetchServerQuery(
-            method: "biometrics.spo2_from_raw",
-            args: ["red": red, "ir": ir]
-          )
-          latestSpo2 = Self.number(converted?["spo2_pct"])
-        }
+        // The summary already carries the converted (uncalibrated) SpO2 percent,
+        // computed server-side in the same request.
+        let latestSpo2 = Self.number(rollup["latest_spo2_pct"])
 
         // Latest skin temperature: raw ADC / 128 = degrees Celsius (uncalibrated).
         let latestSkinTempC = Self.number(rollup["latest_skin_temp_raw"]).map { $0 / 128.0 }
