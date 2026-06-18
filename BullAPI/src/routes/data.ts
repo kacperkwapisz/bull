@@ -7,6 +7,7 @@ import { getObjectStore } from "../lib/object-store.ts"
 import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { profilePushSchema, upsertProfile } from "../services/profile.ts"
+import { pushTokenSchema, upsertPushToken } from "../services/push-tokens.ts"
 import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
 import {
   dataSummary,
@@ -104,7 +105,7 @@ export function dataRoutes(env: Env) {
       if (env.BULL_CORE_BIN && env.BULL_CORE_DATA_DIR) {
         const binaryPath = env.BULL_CORE_BIN
         const dataDir = env.BULL_CORE_DATA_DIR
-        void parseAllPending(db, store, { binaryPath, dataDir }).catch((error: unknown) => {
+        void parseAllPending(db, store, { binaryPath, dataDir, env }).catch((error: unknown) => {
           console.error("[parse] drain failed", {
             error: error instanceof Error ? error.message : String(error),
           })
@@ -282,6 +283,21 @@ export function dataRoutes(env: Env) {
       return created({ ok: true })
     })
 
+  // Register a device's APNs token so the server can push recovery-ready alerts.
+  // Upsert by (user, token); environment routes the sender to sandbox vs prod.
+  const pushToken = route
+    .post("/v1/data/push-token")
+    .body(pushTokenSchema)
+    .use(jwt)
+    .handle(async ({ ctx, body }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      await upsertPushToken(db, userId, body)
+      return created({ ok: true })
+    })
+
   // Packet-derived input reports (the whole dashboard input layer) computed
   // server-side. One latest map per user; honest-empty until first compute.
   const inputs = route
@@ -354,7 +370,7 @@ export function dataRoutes(env: Env) {
       const result = await parseBundle(
         db,
         store,
-        { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR },
+        { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR, env },
         userId,
         id,
       )
@@ -375,6 +391,7 @@ export function dataRoutes(env: Env) {
     vitals,
     spo2,
     profilePush,
+    pushToken,
     inputs,
     dataQuery,
     uploads,

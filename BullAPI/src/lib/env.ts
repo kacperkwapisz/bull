@@ -32,6 +32,15 @@ const envSchema = z.object({
   // Git commit the image was built from, injected at docker build time. Surfaced
   // on /health so a running deploy is identifiable (catches stale-image rolls).
   GIT_SHA: z.string().min(1).optional(),
+
+  // APNs (Apple Push Notification service) for local-account push delivery.
+  // Optional so the API boots without them; push is a no-op until all are set.
+  // APNS_KEY_P8 is the .p8 private key contents (PEM); newlines may be escaped
+  // as \n and are normalized at load. APNS_TOPIC defaults to the app bundle id.
+  APNS_KEY_P8: z.string().min(1).optional(),
+  APNS_KEY_ID: z.string().min(1).optional(),
+  APNS_TEAM_ID: z.string().min(1).optional(),
+  APNS_TOPIC: z.string().min(1).default("com.bull.swift"),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -55,6 +64,11 @@ export function hasObjectStore(env: Env): boolean {
   return Boolean(
     env.S3_ENDPOINT && env.S3_BUCKET && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY,
   )
+}
+
+/** True when all required APNs settings are present (push enabled). */
+export function hasApns(env: Env): boolean {
+  return Boolean(env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID)
 }
 
 export function corsOrigins(env: Env): readonly string[] | "*" {

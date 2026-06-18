@@ -47,6 +47,52 @@ export const appleIdentities = pgTable(
   }),
 )
 
+/**
+ * APNs device tokens for local-account push delivery (recovery-ready alerts).
+ * One row per (user, token); a user may have several devices. environment
+ * distinguishes sandbox (debug builds) from production so the sender targets the
+ * right APNs host.
+ */
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    platform: text("platform").notNull().default("ios"),
+    environment: text("environment").notNull().default("production"),
+    bundleId: text("bundle_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userTokenUnique: uniqueIndex("push_tokens_user_token_uq").on(t.userId, t.token),
+  }),
+)
+
+/**
+ * De-dup ledger for outbound pushes so a re-parse of the same drain cycle does
+ * not re-notify. One row per (user, kind, dedupeKey) — e.g. one recovery push
+ * per local day.
+ */
+export const pushLog = pgTable(
+  "push_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userKindKeyUnique: uniqueIndex("push_log_user_kind_key_uq").on(t.userId, t.kind, t.dedupeKey),
+  }),
+)
+
 export const devices = pgTable(
   "devices",
   {

@@ -20,7 +20,9 @@ import { getBundleForUser } from "./data-read.ts"
 import { computeInputReports } from "./input-reports.ts"
 import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
 import { getUserProfile } from "./profile.ts"
+import { sendRecoveryPush } from "./apns.ts"
 import { BullCore } from "../lib/bull-core.ts"
+import type { Env } from "../lib/env.ts"
 import type { ObjectStore } from "../lib/object-store.ts"
 
 const DEVICE_MODEL = "WHOOP 5.0 Bull"
@@ -111,6 +113,8 @@ interface BundleFrameLine {
 export interface ParseBundleConfig {
   binaryPath: string
   dataDir: string
+  /** When present and APNs is configured, recovery computes emit a push. */
+  env?: Env
 }
 
 export interface ParseBundleResult {
@@ -195,6 +199,7 @@ async function computeUserStore(
   core: BullCore,
   userId: string,
   dbPath: string,
+  config?: ParseBundleConfig,
 ): Promise<void> {
   const windows = pipelineWindows(new Date())
   await core.request("metrics.run_pipeline", {
@@ -248,6 +253,15 @@ async function computeUserStore(
       stress: [{ day, stress_score: scoreValue(stressReport), raw: stressReport }],
     }),
   )
+  // Notify the user's devices that a fresh recovery score is available. Fire-
+  // and-forget + de-duped per (user, day); never blocks or fails the parse.
+  if (config?.env) {
+    try {
+      await sendRecoveryPush(db, config.env, userId, day, scoreValue(recoveryReport))
+    } catch {
+      // best-effort: a push failure must not fail the parse
+    }
+  }
   const sleepDays = (exported.body?.sleep as Array<{ day?: unknown }> | undefined)
     ?.map((row) => row.day)
     .filter((value): value is string => typeof value === "string") ?? []
@@ -348,7 +362,7 @@ export async function parseAllPending(
           }
         }
         if (importedIds.length > 0) {
-          await computeUserStore(db, core, userId, dbPath)
+          await computeUserStore(db, core, userId, dbPath, config)
           await db
             .update(uploadBundles)
             .set({ status: "parsed", parsedAt: new Date(), parseError: null })
@@ -398,7 +412,7 @@ export async function parseBundle(
   try {
     const dbPath = deviceStorePath(config.dataDir, userId)
     const frameCount = await importBundleFrames(store, core, dbPath, bundle.storageKey)
-    await computeUserStore(db, core, userId, dbPath)
+    await computeUserStore(db, core, userId, dbPath, config)
     await db
       .update(uploadBundles)
       .set({ status: "parsed", parsedAt: new Date(), parseError: null })
