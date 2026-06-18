@@ -42,4 +42,19 @@ enum CoachAPIConfiguration {
   static var dataPushTokenURL: URL {
     baseURL.appendingPathComponent("v1/data/push-token")
   }
+
+  /// Journal: upsert/list daily behavior entries.
+  static var dataJournalURL: URL {
+    baseURL.appendingPathComponent("v1/data/journal")
+  }
+
+  /// Journal: default behavior catalog for the picker.
+  static var dataJournalCatalogURL: URL {
+    baseURL.appendingPathComponent("v1/data/journal/catalog")
+  }
+
+  /// Journal: behavior → metric insights.
+  static var dataJournalInsightsURL: URL {
+    baseURL.appendingPathComponent("v1/data/journal/insights")
+  }
 }

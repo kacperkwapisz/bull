@@ -22,6 +22,9 @@
 		A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* BullNotificationScheduler.swift */; };
 		A10000000000000000000902 /* BullAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000902 /* BullAppDelegate.swift */; };
 		A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000903 /* BullPushTokenUploader.swift */; };
+		A10000000000000000000904 /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000904 /* JournalModels.swift */; };
+		A10000000000000000000905 /* JournalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* JournalStore.swift */; };
+		A10000000000000000000906 /* JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000906 /* JournalView.swift */; };
 		A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* RrHrConsistencyDebugView.swift */; };
 		A10000000000000000000004 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* OnboardingView.swift */; };
 		A10000000000000000000005 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ConnectionView.swift */; };
@@ -210,6 +213,9 @@
 		A20000000000000000000901 /* BullNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullNotificationScheduler.swift; sourceTree = "<group>"; };
 		A20000000000000000000902 /* BullAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppDelegate.swift; sourceTree = "<group>"; };
 		A20000000000000000000903 /* BullPushTokenUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPushTokenUploader.swift; sourceTree = "<group>"; };
+		A20000000000000000000904 /* JournalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000905 /* JournalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000906 /* JournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalView.swift; sourceTree = "<group>"; };
 		A20000000000000000000062 /* RrHrConsistencyDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RrHrConsistencyDebugView.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
@@ -438,6 +444,9 @@
 				A20000000000000000000901 /* BullNotificationScheduler.swift */,
 				A20000000000000000000902 /* BullAppDelegate.swift */,
 				A20000000000000000000903 /* BullPushTokenUploader.swift */,
+				A20000000000000000000904 /* JournalModels.swift */,
+				A20000000000000000000905 /* JournalStore.swift */,
+				A20000000000000000000906 /* JournalView.swift */,
 				A20000000000000000000062 /* RrHrConsistencyDebugView.swift */,
 				A20000000000000000000023 /* BullTheme.swift */,
 				A20000000000000000000004 /* OnboardingView.swift */,
@@ -763,6 +772,9 @@
 				A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */,
 				A10000000000000000000902 /* BullAppDelegate.swift in Sources */,
 				A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */,
+				A10000000000000000000904 /* JournalModels.swift in Sources */,
+				A10000000000000000000905 /* JournalStore.swift in Sources */,
+				A10000000000000000000906 /* JournalView.swift in Sources */,
 				A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */,
 				A10000000000000000000004 /* OnboardingView.swift in Sources */,
 				D10000000000000000000009 /* OnboardingModels.swift in Sources */,

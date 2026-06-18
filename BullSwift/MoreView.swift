@@ -42,6 +42,19 @@ struct MoreView: View {
         .accessibilityLabel("Update profile")
       }
 
+      Section {
+        NavigationLink {
+          JournalView()
+        } label: {
+          Label("Journal", systemImage: "book.closed")
+        }
+        .accessibilityLabel("Journal and behavior insights")
+      } header: {
+        Text("Journal")
+      } footer: {
+        Text("Log daily behaviors and see what's helping or hurting your recovery and sleep.")
+      }
+
       Section("Biometric Engine") {
         NavigationLink {
           RrHrConsistencyDebugView(healthStore: healthStore)
