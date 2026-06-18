@@ -33,7 +33,12 @@ extension HealthDataStore {
         self.loadNightlySleepHistory()
       }
       if let strain = reports["strain"] { self.packetScoreReports["strain"] = strain }
-      if let recovery = reports["recovery"] { self.packetScoreReports["recovery"] = recovery }
+      if let recovery = reports["recovery"] {
+        self.packetScoreReports["recovery"] = recovery
+        BullNotificationScheduler.shared.evaluateRecovery(
+          score: self.recoveryScoreValue().map { Int($0.rounded()) }
+        )
+      }
       if let stress = reports["stress"] { self.packetScoreReports["stress"] = stress }
       if !reports.isEmpty {
         Self.saveReportsCache(self.packetScoreReports, name: "scores")

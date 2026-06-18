@@ -37,4 +37,9 @@ enum CoachAPIConfiguration {
   static var dataProfileURL: URL {
     baseURL.appendingPathComponent("v1/data/profile")
   }
+
+  /// APNs device-token registration for recovery-ready push.
+  static var dataPushTokenURL: URL {
+    baseURL.appendingPathComponent("v1/data/push-token")
+  }
 }

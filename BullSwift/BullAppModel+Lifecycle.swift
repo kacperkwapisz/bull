@@ -86,7 +86,13 @@ extension BullAppModel {
 
     // Keep the server's copy of the user's profile/timezone current as the app
     // backgrounds, independent of the overnight-guard state below.
+    if phase == "active" {
+      // Upload the cached APNs token now that the user may have signed in.
+      BullPushTokenUploader.uploadCachedTokenIfNeeded()
+    }
     if phase == "background" || phase == "inactive" {
+      // Re-arm the background battery check whenever we leave the foreground.
+      BullBackgroundTasks.schedule()
       metricSyncCoordinator.pushProfile()
       // Nudge the drain on background, but batched (force:false): upload only if
       // a full batch has accumulated, so frequent fg/bg toggles don't emit tiny

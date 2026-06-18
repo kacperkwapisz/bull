@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct BullSwiftApp: App {
+  @UIApplicationDelegateAdaptor(BullAppDelegate.self) private var appDelegate
   @Environment(\.scenePhase) private var scenePhase
   @StateObject private var model = BullAppModel()
   @StateObject private var router = AppRouter()

@@ -14,6 +14,9 @@ extension BullAppModel {
   }
 
   func handleNotification(_ event: BullNotificationEvent) {
+    // Fresh band data arrived; push the sync-staleness alert forward. The
+    // scheduler self-throttles, so calling this per notification is cheap.
+    BullNotificationScheduler.shared.noteDataActivity()
     let (queueDepth, highWatermark) = incrementNotificationIngestQueueDepth()
     let captureImportActive = shouldPersistDecodedFrames
     let parseContext = notificationParseContext(for: event)

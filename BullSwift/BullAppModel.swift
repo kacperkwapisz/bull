@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import UIKit
 
@@ -56,6 +57,8 @@ final class BullAppModel: ObservableObject {
   @Published var overnightGuardCanExportLastSession = false
 
   let ble: BullBLEClient
+  /// Combine subscriptions for local-notification triggers (battery level).
+  private var notificationCancellables = Set<AnyCancellable>()
   let packetMonitor = PacketMonitorModel()
   let activitySession = ActivitySessionModel()
   let activityLocationTracker = ActivityLocationTracker()
@@ -404,6 +407,15 @@ final class BullAppModel: ObservableObject {
       self?.persistOvernightEventLog(message)
     }
     refreshHeartRateHourlyRanges()
+    BullNotificationScheduler.shared.ensureAuthorization()
+    ble.$batteryLevelPercent
+      .removeDuplicates()
+      .sink { percent in
+        Task { @MainActor in
+          BullNotificationScheduler.shared.batteryChanged(percent: percent)
+        }
+      }
+      .store(in: &notificationCancellables)
     ble.record(source: "app", title: "model.init")
     prepareClientHello()
     performLaunchStorageMaintenance()

@@ -76,6 +76,11 @@
 	<array>
 		<string>bluetooth-central</string>
 		<string>location</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.bull.swift.battery-check</string>
 	</array>
 </dict>
 </plist>

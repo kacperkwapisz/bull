@@ -16,6 +16,7 @@ struct MoreView: View {
   @AppStorage(OnboardingStorage.unitSystem) private var profileUnitSystemRaw = "imperial"
   @AppStorage(OnboardingStorage.heightMm) private var profileHeightMm = 0
   @AppStorage(OnboardingStorage.weightGrams) private var profileWeightGrams = 0
+  @AppStorage("bull.notif.enabled") private var notificationsEnabled = true
 
   @MainActor
   init(healthStore: HealthDataStore) {
@@ -69,6 +70,14 @@ struct MoreView: View {
         routeRows(MoreRoute.settingsRoutes)
       }
 
+      Section {
+        Toggle("Recovery, battery & sync alerts", isOn: $notificationsEnabled)
+      } header: {
+        Text("Notifications")
+      } footer: {
+        Text("Local alerts for a fresh morning recovery score, a low band battery, and a band that has stopped syncing.")
+      }
+
       Section("Support") {
         routeRows(MoreRoute.supportRoutes)
       }
@@ -89,6 +98,9 @@ struct MoreView: View {
       model.recordUIAction("page.opened", detail: "More")
       store.refreshBridgeStatus(model: model)
       store.refreshRecentCaptureSessions()
+    }
+    .onChange(of: notificationsEnabled) { _, enabled in
+      BullNotificationScheduler.shared.setEnabled(enabled)
     }
   }
 
