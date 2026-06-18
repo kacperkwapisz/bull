@@ -883,7 +883,7 @@ private struct ReconnectBackoffBanner: View {
 
   private var reconnectHeadline: String {
     if ble.reconnectAttemptCount > BullBLEClient.reconnectMaxAttempts {
-      return "Reconnection failed after \(BullBLEClient.reconnectMaxAttempts) attempts"
+      return "Searching for your band…"
     }
     return "Reconnecting \(ble.reconnectAttemptCount)/\(BullBLEClient.reconnectMaxAttempts)"
   }

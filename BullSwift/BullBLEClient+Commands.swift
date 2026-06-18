@@ -1053,36 +1053,43 @@ extension BullBLEClient {
 
   /// Schedules a reconnection attempt with exponential backoff.
   /// Delay doubles each attempt: 1s → 2s → 4s → 8s → 16s → 32s → 60s (capped).
-  /// Gives up after `reconnectMaxAttempts` consecutive failures.
+  /// Uses fast exponential backoff for the first `reconnectMaxAttempts`, then an
+  /// indefinite steady-state patrol so a remembered band always reconnects.
   func scheduleReconnectWithBackoff(_ peripheral: CBPeripheral, reason: String) {
     reconnectBackoffWorkItem?.cancel()
 
     reconnectAttemptCount += 1
-    guard reconnectAttemptCount <= Self.reconnectMaxAttempts else {
-      updateReconnectState("gave up after \(Self.reconnectMaxAttempts) attempts")
-      record(
-        level: .warn,
-        source: "ble",
-        title: "reconnect.gave_up",
-        body: "attempts=\(reconnectAttemptCount) reason=\(reason)"
+    // A 24/7 companion must never permanently give up on a remembered band: a
+    // long off-wrist / out-of-range gap should still reconnect when the band
+    // returns. After the fast exponential phase, fall back to an indefinite,
+    // low-frequency patrol instead of stopping.
+    let delay: TimeInterval
+    if reconnectAttemptCount <= Self.reconnectMaxAttempts {
+      let exponent = Double(reconnectAttemptCount - 1)
+      delay = min(
+        Self.reconnectBaseDelay * pow(Self.reconnectBackoffMultiplier, exponent),
+        Self.reconnectMaxDelay
       )
-      return
+      updateReconnectState("retry \(reconnectAttemptCount)/\(Self.reconnectMaxAttempts) in \(Int(delay))s")
+      record(
+        source: "ble",
+        title: "reconnect.backoff.scheduled",
+        body: "attempt=\(reconnectAttemptCount)/\(Self.reconnectMaxAttempts) delay=\(String(format: "%.1f", delay))s reason=\(reason)"
+      )
+    } else {
+      delay = Self.reconnectSteadyStateDelay
+      updateReconnectState("retry patrol every \(Int(delay))s")
+      // Log the transition once, then stay quiet so a long absence doesn't spam.
+      if reconnectAttemptCount == Self.reconnectMaxAttempts + 1 {
+        record(
+          level: .warn,
+          source: "ble",
+          title: "reconnect.steady_state",
+          body: "fast backoff exhausted after \(Self.reconnectMaxAttempts); patrol every \(Int(delay))s reason=\(reason)"
+        )
+      }
     }
-
-    let exponent = Double(reconnectAttemptCount - 1)
-    let delay = min(
-      Self.reconnectBaseDelay * pow(Self.reconnectBackoffMultiplier, exponent),
-      Self.reconnectMaxDelay
-    )
-    let retryAt = Date().addingTimeInterval(delay)
-    reconnectNextRetryAt = retryAt
-
-    updateReconnectState("retry \(reconnectAttemptCount)/\(Self.reconnectMaxAttempts) in \(Int(delay))s")
-    record(
-      source: "ble",
-      title: "reconnect.backoff.scheduled",
-      body: "attempt=\(reconnectAttemptCount)/\(Self.reconnectMaxAttempts) delay=\(String(format: "%.1f", delay))s reason=\(reason)"
-    )
+    reconnectNextRetryAt = Date().addingTimeInterval(delay)
 
     let workItem = DispatchWorkItem { [weak self, weak peripheral] in
       guard let self, let peripheral else { return }

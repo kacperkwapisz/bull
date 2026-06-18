@@ -385,6 +385,9 @@ final class BullBLEClient: NSObject, ObservableObject {
   static let reconnectMaxDelay: TimeInterval = 60.0
   static let reconnectBackoffMultiplier: Double = 2.0
   static let reconnectMaxAttempts = 10
+  /// After the fast exponential phase, keep retrying at this steady interval
+  /// indefinitely so a remembered band reconnects whenever it returns.
+  static let reconnectSteadyStateDelay: TimeInterval = 5 * 60
   static let diagnosticLogFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
