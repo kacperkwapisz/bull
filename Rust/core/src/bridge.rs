@@ -9385,8 +9385,8 @@ fn elapsed_us_u64(started: Instant) -> u64 {
 }
 
 fn behavior_insights_bridge(args: BehaviorInsightsArgs) -> BullResult<serde_json::Value> {
-    let config = args.config.unwrap_or_default();
-    let insights = compute_behavior_insights(&args.records, &config);
+    let config = args.config.clone().unwrap_or_default();
+    let insights = compute_behavior_insights(&args.records, &args.metric, &config);
     serde_json::to_value(insights)
         .map_err(|error| BullError::message(format!("cannot serialize behavior insights: {error}")))
 }
