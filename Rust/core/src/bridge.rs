@@ -24,6 +24,7 @@ use crate::{
         compare_stress_bull_to_reference,
     },
     baselines::{EwmaBaseline, EwmaTrustLevel},
+    behavior_insights::{BehaviorInsightsArgs, compute_behavior_insights},
     biometric_ingest::run_biometric_ingest_for_store,
     sleep_staging::{
         EpochHrFeature, SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
@@ -196,6 +197,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "activity.list_sessions_with_metrics",
     "activity.metrics_for_session_in_window",
     "activity.update_session",
+    "behavior.insights",
     "biometrics.gravity2_between",
     "biometrics.ingest_from_decoded",
     "biometrics.insert_v24_batch",
@@ -2225,6 +2227,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
     match request.method.as_str() {
         "core.version" => bridge_ok(&request.request_id, core_version_payload()),
         "core.list_methods" => bridge_ok(&request.request_id, core_list_methods_payload()),
+        "behavior.insights" => request_args::<BehaviorInsightsArgs>(&request)
+            .and_then(behavior_insights_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "openwhoop.reference_report" => {
             bridge_ok(&request.request_id, openwhoop_reference_report_payload())
         }
@@ -9376,6 +9382,13 @@ fn elapsed_us_u64(started: Instant) -> u64 {
     } else {
         elapsed as u64
     }
+}
+
+fn behavior_insights_bridge(args: BehaviorInsightsArgs) -> BullResult<serde_json::Value> {
+    let config = args.config.unwrap_or_default();
+    let insights = compute_behavior_insights(&args.records, &config);
+    serde_json::to_value(insights)
+        .map_err(|error| BullError::message(format!("cannot serialize behavior insights: {error}")))
 }
 
 fn bridge_ok(request_id: &str, result: serde_json::Value) -> BridgeResponse {

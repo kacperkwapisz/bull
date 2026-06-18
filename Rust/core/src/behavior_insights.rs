@@ -81,6 +81,14 @@ impl BehaviorInsights {
     }
 }
 
+/// Bridge arguments for `behavior.insights`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BehaviorInsightsArgs {
+    pub records: Vec<DailyBehaviorRecord>,
+    #[serde(default)]
+    pub config: Option<InsightConfig>,
+}
+
 /// Tuning for the insight engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsightConfig {
@@ -320,6 +328,37 @@ mod tests {
         assert_eq!(cfg.strength_for(-12.0), ImpactStrength::Strong);
         assert_eq!(cfg.strength_for(6.0), ImpactStrength::Moderate);
         assert_eq!(cfg.strength_for(2.0), ImpactStrength::Weak);
+    }
+
+    #[test]
+    fn bridge_round_trip() {
+        // Exercise the dispatcher end-to-end so the registered method, args
+        // shape, and serialized result stay in sync.
+        let args = serde_json::json!({
+            "records": [
+                { "date": "2026-01-01", "recovery_score": 40.0, "behaviors": ["alcohol"] },
+                { "date": "2026-01-02", "recovery_score": 42.0, "behaviors": ["alcohol"] },
+                { "date": "2026-01-03", "recovery_score": 38.0, "behaviors": ["alcohol"] },
+                { "date": "2026-01-04", "recovery_score": 60.0, "behaviors": [] },
+                { "date": "2026-01-05", "recovery_score": 62.0, "behaviors": [] },
+                { "date": "2026-01-06", "recovery_score": 58.0, "behaviors": [] },
+                { "date": "2026-01-07", "recovery_score": 61.0, "behaviors": [] }
+            ]
+        });
+        let request = serde_json::json!({
+            "schema": crate::bridge::BRIDGE_REQUEST_SCHEMA,
+            "request_id": "test-behavior-insights",
+            "method": "behavior.insights",
+            "args": args,
+        });
+        let response_json =
+            crate::bridge::handle_bridge_request_json(&request.to_string());
+        let response: serde_json::Value = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(response["ok"], serde_json::json!(true), "{response_json}");
+        let result = &response["result"];
+        assert_eq!(result["analyzed_days"], serde_json::json!(7));
+        assert_eq!(result["impacts"][0]["behavior"], serde_json::json!("alcohol"));
+        assert!(result["impacts"][0]["delta"].as_f64().unwrap() < 0.0);
     }
 
     #[test]
