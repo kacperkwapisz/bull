@@ -105,30 +105,6 @@ extension HealthDataStore {
     return hour < 7 || hour >= 23
   }
 
-  func bridgeBaseArgs(requireTrustedEvidence: Bool) -> [String: Any] {
-    [
-      "database_path": databasePath,
-      "start": "0000",
-      "end": "9999",
-      "min_owned_captures": 2,
-      "require_trusted_evidence": requireTrustedEvidence,
-    ]
-  }
-
-  func sleepScoreReport(baseArgs: [String: Any]) throws -> [String: Any] {
-    try bridge.request(
-      method: "metrics.sleep_score_from_features",
-      args: baseArgs.merging([
-        "sleep_need_minutes": 480.0,
-        "low_motion_threshold_0_to_1": 0.05,
-        "disturbance_motion_threshold_0_to_1": 0.20,
-        "target_midpoint_minutes_since_midnight": 180.0,
-        "history_import_in_progress": false,
-        "algorithm_id": "bull.sleep.v1",
-      ]) { _, new in new }
-    )
-  }
-
   func recoveryScoreBridgeArgs() -> [String: Any] {
     [
       "hrv_start": "0000",

@@ -41,20 +41,13 @@ extension HealthDataStore {
   /// Load persisted nightly sleep records (newest first) so sleep trends are
   /// backed by real accumulated history instead of placeholder rows.
   func loadNightlySleepHistory(limit: Int = 30) {
-    let bridge = self.bridge
-    let databasePath = self.databasePath
-    packetInputQueue.async { [weak self] in
-      let report = try? bridge.request(
-        method: "sleep.list_nightly",
-        args: [
-          "database_path": databasePath,
-          "limit": limit,
-        ]
-      )
+    // Server-backed: nightly sleep detail is computed server-side and read
+    // through the data query proxy, so the device no longer needs to retain
+    // decoded sleep history locally.
+    Task { [weak self] in
+      let report = await Self.fetchServerQuery(method: "sleep.list_nightly", args: ["limit": limit])
       let records = Self.nightlySleepRecords(from: report)
-      DispatchQueue.main.async { [weak self] in
-        self?.nightlySleepHistory = records
-      }
+      self?.nightlySleepHistory = records
     }
   }
 

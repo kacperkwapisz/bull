@@ -24,33 +24,24 @@ final class DeviceBiometricsModel: ObservableObject {
   @Published var errorText: String?
   @Published var isLoading = false
 
-  func load(store: HealthDataStore) {
+  func load(store _: HealthDataStore) {
     isLoading = true
-    let bridge = store.bridge
-    let databasePath = store.databasePath
     let deviceID = HealthDataStore.localBiometricDeviceID
 
-    DispatchQueue.global(qos: .userInitiated).async {
-      // Read-only: counts + latest raw readings are computed with SQL aggregates
-      // in Rust, so the full sample history is never paged across the bridge
-      // (avoids large allocations after a long historical sync). Ingest is owned
-      // by the packet-input pipeline; this surface never writes.
+    Task { [weak self] in
+      // Server-backed: stream counts + latest raw readings are computed
+      // server-side from the uploaded sensor frames and read through the data
+      // query proxy, so the device no longer needs to retain decoded streams.
       var summary: StreamSummary?
-      var errorText: String?
-      do {
-        let rollup = try bridge.request(
-          method: "biometrics.stream_summary",
-          args: [
-            "database_path": databasePath,
-            "device_id": deviceID,
-          ]
-        )
-
-        // Latest SpO2 via the uncalibrated raw conversion bridge (one tiny call).
+      if let rollup = await HealthDataStore.fetchServerQuery(
+        method: "biometrics.stream_summary",
+        args: ["device_id": deviceID]
+      ) {
+        // Latest SpO2 via the uncalibrated raw conversion (one tiny call).
         var latestSpo2: Double?
         if let red = Self.intValue(rollup["latest_spo2_red"]),
           let ir = Self.intValue(rollup["latest_spo2_ir"]) {
-          let converted = try? bridge.request(
+          let converted = await HealthDataStore.fetchServerQuery(
             method: "biometrics.spo2_from_raw",
             args: ["red": red, "ir": ir]
           )
@@ -69,15 +60,10 @@ final class DeviceBiometricsModel: ObservableObject {
           gravityCount: Self.intValue(rollup["gravity_count"]) ?? 0,
           gravity2Count: Self.intValue(rollup["gravity2_count"]) ?? 0
         )
-      } catch {
-        errorText = Self.shortError(error)
       }
 
-      DispatchQueue.main.async {
-        self.summary = summary
-        self.errorText = errorText
-        self.isLoading = false
-      }
+      self?.summary = summary
+      self?.isLoading = false
     }
   }
 
@@ -95,11 +81,6 @@ final class DeviceBiometricsModel: ObservableObject {
     if let i = value as? Int { return Double(i) }
     if let n = value as? NSNumber { return n.doubleValue }
     return nil
-  }
-
-  nonisolated private static func shortError(_ error: Error) -> String {
-    let text = String(describing: error)
-    return text.count > 96 ? "\(text.prefix(96))…" : text
   }
 }
 

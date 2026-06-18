@@ -137,6 +137,32 @@ extension HealthDataStore {
   /// reads it verbatim into `packetInputReports` rather than computing on-device.
   /// `nonisolated` so the network work runs off the main actor. Returns an empty
   /// map on any failure so screens fall back to honest unavailable states.
+  /// Read-through query against the server-side store for display surfaces that
+  /// used to read the local store directly (nightly sleep, biometric streams,
+  /// recorded activity). Returns the method `result` object, or nil on failure /
+  /// honest-empty (no server store yet).
+  nonisolated static func fetchServerQuery(method: String, args: [String: Any] = [:]) async -> [String: Any]? {
+    guard let token = CoachAuthKeychain.load() else { return nil }
+    let url = CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/query")
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.timeoutInterval = 30
+    let body: [String: Any] = ["method": method, "args": args]
+    guard
+      JSONSerialization.isValidJSONObject(body),
+      let httpBody = try? JSONSerialization.data(withJSONObject: body)
+    else { return nil }
+    request.httpBody = httpBody
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    return json["result"] as? [String: Any]
+  }
+
   nonisolated static func fetchServerInputReports() async -> [String: [String: Any]] {
     guard let token = CoachAuthKeychain.load() else { return [:] }
     let url = CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/inputs")

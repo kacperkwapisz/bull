@@ -18,7 +18,12 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   /// Hard cap on retained *synced* raw payload. The store is kept this small
   /// regardless of how much has been synced — only a recent slice stays on
   /// device (for the live/recent view); deep history comes from the server.
-  static let syncedRetentionByteCap = 32 * 1024 * 1024
+  // Thin-client retention: every frame is uploaded to the server, which durably
+  // stores the bundle bytes and computes all metrics; the device reads display
+  // data back from the server. So once frames are confirmed synced there is no
+  // reason to keep them locally — drop all synced frames and retain only the
+  // not-yet-uploaded buffer. A far-future cutoff means "all synced".
+  static let drainAllSyncedBefore = "9999-12-31T23:59:59Z"
   /// Safety bound on bundles drained per pass (each pass is re-entrant-safe).
   private static let maxBundlesPerPass = 512
   /// Minimum decoded payload to bother uploading on a non-forced (continuous)
@@ -130,14 +135,15 @@ final class BullFrameDrainUploader: @unchecked Sendable {
       )
     }
 
-    // Hard-bound the local store: keep only a small recent slice of synced
-    // frames; cascade reclaims their decoded rows. Deep history lives server-side.
+    // Collapse the local store to the unsynced buffer: delete every synced frame
+    // (cascade reclaims their decoded rows). Deep history + all display data live
+    // server-side and are read back over the API.
     if let pruneResult = try? bridge.request(
-      method: "store.prune_synced_to_cap",
-      args: ["database_path": databasePath, "max_payload_bytes": Self.syncedRetentionByteCap]
+      method: "store.prune_synced_frames",
+      args: ["database_path": databasePath, "captured_before": Self.drainAllSyncedBefore]
     ) {
       let removed = (pruneResult["removed"] as? Int) ?? 0
-      if removed > 0 { log("drain.pruned", "removed=\(removed) cap=\(Self.syncedRetentionByteCap)") }
+      if removed > 0 { log("drain.pruned", "removed=\(removed)") }
     }
 
     // Fold the freed space back and truncate the WAL.
