@@ -4539,6 +4539,17 @@ fn hrv_feature_from_plan(
     }))
 }
 
+/// Plausible instantaneous heart-rate marker range (bpm). The floor is 30:
+/// values below that are physiologically implausible for a wrist-worn reading
+/// and have been observed as historical-sync artifacts (e.g. spurious 32 bpm),
+/// so they are rejected before entering the resting-HR / recovery pipeline
+/// rather than surfaced as a guessed number.
+const HEART_RATE_MARKER_PLAUSIBLE_BPM: std::ops::RangeInclusive<u8> = 30..=240;
+
+fn heart_rate_marker_is_plausible(marker_value: u8) -> bool {
+    HEART_RATE_MARKER_PLAUSIBLE_BPM.contains(&marker_value)
+}
+
 fn heart_rate_feature_from_plan(
     row: &DecodedFrameRow,
     plan: HeartRatePlan,
@@ -4553,7 +4564,7 @@ fn heart_rate_feature_from_plan(
     if plan.marker_value == 0 {
         return Ok(None);
     }
-    if !(25..=240).contains(&plan.marker_value) {
+    if !heart_rate_marker_is_plausible(plan.marker_value) {
         quality_flags.insert("heart_rate_marker_outside_plausible_range".to_string());
         return Ok(None);
     }
@@ -6760,4 +6771,21 @@ fn civil_from_days(days: i64) -> (i32, u32, u32) {
 
 fn clamp_fraction(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod heart_rate_plausibility_tests {
+    use super::heart_rate_marker_is_plausible;
+
+    #[test]
+    fn rejects_below_30_bpm_floor() {
+        // Historical-sync artifacts like 32 bpm and anything under the floor
+        // must be rejected; 30 and above are accepted up to the 240 ceiling.
+        assert!(!heart_rate_marker_is_plausible(29));
+        assert!(!heart_rate_marker_is_plausible(25));
+        assert!(heart_rate_marker_is_plausible(30));
+        assert!(heart_rate_marker_is_plausible(32));
+        assert!(heart_rate_marker_is_plausible(240));
+        assert!(!heart_rate_marker_is_plausible(241));
+    }
 }
