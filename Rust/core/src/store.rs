@@ -6127,6 +6127,32 @@ impl BullStore {
         start: &str,
         end: &str,
     ) -> BullResult<Vec<DecodedFrameRow>> {
+        // Thin wrapper over the streaming reader: callers that genuinely need
+        // the whole window (tests, small non-compute paths) still get a Vec,
+        // but the SQL lives in exactly one place so the two paths can never
+        // drift. The compute pipeline uses `for_each_decoded_frame_between`
+        // directly to keep peak memory at one row.
+        let mut rows = Vec::new();
+        self.for_each_decoded_frame_between(start, end, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// Stream decoded frames in `[start, end)`, captured-time ordered, invoking
+    /// `callback` once per row. Rows are stepped straight from SQLite and dropped
+    /// after each call, so peak memory is one frame regardless of how many frames
+    /// the window holds — the per-second IMU history never materialises at once.
+    pub fn for_each_decoded_frame_between<F>(
+        &self,
+        start: &str,
+        end: &str,
+        mut callback: F,
+    ) -> BullResult<()>
+    where
+        F: FnMut(DecodedFrameRow) -> BullResult<()>,
+    {
         validate_required("start", start)?;
         validate_required("end", end)?;
 
@@ -6158,10 +6184,12 @@ impl BullStore {
             ORDER BY raw_evidence.captured_at, decoded_frames.frame_id
             "#,
         )?;
-        let rows = statement.query_map(params![start, end], decoded_frame_from_row)?;
-
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(BullError::from)
+        let mut rows = statement.query(params![start, end])?;
+        while let Some(row) = rows.next()? {
+            let frame = decoded_frame_from_row(row).map_err(BullError::from)?;
+            callback(frame)?;
+        }
+        Ok(())
     }
 
     pub fn decoded_frame(&self, frame_id: &str) -> BullResult<Option<DecodedFrameRow>> {

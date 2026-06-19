@@ -1104,7 +1104,6 @@ pub fn run_motion_feature_report_for_store(
     end: &str,
     options: MotionFeatureOptions,
 ) -> BullResult<MotionFeatureReport> {
-    let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
         database_path,
@@ -1115,37 +1114,61 @@ pub fn run_motion_feature_report_for_store(
             require_owned_captures: options.require_trusted_evidence,
         },
     )?;
-    run_motion_feature_report(&decoded_rows, &correlation, options)
+    // Stream the frame scan: peak memory stays at one row + the (compact)
+    // feature set, instead of materialising every frame's payload in this
+    // window. The per-row logic is the exact helper the slice path uses, so the
+    // report is identical (proven by streaming_parity_tests).
+    let trusted_frames = motion_trusted_frames(&correlation);
+    let mut candidate_frame_count = 0usize;
+    let mut features = Vec::new();
+    store.for_each_decoded_frame_between(start, end, |row| {
+        push_motion_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)
+    })?;
+    Ok(assemble_motion_report(
+        features,
+        candidate_frame_count,
+        &correlation,
+        options,
+    ))
 }
 
-pub fn run_motion_feature_report(
-    decoded_rows: &[DecodedFrameRow],
-    correlation: &CaptureCorrelationReport,
-    options: MotionFeatureOptions,
-) -> BullResult<MotionFeatureReport> {
-    let trusted_frames = trusted_frames_for_summary_kinds(
+/// Summary kinds whose frames carry motion features.
+fn motion_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap<String, bool> {
+    trusted_frames_for_summary_kinds(
         correlation,
         &["raw_motion_k10", "raw_motion_k21", "v24_history"],
-    );
+    )
+}
+
+/// Apply one decoded frame to the motion feature set. Shared by the slice and
+/// streaming paths so both compute byte-identical reports.
+fn push_motion_feature(
+    row: &DecodedFrameRow,
+    trusted_frames: &BTreeMap<String, bool>,
+    candidate_frame_count: &mut usize,
+    features: &mut Vec<MotionFeature>,
+) -> BullResult<()> {
+    let Some(plan) = motion_plan_from_row(row)? else {
+        return Ok(());
+    };
+    *candidate_frame_count += 1;
+    let payload = decode_hex_with_whitespace(&row.payload_hex)?;
+    if let Some(feature) = motion_feature_from_plan(row, &payload, plan, trusted_frames)? {
+        features.push(feature);
+    }
+    Ok(())
+}
+
+fn assemble_motion_report(
+    features: Vec<MotionFeature>,
+    candidate_frame_count: usize,
+    correlation: &CaptureCorrelationReport,
+    options: MotionFeatureOptions,
+) -> MotionFeatureReport {
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
     }
-
-    let mut candidate_frame_count = 0;
-    let mut features = Vec::new();
-    for row in decoded_rows {
-        let Some(plan) = motion_plan_from_row(row)? else {
-            continue;
-        };
-        candidate_frame_count += 1;
-        let payload = decode_hex_with_whitespace(&row.payload_hex)?;
-        let Some(feature) = motion_feature_from_plan(row, &payload, plan, &trusted_frames)? else {
-            continue;
-        };
-        features.push(feature);
-    }
-
     let trusted_feature_count = features
         .iter()
         .filter(|feature| feature.trusted_metric_input)
@@ -1155,7 +1178,7 @@ pub fn run_motion_feature_report(
     }
     let next_actions = metric_feature_next_actions("motion", &issues);
 
-    Ok(MotionFeatureReport {
+    MotionFeatureReport {
         schema: MOTION_FEATURE_REPORT_SCHEMA.to_string(),
         generated_by: "bull-motion-feature-extractor".to_string(),
         pass: issues.is_empty(),
@@ -1167,7 +1190,26 @@ pub fn run_motion_feature_report(
         features,
         issues,
         next_actions,
-    })
+    }
+}
+
+pub fn run_motion_feature_report(
+    decoded_rows: &[DecodedFrameRow],
+    correlation: &CaptureCorrelationReport,
+    options: MotionFeatureOptions,
+) -> BullResult<MotionFeatureReport> {
+    let trusted_frames = motion_trusted_frames(correlation);
+    let mut candidate_frame_count = 0usize;
+    let mut features = Vec::new();
+    for row in decoded_rows {
+        push_motion_feature(row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+    }
+    Ok(assemble_motion_report(
+        features,
+        candidate_frame_count,
+        correlation,
+        options,
+    ))
 }
 
 pub fn run_heart_rate_feature_report_for_store(
@@ -1177,7 +1219,6 @@ pub fn run_heart_rate_feature_report_for_store(
     end: &str,
     options: HeartRateFeatureOptions,
 ) -> BullResult<HeartRateFeatureReport> {
-    let decoded_rows = store.decoded_frames_between(start, end)?;
     let correlation = run_capture_correlation_for_store(
         store,
         database_path,
@@ -1188,36 +1229,54 @@ pub fn run_heart_rate_feature_report_for_store(
             require_owned_captures: options.require_trusted_evidence,
         },
     )?;
-    run_heart_rate_feature_report(&decoded_rows, &correlation, options)
+    // Stream the scan (identical logic to the slice path; see parity tests).
+    let trusted_frames = heart_rate_trusted_frames(&correlation);
+    let mut candidate_frame_count = 0usize;
+    let mut features = Vec::new();
+    store.for_each_decoded_frame_between(start, end, |row| {
+        push_heart_rate_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)
+    })?;
+    Ok(assemble_heart_rate_report(
+        features,
+        candidate_frame_count,
+        &correlation,
+        options,
+    ))
 }
 
-pub fn run_heart_rate_feature_report(
-    decoded_rows: &[DecodedFrameRow],
-    correlation: &CaptureCorrelationReport,
-    options: HeartRateFeatureOptions,
-) -> BullResult<HeartRateFeatureReport> {
-    let trusted_frames = trusted_frames_for_summary_kinds(
+fn heart_rate_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap<String, bool> {
+    trusted_frames_for_summary_kinds(
         correlation,
         &["normal_history", "v18_history", "raw_motion_k10", "v24_history"],
-    );
+    )
+}
+
+fn push_heart_rate_feature(
+    row: &DecodedFrameRow,
+    trusted_frames: &BTreeMap<String, bool>,
+    candidate_frame_count: &mut usize,
+    features: &mut Vec<HeartRateFeature>,
+) -> BullResult<()> {
+    let Some(plan) = heart_rate_plan_from_row(row)? else {
+        return Ok(());
+    };
+    *candidate_frame_count += 1;
+    if let Some(feature) = heart_rate_feature_from_plan(row, plan, trusted_frames)? {
+        features.push(feature);
+    }
+    Ok(())
+}
+
+fn assemble_heart_rate_report(
+    features: Vec<HeartRateFeature>,
+    candidate_frame_count: usize,
+    correlation: &CaptureCorrelationReport,
+    options: HeartRateFeatureOptions,
+) -> HeartRateFeatureReport {
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
     }
-
-    let mut candidate_frame_count = 0;
-    let mut features = Vec::new();
-    for row in decoded_rows {
-        let Some(plan) = heart_rate_plan_from_row(row)? else {
-            continue;
-        };
-        candidate_frame_count += 1;
-        let Some(feature) = heart_rate_feature_from_plan(row, plan, &trusted_frames)? else {
-            continue;
-        };
-        features.push(feature);
-    }
-
     let trusted_feature_count = features
         .iter()
         .filter(|feature| feature.trusted_metric_input)
@@ -1227,7 +1286,7 @@ pub fn run_heart_rate_feature_report(
     }
     let next_actions = metric_feature_next_actions("heart_rate", &issues);
 
-    Ok(HeartRateFeatureReport {
+    HeartRateFeatureReport {
         schema: HEART_RATE_FEATURE_REPORT_SCHEMA.to_string(),
         generated_by: "bull-heart-rate-feature-extractor".to_string(),
         pass: issues.is_empty(),
@@ -1239,7 +1298,26 @@ pub fn run_heart_rate_feature_report(
         features,
         issues,
         next_actions,
-    })
+    }
+}
+
+pub fn run_heart_rate_feature_report(
+    decoded_rows: &[DecodedFrameRow],
+    correlation: &CaptureCorrelationReport,
+    options: HeartRateFeatureOptions,
+) -> BullResult<HeartRateFeatureReport> {
+    let trusted_frames = heart_rate_trusted_frames(correlation);
+    let mut candidate_frame_count = 0usize;
+    let mut features = Vec::new();
+    for row in decoded_rows {
+        push_heart_rate_feature(row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+    }
+    Ok(assemble_heart_rate_report(
+        features,
+        candidate_frame_count,
+        correlation,
+        options,
+    ))
 }
 
 pub fn run_vital_event_feature_report_for_store(
