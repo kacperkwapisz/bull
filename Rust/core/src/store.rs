@@ -5764,6 +5764,50 @@ impl BullStore {
             .map_err(BullError::from)
     }
 
+    /// Raw-evidence metadata only (no `payload_hex`/`sha256`). Capture
+    /// correlation needs only source/sensitivity/captured_at/device_model to
+    /// build its per-frame trust map, so loading the raw bytes for every row
+    /// would waste memory proportional to the whole window. The omitted fields
+    /// are returned empty.
+    pub fn raw_evidence_meta_between(
+        &self,
+        start: &str,
+        end: &str,
+    ) -> BullResult<Vec<RawEvidenceRow>> {
+        validate_required("start", start)?;
+        validate_required("end", end)?;
+
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                evidence_id,
+                source,
+                captured_at,
+                device_model,
+                sensitivity,
+                capture_session_id
+            FROM raw_evidence
+            WHERE captured_at >= ?1 AND captured_at < ?2
+            ORDER BY captured_at, evidence_id
+            "#,
+        )?;
+        let rows = statement.query_map(params![start, end], |row| {
+            Ok(RawEvidenceRow {
+                evidence_id: row.get(0)?,
+                source: row.get(1)?,
+                captured_at: row.get(2)?,
+                device_model: row.get(3)?,
+                payload_hex: String::new(),
+                sha256: String::new(),
+                sensitivity: row.get(4)?,
+                capture_session_id: row.get(5)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(BullError::from)
+    }
+
     pub fn raw_evidence_payload_bytes(&self) -> BullResult<i64> {
         Ok(self.conn.query_row(
             r#"

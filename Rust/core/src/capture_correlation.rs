@@ -169,14 +169,71 @@ pub fn run_capture_correlation_for_store(
     if start >= end {
         return Err(BullError::message("start must be earlier than end"));
     }
-    let raw_rows = store.raw_evidence_between(start, end)?;
-    let decoded_rows = store.decoded_frames_between(start, end)?;
-    Ok(run_capture_correlation_for_rows(
-        evidence_scope,
-        &raw_rows,
-        &decoded_rows,
-        options,
-    ))
+    // Stream the decoded frames rather than materialising the whole window:
+    // each pass of the pipeline runs correlation, and the payloads dominate
+    // memory. We only need lightweight raw metadata (no payload_hex) plus a
+    // forward scan of decoded frames to build the observations. Logic is the
+    // same as run_capture_correlation_for_rows (covered by parity tests).
+    let raw_rows = store.raw_evidence_meta_between(start, end)?;
+    let raw_by_id = raw_rows
+        .iter()
+        .map(|row| (row.evidence_id.as_str(), row))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut observations = Vec::new();
+    let mut issues = Vec::new();
+    if options.min_owned_captures_per_summary == 0 {
+        issues.push("min_owned_captures_per_summary must be greater than zero".to_string());
+    }
+
+    store.for_each_decoded_frame_between(start, end, |row| {
+        let Some(raw) = raw_by_id.get(row.evidence_id.as_str()) else {
+            issues.push(format!(
+                "{} decoded frame has no raw evidence row {}",
+                row.frame_id, row.evidence_id
+            ));
+            return Ok(());
+        };
+        let parsed_payload: Option<ParsedPayload> =
+            match serde_json::from_str(&row.parsed_payload_json) {
+                Ok(parsed_payload) => parsed_payload,
+                Err(source) => {
+                    issues.push(format!(
+                        "{} parsed_payload_json invalid: {source}",
+                        row.frame_id
+                    ));
+                    return Ok(());
+                }
+            };
+        push_decoded_frame_observation(&mut observations, raw, &row, parsed_payload.as_ref());
+        Ok(())
+    })?;
+
+    if observations.is_empty() {
+        issues.push("no packet/event summaries found for capture correlation".to_string());
+    }
+
+    let summaries = summarize_observations(
+        &observations,
+        options.min_owned_captures_per_summary,
+        options.require_owned_captures,
+        &mut issues,
+    );
+    let next_capture_actions =
+        report_next_capture_actions(&summaries, observations.is_empty(), &options);
+
+    Ok(CaptureCorrelationReport {
+        schema: CAPTURE_CORRELATION_REPORT_SCHEMA.to_string(),
+        generated_by: "bull-capture-correlation".to_string(),
+        fixture_root: evidence_scope.to_string(),
+        pass: issues.is_empty(),
+        min_owned_captures_per_summary: options.min_owned_captures_per_summary,
+        require_owned_captures: options.require_owned_captures,
+        observations,
+        summaries,
+        issues,
+        next_capture_actions,
+    })
 }
 
 pub fn run_capture_correlation_for_rows(
