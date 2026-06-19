@@ -32,7 +32,17 @@ const LOCAL_BIOMETRIC_DEVICE_ID = "bull-local"
 // recent history to compute current scores/baselines — pruning older frames
 // keeps every compute cheap regardless of total history. Frames are pruned by
 // captured_at (receive time), which is how the score engine windows them.
-const STORE_RETENTION_DAYS = 60
+//
+// This MUST stay small: a WHOOP 5.0 streams per-second IMU/HR, so each retained
+// day is ~150-200 MB once the compute materialises it. The feature passes load
+// the whole retained window into memory, so retention is effectively the
+// compute's peak-memory knob. Long-term baselines (EWMA, daily rollups) persist
+// in their own tables and survive the prune, so a short raw-frame window does
+// not lose baseline history. Override per-deployment via BULL_STORE_RETENTION_DAYS.
+const STORE_RETENTION_DAYS = Math.max(
+  1,
+  Number(process.env.BULL_STORE_RETENTION_DAYS ?? "3") || 3,
+)
 
 // Nightly sleep-score tuning. Mirrors the device's read-time score call
 // (HealthDataStore+Utilities.swift `sleepScoreReport`); kept here so the server
@@ -201,6 +211,17 @@ async function computeUserStore(
   dbPath: string,
   config?: ParseBundleConfig,
 ): Promise<void> {
+  // Prune BEFORE compute, not after. The feature passes materialise the whole
+  // retained window into memory, so an unbounded store OOM-kills run_pipeline
+  // (SIGKILL) before it can reach the old prune-at-the-end. Bounding the window
+  // up front caps peak memory at the retention window and breaks the vicious
+  // cycle where a crash left the store to grow forever.
+  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
+  await core.request("store.prune_raw_evidence_before", {
+    database_path: dbPath,
+    captured_before: cutoff,
+  })
+
   const windows = pipelineWindows(new Date())
   await core.request("metrics.run_pipeline", {
     database_path: dbPath,
@@ -285,13 +306,8 @@ async function computeUserStore(
       set: { raw: inputReportsMap, computedAt: new Date() },
     })
 
-  // Bound the workspace: results are now durable in Postgres, so drop raw frames
-  // older than the baseline window. Keeps each compute's full-store scan cheap.
-  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
-  await core.request("store.prune_raw_evidence_before", {
-    database_path: dbPath,
-    captured_before: cutoff,
-  })
+  // (Raw-frame pruning now runs at the START of this function so the heavy
+  // feature passes never scan an unbounded window.)
 }
 
 // Serializes all drains (background interval + per-upload trigger) so only one
