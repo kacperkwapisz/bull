@@ -76,8 +76,6 @@ pub fn run_biometric_ingest_for_store(
     start: &str,
     end: &str,
 ) -> BullResult<BiometricIngestReport> {
-    let decoded_rows = store.decoded_frames_between(start, end)?;
-
     let mut considered_frame_count = 0usize;
     let mut crc_rejected_frame_count = 0usize;
     let mut v24_frame_count = 0usize;
@@ -95,17 +93,19 @@ pub fn run_biometric_ingest_for_store(
         sig_quality: Vec::new(),
     };
 
-    for row in &decoded_rows {
+    // Stream the scan so per-second biometric history never materialises at
+    // once; the loop is forward-only so behaviour is identical to a slice walk.
+    store.for_each_decoded_frame_between(start, end, |row| {
         if !row.header_crc_valid || !row.payload_crc_valid {
             crc_rejected_frame_count += 1;
-            continue;
+            return Ok(());
         }
 
         let parsed: Option<ParsedPayload> = match serde_json::from_str(&row.parsed_payload_json) {
             Ok(parsed) => parsed,
             Err(error) => {
                 issues.push(format!("{} parsed_payload_json invalid: {error}", row.frame_id));
-                continue;
+                return Ok(());
             }
         };
 
@@ -115,13 +115,13 @@ pub fn run_biometric_ingest_for_store(
             ..
         }) = parsed
         else {
-            continue;
+            return Ok(());
         };
 
         // The device clock (seconds) is the sample time basis the typed tables
         // and downstream windows use. Without it, samples are not time-locatable.
         let Some(ts) = timestamp_seconds.map(|s| s as f64) else {
-            continue;
+            return Ok(());
         };
 
         match body_summary {
@@ -193,7 +193,8 @@ pub fn run_biometric_ingest_for_store(
             }
             _ => {}
         }
-    }
+        Ok(())
+    })?;
 
     let gravity_inserted = store.insert_gravity_rows(device_id, &gravity)?;
     let gravity2_inserted = store.insert_gravity2_batch(device_id, &gravity2)?;
