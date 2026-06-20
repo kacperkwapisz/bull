@@ -2403,6 +2403,10 @@ fn export_sensor_samples(
                 // the generic sensor-sample export path does not handle them — skip
                 // gracefully (typed surfacing is a separate, later pipeline step).
             }
+            DataPacketBodySummary::R20Optical { .. } => {
+                // R20 optical PPG is consumed by the HR/HRV pipeline, not the
+                // generic sensor-sample export.
+            }
         }
     }
     Ok(rows)

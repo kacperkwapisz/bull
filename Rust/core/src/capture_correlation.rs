@@ -731,6 +731,7 @@ fn body_summary_kind(summary: &DataPacketBodySummary) -> &'static str {
         DataPacketBodySummary::V24History { .. } => "v24_history",
         DataPacketBodySummary::R22Whoop5Hr { .. } => "r22_whoop5_hr",
         DataPacketBodySummary::V18History { .. } => "v18_history",
+        DataPacketBodySummary::R20Optical { .. } => "r20_optical",
     }
 }
 

@@ -182,6 +182,20 @@ pub enum DataPacketBodySummary {
         axes: Vec<I16SeriesSummary>,
         warnings: Vec<String>,
     },
+    /// R20 ("Optical/Maverick") historical report. Contains multi-channel
+    /// raw PPG (photoplethysmogram) samples from the optical AFE. The green
+    /// channel is the primary signal for heart-rate and HRV extraction.
+    R20Optical {
+        /// 25 × i32 green-LED PPG samples (body offset 226..326).
+        green_ppg_samples: Vec<i32>,
+        /// 25 × i32 channel-A samples (body offset 24..124); encoding TBD.
+        channel_a_samples: Vec<i32>,
+        /// 25 × i32 channel-C samples (body offset 1290..1390).
+        channel_c_samples: Vec<i32>,
+        /// 25 × i32 channel-D samples (body offset 1490..1590).
+        channel_d_samples: Vec<i32>,
+        warnings: Vec<String>,
+    },
     R22Whoop5Hr {
         battery_pct: Option<u8>,
         hr_milli_bpm: Option<u16>,
@@ -579,6 +593,7 @@ fn parse_data_packet_body_summary(
         18 => parse_v18_body(payload),
         17 => parse_r17_body_summary(payload),
         10 => parse_k10_raw_motion_summary(payload),
+        20 => parse_r20_optical_summary(payload),
         21 => parse_k21_raw_motion_summary(payload),
         24 => parse_v24_body_summary(payload),
         _ => (None, Vec::new()),
@@ -870,6 +885,59 @@ fn parse_k10_raw_motion_summary(payload: &[u8]) -> (Option<DataPacketBodySummary
         Some(DataPacketBodySummary::RawMotionK10 {
             heart_rate: payload.get(17).copied(),
             axes,
+            warnings: warnings.clone(),
+        }),
+        warnings,
+    )
+}
+
+/// Decode the R20 (optical/Maverick) historical body. The 2115-byte body
+/// contains multiple channels of 25 × i32-LE PPG samples at fixed offsets.
+/// Channel layout determined empirically from production frames:
+///   [24..124)   = channel A (packed/encoded, large-range)
+///   [226..326)  = green PPG (smooth, mean ~200K, AC-coupled pulsatile)
+///   [1290..1390) = channel C (red/IR candidate, ~30M range)
+///   [1490..1590) = channel D (red/IR candidate, ~15M range)
+fn parse_r20_optical_summary(payload: &[u8]) -> (Option<DataPacketBodySummary>, Vec<String>) {
+    let mut warnings = Vec::new();
+    // Body starts at payload[11] (after 8-byte frame header + 3-byte data-packet header).
+    // But body_hex is already the body portion; offsets are relative to body start.
+    // The body offset in our analysis was relative to body_hex, which corresponds to
+    // payload[11..] in the full frame. parse_data_packet_body_summary receives `payload`
+    // which is the full frame. So body_offset = 11.
+    let body_start = 11;
+    let body_len = payload.len().saturating_sub(body_start + 4); // minus CRC32
+    if body_len < 326 {
+        warnings.push(format!("r20_body_too_short: {body_len} < 326"));
+        return (None, warnings);
+    }
+    let body = &payload[body_start..];
+
+    let read_channel = |offset: usize, count: usize| -> Vec<i32> {
+        (0..count)
+            .filter_map(|i| {
+                let s = offset + i * 4;
+                body.get(s..s + 4)
+                    .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            })
+            .collect()
+    };
+
+    let green_ppg_samples = read_channel(226, 25);
+    let channel_a_samples = read_channel(24, 25);
+    let channel_c_samples = if body_len >= 1390 { read_channel(1290, 25) } else { Vec::new() };
+    let channel_d_samples = if body_len >= 1590 { read_channel(1490, 25) } else { Vec::new() };
+
+    if green_ppg_samples.iter().all(|v| *v == 0) {
+        warnings.push("r20_green_ppg_all_zero".to_string());
+    }
+
+    (
+        Some(DataPacketBodySummary::R20Optical {
+            green_ppg_samples,
+            channel_a_samples,
+            channel_c_samples,
+            channel_d_samples,
             warnings: warnings.clone(),
         }),
         warnings,
