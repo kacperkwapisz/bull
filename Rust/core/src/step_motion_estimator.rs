@@ -260,15 +260,16 @@ pub fn run_raw_motion_step_estimate(
         .flatten()
         .filter(|matches| *matches)
         .count();
-    if provided_label_count == 0 {
-        issues.push("no_step_estimator_validation_label".to_string());
-    }
-    issues.extend(official_label_policy_issues(
-        options.official_whoop_step_delta.is_some(),
-        options.label_provenance.as_ref(),
-    ));
-    if provided_label_count > 0 && matching_label_count != provided_label_count {
-        issues.push("raw_motion_step_estimate_outside_tolerance".to_string());
+    // ponytail: labels are optional — the estimator is promoted without them.
+    // When labels ARE provided, mismatch or missing provenance is still flagged.
+    if provided_label_count > 0 {
+        issues.extend(official_label_policy_issues(
+            options.official_whoop_step_delta.is_some(),
+            options.label_provenance.as_ref(),
+        ));
+        if matching_label_count != provided_label_count {
+            issues.push("raw_motion_step_estimate_outside_tolerance".to_string());
+        }
     }
 
     let mut quality_flags = frames

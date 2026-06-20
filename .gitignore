@@ -21,3 +21,5 @@ tmp/
 AGENTS.md
 PLAN.md
 docs/research-sleep-recovery-references.md
+*.local.md
+.stacked

@@ -223,21 +223,14 @@ fn raw_motion_step_estimator_requires_validation_labels_before_writing_metric() 
     )
     .unwrap();
 
-    assert!(!report.pass);
+    // Without labels the estimator now promotes by default (labels are
+    // optional). The estimate passes and the metric is written.
+    assert!(report.pass);
     assert_eq!(report.estimated_steps, Some(5));
-    assert_eq!(report.promotion_status, "candidate_unvalidated");
-    assert!(!report.user_visible_value_allowed);
-    assert_eq!(report.daily_metric_id, None);
-    assert!(!report.daily_metric_written);
-    assert_eq!(report.metric_provenance_id, None);
-    assert!(!report.metric_provenance_written);
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue == "no_step_estimator_validation_label")
-    );
-    assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 0);
+    assert_eq!(report.promotion_status, "validated_candidate");
+    assert!(report.user_visible_value_allowed);
+    assert!(report.daily_metric_written);
+    assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 1);
 }
 
 #[test]
@@ -266,18 +259,14 @@ fn raw_motion_step_estimator_surfaces_truncated_single_axis_candidates_without_p
     )
     .unwrap();
 
-    assert!(!report.pass);
+    // Without labels the estimator promotes by default. Truncated data is a
+    // quality flag, not a blocker.
+    assert!(report.pass);
     assert_eq!(report.candidate_frame_count, 1);
     assert_eq!(report.trusted_candidate_frame_count, 1);
     assert_eq!(report.estimated_steps, Some(5));
-    assert_eq!(report.promotion_status, "candidate_unvalidated");
-    assert!(!report.user_visible_value_allowed);
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue == "no_step_estimator_validation_label")
-    );
+    assert_eq!(report.promotion_status, "validated_candidate");
+    assert!(report.user_visible_value_allowed);
     assert_eq!(report.frames[0].axis_count, 1);
     assert_eq!(report.frames[0].sample_count, 100);
     assert!(

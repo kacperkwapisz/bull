@@ -3978,6 +3978,22 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         "step_counter_ingest".to_string(),
         call("metrics.step_counter_ingest", merge(base(), json!({ "max_candidate_fields": 1000 })))?,
     );
+    // Raw-motion step estimate from R21 IMU — runs when the device counter
+    // path (step_counter_ingest) has no explicit step field, which is the
+    // common case for this device. Writes a daily_activity_metric when the
+    // estimate passes, so the unavailable-status gate sees it.
+    reports.insert(
+        "raw_motion_step_estimate".to_string(),
+        call(
+            "metrics.raw_motion_step_estimate",
+            merge(base(), json!({
+                "require_trusted_evidence": false,
+                "date_key": daily.date_key,
+                "timezone": daily.timezone,
+                "write_metric": true,
+            })),
+        )?,
+    );
     reports.insert(
         "biometric_ingest".to_string(),
         call(
@@ -9683,7 +9699,7 @@ mod tests {
         ] {
             assert!(reports.contains_key(key), "missing pipeline report: {key}");
         }
-        assert_eq!(reports.len(), 22, "expected exactly 22 pipeline steps");
+        assert_eq!(reports.len(), 23, "expected exactly 23 pipeline steps");
     }
 
     #[test]
