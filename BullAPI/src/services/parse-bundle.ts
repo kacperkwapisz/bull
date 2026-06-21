@@ -284,6 +284,7 @@ async function computeUserStore(
     const mergedBody = { ...exported.body, vitals: vitalsArray }
     await ingestMetrics(db, userId, metricsPushSchema.parse(mergedBody))
   }
+  console.log(`[compute] ${userId} vitals days: ${vitalsArray.map(v => (v as any).day).join(', ') || 'NONE'}`)
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
