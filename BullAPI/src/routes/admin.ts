@@ -85,11 +85,12 @@ export function adminRoutes(env: Env) {
     return ok(result)
   })
 
-  const debug = route.get("/admin/debug/:userId").handle(async ({ req, params }) => {
+  const debug = route.get("/admin/debug").handle(async ({ req }) => {
     const auth = req.headers.get("authorization")
     if (auth !== `Bearer ${secret}`) return json(401, { error: "unauthorized" })
     if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) return json(503, { error: "not_configured" })
-    const userId = (params as any).userId as string
+    const userId = new URL(req.url).searchParams.get("userId")?.trim()
+    if (!userId) return json(400, { error: "userId required" })
     const dbPath = deviceStorePath(env.BULL_CORE_DATA_DIR, userId)
     const core = new BullCore(env.BULL_CORE_BIN)
     try {
