@@ -91,16 +91,13 @@ const SCORE_ARGS = {
 } as const
 
 /** Pull the 0-100 score out of a *_score_from_features report. */
-function scoreValue(report: unknown, label?: string): number | null {
+function scoreValue(report: unknown): number | null {
   const output = (report as { score_result?: { output?: Record<string, unknown> } })
     ?.score_result?.output
   if (!output) return null
   // strain uses score_0_to_21; recovery/sleep/stress use score_0_to_100
   for (const key of ["score_0_to_100", "score_0_to_21"]) {
-    if (typeof output[key] === "number") {
-      if (label) console.log(`[scoreValue] ${label}: ${key}=${output[key]}`)
-      return output[key] as number
-    }
+    if (typeof output[key] === "number") return output[key] as number
   }
   return null
 }
@@ -284,7 +281,6 @@ async function computeUserStore(
     const mergedBody = { ...exported.body, vitals: vitalsArray }
     await ingestMetrics(db, userId, metricsPushSchema.parse(mergedBody))
   }
-  console.log(`[compute] ${userId} vitals days: ${vitalsArray.map(v => (v as any).day).join(', ') || 'NONE'}`)
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
@@ -315,8 +311,8 @@ async function computeUserStore(
             raw: recoveryReport,
           },
         ],
-        strain: [{ day, strain_score: scoreValue(strainReport, `strain.${day}`), raw: strainReport }],
-        stress: [{ day, stress_score: scoreValue(stressReport, `stress.${day}`), raw: stressReport }],
+        strain: [{ day, strain_score: scoreValue(strainReport), raw: strainReport }],
+        stress: [{ day, stress_score: scoreValue(stressReport), raw: stressReport }],
       }),
     )
     // Notify the user's devices that a fresh recovery score is available.
@@ -467,11 +463,9 @@ async function importAndComputeBatch(
       const core = new BullCore(config.binaryPath)
       const dbPath = deviceStorePath(config.dataDir, userId)
       try {
-        console.log(`[drain] computing user ${userId}, days: ${[...importedDays].join(',')}}`)
         await computeUserStore(db, core, userId, dbPath, config, importedDays)
         lastComputeAtByUser.set(userId, Date.now())
         computedUsers.push(userId)
-        console.log(`[drain] compute done for ${userId}`)
       } catch (error) {
         console.error("[parse] compute failed", { userId, error: errorMessage(error) })
       } finally {

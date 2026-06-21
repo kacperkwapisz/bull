@@ -6165,6 +6165,13 @@ impl BullStore {
         captured_at_exclusive: &str,
     ) -> BullResult<usize> {
         validate_required("captured_at_exclusive", captured_at_exclusive)?;
+        // Prune decoded_frames first (FK cascade is off by default in SQLite).
+        self.conn.execute(
+            "DELETE FROM decoded_frames WHERE evidence_id IN (
+                SELECT evidence_id FROM raw_evidence WHERE captured_at < ?1
+            )",
+            params![captured_at_exclusive],
+        )?;
         let removed = self.conn.execute(
             "DELETE FROM raw_evidence WHERE captured_at < ?1",
             params![captured_at_exclusive],
