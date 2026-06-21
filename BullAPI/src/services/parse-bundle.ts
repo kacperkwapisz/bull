@@ -266,6 +266,10 @@ async function computeUserStore(
     "metrics.export_curated",
     { database_path: dbPath, source: "server_parse" },
   )
+  const exportCounts = exported.body
+    ? { vitals: ((exported.body.vitals as any[]) ?? []).length, sleep: ((exported.body.sleep as any[]) ?? []).length }
+    : { vitals: 0, sleep: 0 }
+  console.log(`[compute] ${userId} export: vitals=${exportCounts.vitals} sleep=${exportCounts.sleep}`)
   // Merge vitals entries for the same day (export_curated returns one row per
   // metric_id, so a single day may have separate resting_hr and hrv rows).
   const rawVitals = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
