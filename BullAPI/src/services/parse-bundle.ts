@@ -379,6 +379,7 @@ const lastComputeAtByUser = new Map<string, number>()
 export interface ParseDrainResult {
   imported: number
   computedUsers: string[]
+  error?: string
 }
 
 /** Force compute on next drain for this user (ignores compute debounce once). */
@@ -424,8 +425,8 @@ async function importAndComputeBatch(
           lastComputeAtByUser.set(userId, Date.now())
           return { imported: 0, computedUsers: [userId] }
         } catch (error) {
-          console.error("[parse] forced compute failed", { userId, error: errorMessage(error) })
-          return empty
+          console.error(`[parse] forced compute failed for ${userId}: ${errorMessage(error)}`)
+          return { imported: 0, computedUsers: [], error: errorMessage(error) }
         } finally {
           core.close()
         }
