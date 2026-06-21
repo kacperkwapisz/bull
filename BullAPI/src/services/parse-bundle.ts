@@ -13,7 +13,7 @@
  */
 
 import { inflateRawSync } from "node:zlib"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { dailySleep, inputReports, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
