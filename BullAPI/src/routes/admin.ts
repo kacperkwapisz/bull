@@ -1,28 +1,30 @@
-import { group, route, ok, error } from "@hyper/core"
+import { route, ok, jsonResponse } from "@hyper/core"
 import { unlinkSync, existsSync } from "node:fs"
 import { sql } from "drizzle-orm"
 import { deviceStorePath } from "../services/parse-bundle.ts"
 import { getDb } from "../db/client.ts"
 import type { Env } from "../lib/env.ts"
 
+const json = jsonResponse
+
 export function adminRoutes(env: Env) {
   const secret = env.JWT_SECRET
 
-  return group("/admin").use(
-    route.delete("/reset-store/:userId").handle(async (ctx) => {
-      // Simple shared-secret auth (not user JWT — this is ops-only).
-      const auth = ctx.req.headers.get("authorization")
+  const resetStore = route
+    .delete("/admin/reset-store/:userId")
+    .handle(async ({ params, req }) => {
+      // Simple shared-secret auth via Bearer token.
+      const auth = req.headers.get("authorization")
       if (auth !== `Bearer ${secret}`) {
-        return error(401, "unauthorized")
+        return json(401, { error: "unauthorized" })
       }
-
-      const userId = ctx.params.userId
+      const userId = (params as { userId?: string }).userId
       if (!userId || userId.length < 10) {
-        return error(400, "invalid userId")
+        return json(400, { error: "invalid userId" })
       }
 
       const dataDir = env.BULL_CORE_DATA_DIR
-      if (!dataDir) return error(500, "BULL_CORE_DATA_DIR not configured")
+      if (!dataDir) return json(500, { error: "BULL_CORE_DATA_DIR not configured" })
 
       const storePath = deviceStorePath(dataDir, userId)
       const existed = existsSync(storePath)
@@ -40,11 +42,8 @@ export function adminRoutes(env: Env) {
         requeued = (result as any).rowCount ?? (result as any).length ?? 0
       }
 
-      return ok({
-        deleted: existed,
-        path: storePath,
-        requeued,
-      })
-    }),
-  )
+      return ok({ deleted: existed, path: storePath, requeued })
+    })
+
+  return resetStore
 }
