@@ -443,9 +443,12 @@ pub struct RecoveryInput {
     pub hrv_baseline_rmssd_ms: f64,
     pub resting_hr_bpm: f64,
     pub resting_hr_baseline_bpm: f64,
-    pub respiratory_rate_rpm: f64,
-    pub respiratory_rate_baseline_rpm: f64,
-    pub skin_temp_delta_c: f64,
+    #[serde(default)]
+    pub respiratory_rate_rpm: Option<f64>,
+    #[serde(default)]
+    pub respiratory_rate_baseline_rpm: Option<f64>,
+    #[serde(default)]
+    pub skin_temp_delta_c: Option<f64>,
     pub sleep_score_0_to_100: f64,
     pub prior_strain_0_to_21: f64,
     #[serde(default)]
@@ -2232,18 +2235,14 @@ pub fn bull_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySco
         input.resting_hr_baseline_bpm,
         &mut errors,
     );
-    require_finite_positive(
-        "respiratory_rate_baseline_rpm",
-        input.respiratory_rate_baseline_rpm,
-        &mut errors,
-    );
+    if let Some(rr_baseline) = input.respiratory_rate_baseline_rpm {
+        require_finite_positive("respiratory_rate_baseline_rpm", rr_baseline, &mut errors);
+    }
     require_finite_non_negative("hrv_rmssd_ms", input.hrv_rmssd_ms, &mut errors);
     require_finite_positive("resting_hr_bpm", input.resting_hr_bpm, &mut errors);
-    require_finite_positive(
-        "respiratory_rate_rpm",
-        input.respiratory_rate_rpm,
-        &mut errors,
-    );
+    if let Some(rr) = input.respiratory_rate_rpm {
+        require_finite_positive("respiratory_rate_rpm", rr, &mut errors);
+    }
     require_bounded(
         "sleep_score_0_to_100",
         input.sleep_score_0_to_100,
@@ -2271,10 +2270,14 @@ pub fn bull_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySco
             clamp_0_100(70.0 + (input.hrv_rmssd_ms / input.hrv_baseline_rmssd_ms - 1.0) * 100.0);
         let rhr_score =
             clamp_0_100(70.0 + (input.resting_hr_baseline_bpm - input.resting_hr_bpm) * 5.0);
-        let respiratory_score = clamp_0_100(
-            100.0 - (input.respiratory_rate_rpm - input.respiratory_rate_baseline_rpm).abs() * 20.0,
-        );
-        let temperature_score = clamp_0_100(100.0 - input.skin_temp_delta_c.abs() * 50.0);
+        let respiratory_score = match (input.respiratory_rate_rpm, input.respiratory_rate_baseline_rpm) {
+            (Some(rr), Some(baseline)) => clamp_0_100(100.0 - (rr - baseline).abs() * 20.0),
+            _ => 100.0, // neutral when unavailable
+        };
+        let temperature_score = match input.skin_temp_delta_c {
+            Some(delta) => clamp_0_100(100.0 - delta.abs() * 50.0),
+            None => 100.0, // neutral when unavailable
+        };
         let strain_readiness_score = clamp_0_100(100.0 - input.prior_strain_0_to_21 / 21.0 * 60.0);
 
         let components = vec![
@@ -2289,7 +2292,7 @@ pub fn bull_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySco
             score_component("rhr", input.resting_hr_bpm, "bpm", rhr_score, 0.20, 100.0),
             score_component(
                 "respiratory",
-                input.respiratory_rate_rpm,
+                input.respiratory_rate_rpm.unwrap_or(0.0),
                 "breaths_per_minute",
                 respiratory_score,
                 0.10,
@@ -2297,7 +2300,7 @@ pub fn bull_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySco
             ),
             score_component(
                 "temperature",
-                input.skin_temp_delta_c,
+                input.skin_temp_delta_c.unwrap_or(0.0),
                 "celsius_delta",
                 temperature_score,
                 0.10,

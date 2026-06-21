@@ -2634,11 +2634,17 @@ pub fn run_recovery_feature_score_report_for_store(
             issues.push("provided_resp_temp_provenance_untrusted".to_string());
         }
     } else {
-        issues.push("provided_resp_temp_inputs_missing".to_string());
+        // Informational: resp rate + skin temp not available from this device.
+        // Recovery score still computes without them.
     }
 
     let mut recovery_input = None;
     let mut score_result = None;
+    // provided_vitals (resp rate, skin temp) is optional — the device may not
+    // supply these signals. Recovery still computes from HRV + RHR + sleep + strain.
+    let vitals_opt = provided_vitals
+        .as_ref()
+        .filter(|vitals| vitals.trusted_metric_input);
     if let (
         Some(hrv_rmssd_ms),
         Some(hrv_baseline_rmssd_ms),
@@ -2646,7 +2652,6 @@ pub fn run_recovery_feature_score_report_for_store(
         Some(resting_hr_baseline_bpm),
         Some(sleep_score_0_to_100),
         Some(prior_strain_0_to_21),
-        Some(vitals),
     ) = (
         hrv_rmssd_ms,
         hrv_baseline_rmssd_ms,
@@ -2654,9 +2659,6 @@ pub fn run_recovery_feature_score_report_for_store(
         resting_hr_baseline_bpm,
         sleep_score_0_to_100,
         prior_strain_0_to_21,
-        provided_vitals
-            .as_ref()
-            .filter(|vitals| vitals.trusted_metric_input),
     ) {
         let mut input_ids = Vec::new();
         if let Some(input) = &hrv_report.hrv_input {
@@ -2679,7 +2681,9 @@ pub fn run_recovery_feature_score_report_for_store(
         if let Some(input) = &prior_strain_report.strain_input {
             input_ids.extend(input.input_ids.iter().cloned());
         }
-        input_ids.push(vitals.metric_input_id.clone());
+        if let Some(vitals) = &vitals_opt {
+            input_ids.push(vitals.metric_input_id.clone());
+        }
         input_ids.sort();
         input_ids.dedup();
 
@@ -2690,20 +2694,22 @@ pub fn run_recovery_feature_score_report_for_store(
             hrv_baseline_rmssd_ms,
             resting_hr_bpm,
             resting_hr_baseline_bpm,
-            respiratory_rate_rpm: vitals.respiratory_rate_rpm,
-            respiratory_rate_baseline_rpm: vitals.respiratory_rate_baseline_rpm,
-            skin_temp_delta_c: vitals.skin_temp_delta_c,
+            respiratory_rate_rpm: vitals_opt.map(|v| v.respiratory_rate_rpm),
+            respiratory_rate_baseline_rpm: vitals_opt.map(|v| v.respiratory_rate_baseline_rpm),
+            skin_temp_delta_c: vitals_opt.map(|v| v.skin_temp_delta_c),
             sleep_score_0_to_100,
             prior_strain_0_to_21,
             input_ids,
         };
         let mut result = bull_recovery_v0(&input);
-        result
-            .quality_flags
-            .extend(vitals.quality_flags.iter().cloned());
-        result.quality_flags.sort();
-        result.quality_flags.dedup();
-        attach_recovery_provided_vitals_provenance(&mut result, vitals);
+        if let Some(vitals) = &vitals_opt {
+            result
+                .quality_flags
+                .extend(vitals.quality_flags.iter().cloned());
+            result.quality_flags.sort();
+            result.quality_flags.dedup();
+            attach_recovery_provided_vitals_provenance(&mut result, vitals);
+        }
         if !result.errors.is_empty() {
             issues.push("recovery_score_errors".to_string());
         }

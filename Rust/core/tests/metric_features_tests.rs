@@ -2160,9 +2160,9 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
     // low-motion samples, so the quartile mean is 54.6 rather than 54.5.
     assert_close(input.resting_hr_bpm, 54.666666666666664);
     assert_close(input.resting_hr_baseline_bpm, 55.5);
-    assert_close(input.respiratory_rate_rpm, 14.0);
-    assert_close(input.respiratory_rate_baseline_rpm, 14.0);
-    assert_close(input.skin_temp_delta_c, 0.0);
+    assert_close(input.respiratory_rate_rpm.unwrap(), 14.0);
+    assert_close(input.respiratory_rate_baseline_rpm.unwrap(), 14.0);
+    assert_close(input.skin_temp_delta_c.unwrap(), 0.0);
     assert_close(input.sleep_score_0_to_100, 80.75);
     assert_close(input.prior_strain_0_to_21, 5.25);
     let result = report.score_result.unwrap();

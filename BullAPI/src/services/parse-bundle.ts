@@ -234,9 +234,9 @@ async function computeUserStore(
   const todayKey = today.toISOString().slice(0, 10)
   const dayKeys = new Set<string>([todayKey])
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
-  // Limit to 2 days (today + most recent data day) to avoid OOM from many
-  // sequential full-store scans. Each run_pipeline re-scans all retained frames.
-  const sortedDays = [...dayKeys].sort().slice(-2)
+  // ponytail: cap at 7 days max. Each run_pipeline does a full-store scan.
+  // 7 is enough to cover a week of buffered band syncs without OOM risk.
+  const sortedDays = [...dayKeys].sort().slice(-7)
   console.log(`[compute] ${userId} running pipeline for days: ${sortedDays.join(", ")}`)
   for (const k of sortedDays) {
     const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
