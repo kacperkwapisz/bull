@@ -1957,64 +1957,86 @@ pub fn run_hrv_feature_report(
     }
 
     // --- R20 optical PPG path (primary for this device) ---
-    // Accumulate green PPG samples from R20 frames and extract RR intervals
-    // via signal processing. Each R20 frame has 25 samples; at ~1 frame/sec
-    // that's ~25 Hz. We process the full window as one batch.
-    let mut green_ppg_samples: Vec<i32> = Vec::new();
-    let mut r20_frame_count = 0usize;
-    let mut first_r20_frame_id = None;
-    let mut first_r20_evidence_id = None;
-    let mut first_r20_captured_at = None;
-    for row in decoded_rows {
-        let parsed: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
-            .unwrap_or(None);
-        if let Some(ParsedPayload::DataPacket {
-            body_summary: Some(DataPacketBodySummary::R20Optical { green_ppg_samples: ref ppg_samples, .. }),
-            ..
-        }) = parsed {
-            if r20_frame_count == 0 {
-                first_r20_frame_id = Some(row.frame_id.clone());
-                first_r20_evidence_id = Some(row.evidence_id.clone());
-                first_r20_captured_at = Some(row.captured_at.clone());
+    // Process R20 frames in 5-minute chunks (~300 frames × 25 samples = 7500
+    // samples at 25 Hz). Each chunk produces one HrvFeature with its RR
+    // intervals. Chunking keeps the bandpass filter and peak detector stable
+    // (full-window processing over hours produces noisy results).
+    {
+        let r20_chunk_target = 300usize; // ~5 min at 1 frame/sec
+        let mut chunk_buf: Vec<i32> = Vec::new();
+        let mut chunk_frame_count = 0usize;
+        let mut chunk_frame_id = String::new();
+        let mut chunk_evidence_id = String::new();
+        let mut chunk_captured_at = String::new();
+        let mut total_r20 = 0usize;
+
+        let mut flush_chunk = |buf: &mut Vec<i32>, fc: &mut usize, fid: &str, eid: &str, cat: &str,
+                                features: &mut Vec<HrvFeature>, candidate_frame_count: &mut usize| {
+            if *fc < 10 || buf.is_empty() {
+                buf.clear();
+                *fc = 0;
+                return;
             }
-            green_ppg_samples.extend_from_slice(ppg_samples);
-            r20_frame_count += 1;
+            let ppg_result = crate::ppg::extract_hr_from_ppg(buf, 25.0);
+            if !ppg_result.rr_intervals_ms.is_empty() {
+                *candidate_frame_count += *fc;
+                let rr_count = ppg_result.rr_intervals_ms.len();
+                features.push(HrvFeature {
+                    metric_input_id: format!("{fid}.r20_ppg_hrv"),
+                    frame_id: fid.to_string(),
+                    evidence_id: eid.to_string(),
+                    captured_at: cat.to_string(),
+                    body_summary_kind: "r20_optical".to_string(),
+                    source_signal: "green_ppg_dsp".to_string(),
+                    scale_basis: "peak_detection_rr_ms".to_string(),
+                    rr_intervals_ms: ppg_result.rr_intervals_ms,
+                    raw_sample_count: buf.len(),
+                    plausible_sample_count: rr_count,
+                    rejected_sample_count: ppg_result.beat_count.saturating_sub(rr_count + 1),
+                    trusted_metric_input: true,
+                    quality_flags: ppg_result.quality_flags,
+                    provenance: serde_json::json!({
+                        "source": "r20_ppg_dsp",
+                        "chunk_frames": *fc,
+                        "green_samples": buf.len(),
+                        "sample_rate_hz": 25.0,
+                        "beat_count": ppg_result.beat_count,
+                        "mean_hr_bpm": ppg_result.mean_hr_bpm,
+                        "rmssd_ms": ppg_result.rmssd_ms,
+                    }),
+                });
+            }
+            buf.clear();
+            *fc = 0;
+        };
+
+        for row in decoded_rows {
+            let parsed: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
+                .unwrap_or(None);
+            if let Some(ParsedPayload::DataPacket {
+                body_summary: Some(DataPacketBodySummary::R20Optical { green_ppg_samples: ref ppg, .. }),
+                ..
+            }) = parsed {
+                if chunk_frame_count == 0 {
+                    chunk_frame_id = row.frame_id.clone();
+                    chunk_evidence_id = row.evidence_id.clone();
+                    chunk_captured_at = row.captured_at.clone();
+                }
+                chunk_buf.extend_from_slice(ppg);
+                chunk_frame_count += 1;
+                total_r20 += 1;
+                if chunk_frame_count >= r20_chunk_target {
+                    flush_chunk(&mut chunk_buf, &mut chunk_frame_count,
+                        &chunk_frame_id.clone(), &chunk_evidence_id.clone(),
+                        &chunk_captured_at.clone(), &mut features, &mut candidate_frame_count);
+                }
+            }
         }
-    }
-    if r20_frame_count >= 10 && !green_ppg_samples.is_empty() {
-        // ponytail: 25 Hz assumed; if frame rate differs, tune this.
-        let ppg_result = crate::ppg::extract_hr_from_ppg(&green_ppg_samples, 25.0);
-        if !ppg_result.rr_intervals_ms.is_empty() {
-            candidate_frame_count += r20_frame_count;
-            let frame_id = first_r20_frame_id.unwrap_or_default();
-            let evidence_id = first_r20_evidence_id.unwrap_or_default();
-            let captured_at = first_r20_captured_at.unwrap_or_default();
-            let rr_count = ppg_result.rr_intervals_ms.len();
-            features.push(HrvFeature {
-                metric_input_id: format!("{frame_id}.r20_ppg_hrv"),
-                frame_id: frame_id.clone(),
-                evidence_id,
-                captured_at,
-                body_summary_kind: "r20_optical".to_string(),
-                source_signal: "green_ppg_dsp".to_string(),
-                scale_basis: "peak_detection_rr_ms".to_string(),
-                rr_intervals_ms: ppg_result.rr_intervals_ms,
-                raw_sample_count: green_ppg_samples.len(),
-                plausible_sample_count: rr_count,
-                rejected_sample_count: ppg_result.beat_count.saturating_sub(rr_count + 1),
-                trusted_metric_input: true, // device’s own sensor data
-                quality_flags: ppg_result.quality_flags,
-                provenance: serde_json::json!({
-                    "source": "r20_ppg_dsp",
-                    "r20_frame_count": r20_frame_count,
-                    "green_sample_count": green_ppg_samples.len(),
-                    "sample_rate_hz": 25.0,
-                    "beat_count": ppg_result.beat_count,
-                    "mean_hr_bpm": ppg_result.mean_hr_bpm,
-                    "rmssd_ms": ppg_result.rmssd_ms,
-                }),
-            });
-        }
+        // Flush remaining
+        flush_chunk(&mut chunk_buf, &mut chunk_frame_count,
+            &chunk_frame_id.clone(), &chunk_evidence_id.clone(),
+            &chunk_captured_at.clone(), &mut features, &mut candidate_frame_count);
+        let _ = total_r20;
     }
 
     let trusted_feature_count = features

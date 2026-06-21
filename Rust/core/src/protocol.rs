@@ -905,7 +905,10 @@ fn parse_r20_optical_summary(payload: &[u8]) -> (Option<DataPacketBodySummary>, 
     // The body offset in our analysis was relative to body_hex, which corresponds to
     // payload[11..] in the full frame. parse_data_packet_body_summary receives `payload`
     // which is the full frame. So body_offset = 11.
-    let body_start = 11;
+    // body_hex starts at payload[13] (8 frame header + 3 data-packet header
+    // + 2 timestamp/status bytes). Our channel offsets were determined from
+    // body_hex, so body_start must match.
+    let body_start = 13;
     let body_len = payload.len().saturating_sub(body_start + 4); // minus CRC32
     if body_len < 326 {
         warnings.push(format!("r20_body_too_short: {body_len} < 326"));
