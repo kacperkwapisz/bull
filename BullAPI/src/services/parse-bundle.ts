@@ -222,13 +222,25 @@ async function computeUserStore(
     captured_before: cutoff,
   })
 
-  const windows = pipelineWindows(new Date())
-  await core.request("metrics.run_pipeline", {
-    database_path: dbPath,
-    device_id: LOCAL_BIOMETRIC_DEVICE_ID,
-    daily_window: windows.daily,
-    hourly_window: windows.hourly,
-  })
+  // Compute for each day in the retention window (not just today) so historical
+  // data that arrived late or was re-imported still produces metrics.
+  const retentionDays = STORE_RETENTION_DAYS
+  const allDays: Date[] = []
+  for (let i = 0; i < retentionDays; i++) {
+    const d = new Date(Date.now() - i * 86_400_000)
+    allDays.push(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())))
+  }
+
+  for (const dayStart of allDays) {
+    const windows = pipelineWindows(dayStart)
+    await core.request("metrics.run_pipeline", {
+      database_path: dbPath,
+      device_id: LOCAL_BIOMETRIC_DEVICE_ID,
+      daily_window: windows.daily,
+      hourly_window: windows.hourly,
+    })
+  }
+
   const sleepReport = await core.request<Record<string, unknown>>(
     "metrics.sleep_score_from_features",
     { database_path: dbPath, ...SLEEP_SCORE_ARGS },
@@ -240,53 +252,58 @@ async function computeUserStore(
   if (exported.body) {
     await ingestMetrics(db, userId, metricsPushSchema.parse(exported.body))
   }
-  const recoveryReport = await core.request<Record<string, unknown>>(
-    "metrics.recovery_score_from_features",
-    { database_path: dbPath, ...SCORE_ARGS },
-  )
-  const strainReport = await core.request<Record<string, unknown>>(
-    "metrics.strain_score_from_features",
-    { database_path: dbPath, ...SCORE_ARGS },
-  )
-  const stressReport = await core.request<Record<string, unknown>>(
-    "metrics.stress_score_from_features",
-    { database_path: dbPath, ...SCORE_ARGS },
-  )
-  const day = latestExportDay(exported.body)
-  if (!day) return
-  const vitalsForDay = (exported.body?.vitals as Array<Record<string, unknown>> | undefined)
-    ?.find((row) => row.day === day)
-  await ingestMetrics(
-    db,
-    userId,
-    metricsPushSchema.parse({
-      source: "server_parse",
-      recovery: [
-        {
-          day,
-          recovery_score: scoreValue(recoveryReport),
-          hrv_ms: (vitalsForDay?.hrv_ms as number | null | undefined) ?? null,
-          resting_hr_bpm: (vitalsForDay?.resting_hr_bpm as number | null | undefined) ?? null,
-          raw: recoveryReport,
-        },
-      ],
-      strain: [{ day, strain_score: scoreValue(strainReport), raw: strainReport }],
-      stress: [{ day, stress_score: scoreValue(stressReport), raw: stressReport }],
-    }),
-  )
-  // Notify the user's devices that a fresh recovery score is available. Fire-
-  // and-forget + de-duped per (user, day); never blocks or fails the parse.
-  if (config?.env) {
-    try {
-      await sendRecoveryPush(db, config.env, userId, day, scoreValue(recoveryReport))
-    } catch {
-      // best-effort: a push failure must not fail the parse
+
+  // Score + ingest for each day that has exported vitals.
+  const vitalsArray = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
+  for (const vitalsForDay of vitalsArray) {
+    const day = vitalsForDay?.day as string | undefined
+    if (!day) continue
+    const dayScoreArgs = { database_path: dbPath, ...SCORE_ARGS, date_key: day }
+    const recoveryReport = await core.request<Record<string, unknown>>(
+      "metrics.recovery_score_from_features",
+      dayScoreArgs,
+    )
+    const strainReport = await core.request<Record<string, unknown>>(
+      "metrics.strain_score_from_features",
+      dayScoreArgs,
+    )
+    const stressReport = await core.request<Record<string, unknown>>(
+      "metrics.stress_score_from_features",
+      dayScoreArgs,
+    )
+    await ingestMetrics(
+      db,
+      userId,
+      metricsPushSchema.parse({
+        source: "server_parse",
+        recovery: [
+          {
+            day,
+            recovery_score: scoreValue(recoveryReport),
+            hrv_ms: (vitalsForDay?.hrv_ms as number | null | undefined) ?? null,
+            resting_hr_bpm: (vitalsForDay?.resting_hr_bpm as number | null | undefined) ?? null,
+            raw: recoveryReport,
+          },
+        ],
+        strain: [{ day, strain_score: scoreValue(strainReport), raw: strainReport }],
+        stress: [{ day, stress_score: scoreValue(stressReport), raw: stressReport }],
+      }),
+    )
+    // Notify the user's devices that a fresh recovery score is available.
+    if (config?.env) {
+      try {
+        await sendRecoveryPush(db, config.env, userId, day, scoreValue(recoveryReport))
+      } catch {
+        // best-effort: a push failure must not fail the parse
+      }
     }
-  }
+  } // end per-day loop
+
+  const latestDay = vitalsArray.map((v) => v.day as string).filter(Boolean).sort().at(-1)
   const sleepDays = (exported.body?.sleep as Array<{ day?: unknown }> | undefined)
     ?.map((row) => row.day)
     .filter((value): value is string => typeof value === "string") ?? []
-  const latestSleepDay = sleepDays.length > 0 ? sleepDays.sort().at(-1)! : day
+  const latestSleepDay = sleepDays.length > 0 ? sleepDays.sort().at(-1)! : latestDay ?? new Date().toISOString().slice(0, 10)
   await db
     .update(dailySleep)
     .set({ raw: sleepReport })
