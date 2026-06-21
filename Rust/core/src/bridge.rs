@@ -3919,11 +3919,37 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         }
     };
 
-    // Shared base args for the full-history feature passes.
+    // Bound feature-pass scans to ~30 days before the daily window rather
+    // than the full store.  This keeps per-pipeline wall-clock time in check
+    // on large stores while still providing enough baseline context for HRV,
+    // resting HR, and sleep baselines.
+    let feature_start = {
+        // daily.start_iso is "2026-06-21T00:00:00Z" — subtract 30 days.
+        // ponytail: manual ISO date arithmetic, no chrono dep.
+        if daily.start_iso.len() >= 10 {
+            if let Ok(day) = daily.start_iso[8..10].parse::<u32>() {
+                let year: i32 = daily.start_iso[0..4].parse().unwrap_or(2026);
+                let month: u32 = daily.start_iso[5..7].parse().unwrap_or(1);
+                // Subtract 30 days by going back ~1 month
+                let (y, m, d) = if day > 30 {
+                    (year, month, day - 30)
+                } else if month > 1 {
+                    (year, month - 1, day)
+                } else {
+                    (year - 1, 12, day)
+                };
+                format!("{y:04}-{m:02}-{d:02}T00:00:00Z")
+            } else {
+                "0000".to_string()
+            }
+        } else {
+            "0000".to_string()
+        }
+    };
     let base = || {
         json!({
             "database_path": db,
-            "start": "0000",
+            "start": &feature_start,
             "end": "9999",
             "min_owned_captures": 2,
             "require_trusted_evidence": false,
@@ -3964,7 +3990,7 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         call(
             "metrics.input_readiness",
             json!({
-                "database_path": db, "start": "0000", "end": "9999",
+                "database_path": db, "start": &feature_start, "end": "9999",
                 "min_owned_captures": 2, "require_owned_captures": false,
                 "require_scores_ready": true,
             }),
@@ -4003,7 +4029,7 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         "biometric_ingest".to_string(),
         call(
             "biometrics.ingest_from_decoded",
-            json!({ "database_path": db, "device_id": args.device_id, "start": "0000", "end": "9999" }),
+            json!({ "database_path": db, "device_id": args.device_id, "start": &feature_start, "end": "9999" }),
         )?,
     );
     reports.insert("heart_rate".to_string(), call("metrics.heart_rate_features", base())?);

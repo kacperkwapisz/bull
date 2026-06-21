@@ -48,8 +48,10 @@ const STORE_RETENTION_DAYS = Math.max(
 // (HealthDataStore+Utilities.swift `sleepScoreReport`); kept here so the server
 // produces the same per-night scores. "0000"/"9999" are full-range scan bounds
 // (not timestamps), so no window derivation is needed.
-const SLEEP_SCORE_ARGS = {
-  start: "0000",
+function sleepScoreArgs() {
+  const start = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  return {
+  start,
   end: "9999",
   min_owned_captures: 2,
   require_trusted_evidence: false,
@@ -60,25 +62,27 @@ const SLEEP_SCORE_ARGS = {
   history_import_in_progress: false,
   algorithm_id: "bull.sleep.v1",
   persist_nightly: true,
-} as const
+}
+}
 
-// Read-time score tuning, identical to the device's recovery/strain/stress
-// calls (HealthDataStore+Utilities.swift). "0000"/"9999" are full-range scan
-// bounds, so the score reflects the most recent computable day.
-const SCORE_ARGS = {
-  start: "0000",
+// ponytail: bound scans to 30 days back from today to keep sidecar calls fast
+// on large stores. Full-range "0000"→"9999" caused sidecar timeouts.
+function scoreArgs() {
+  const start = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  return {
+  start,
   end: "9999",
   min_owned_captures: 2,
   require_trusted_evidence: false,
-  hrv_start: "0000",
+  hrv_start: start,
   hrv_end: "9999",
-  hrv_baseline_start: "0000",
+  hrv_baseline_start: start,
   hrv_baseline_end: "9999",
-  resting_start: "0000",
+  resting_start: start,
   resting_end: "9999",
-  sleep_start: "0000",
+  sleep_start: start,
   sleep_end: "9999",
-  prior_strain_start: "0000",
+  prior_strain_start: start,
   prior_strain_end: "9999",
   resting_baseline_min_days: 3,
   hrv_min_rr_intervals_to_compute: 2,
@@ -88,7 +92,8 @@ const SCORE_ARGS = {
   disturbance_motion_threshold_0_to_1: 0.2,
   target_midpoint_minutes_since_midnight: 180.0,
   prior_strain_resting_baseline_min_days: 3,
-} as const
+}
+}
 
 /** Pull the 0-100 score out of a *_score_from_features report. */
 function scoreValue(report: unknown): number | null {
@@ -255,7 +260,7 @@ async function computeUserStore(
 
   const sleepReport = await core.request<Record<string, unknown>>(
     "metrics.sleep_score_from_features",
-    { database_path: dbPath, ...SLEEP_SCORE_ARGS },
+    { database_path: dbPath, ...sleepScoreArgs() },
   )
   const exported = await core.request<{ body?: Record<string, unknown> }>(
     "metrics.export_curated",
@@ -284,7 +289,7 @@ async function computeUserStore(
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
-    const dayScoreArgs = { database_path: dbPath, ...SCORE_ARGS, date_key: day }
+    const dayScoreArgs = { database_path: dbPath, ...scoreArgs(), date_key: day }
     const recoveryReport = await core.request<Record<string, unknown>>(
       "metrics.recovery_score_from_features",
       dayScoreArgs,
