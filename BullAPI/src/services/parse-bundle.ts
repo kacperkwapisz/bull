@@ -256,10 +256,6 @@ async function computeUserStore(
     "metrics.export_curated",
     { database_path: dbPath, source: "server_parse" },
   )
-  if (exported.body) {
-    await ingestMetrics(db, userId, metricsPushSchema.parse(exported.body))
-  }
-
   // Merge vitals entries for the same day (export_curated returns one row per
   // metric_id, so a single day may have separate resting_hr and hrv rows).
   const rawVitals = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
@@ -274,6 +270,12 @@ async function computeUserStore(
     vitalsByDay.set(day, existing)
   }
   const vitalsArray = [...vitalsByDay.values()]
+
+  // Ingest with merged vitals so no null clobbering occurs.
+  if (exported.body) {
+    const mergedBody = { ...exported.body, vitals: vitalsArray }
+    await ingestMetrics(db, userId, metricsPushSchema.parse(mergedBody))
+  }
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
