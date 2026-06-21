@@ -176,29 +176,33 @@ async function importBundleFrames(
   core: BullCore,
   dbPath: string,
   storageKey: string,
-): Promise<number> {
+): Promise<{ frameCount: number; days: Set<string> }> {
   const compressed = await store.get(storageKey)
   const jsonl = inflateRawSync(compressed).toString("utf8")
   const frames: BundleFrameLine[] = jsonl
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as BundleFrameLine)
-  const importFrames = frames.map((frame) => ({
-    evidence_id: frame.evidence_id,
-    source: "server.parse",
-    captured_at: frame.captured_at,
-    device_model: DEVICE_MODEL,
-    frame_hex: frame.payload_hex,
-    sensitivity: "user-owned-capture",
-    device_type: "BULL" as const,
-  }))
+  const days = new Set<string>()
+  const importFrames = frames.map((frame) => {
+    if (frame.captured_at) days.add(frame.captured_at.slice(0, 10))
+    return {
+      evidence_id: frame.evidence_id,
+      source: "server.parse",
+      captured_at: frame.captured_at,
+      device_model: DEVICE_MODEL,
+      frame_hex: frame.payload_hex,
+      sensitivity: "user-owned-capture",
+      device_type: "BULL" as const,
+    }
+  })
   await core.request("capture.import_frame_batch", {
     database_path: dbPath,
     frames: importFrames,
     include_timeline_rows: false,
     include_results: false,
   })
-  return frames.length
+  return { frameCount: frames.length, days }
 }
 
 /** Run the full compute (pipeline + sleep/recovery/strain/stress scores) over a
@@ -210,6 +214,7 @@ async function computeUserStore(
   userId: string,
   dbPath: string,
   config?: ParseBundleConfig,
+  dataDays?: Set<string>,
 ): Promise<void> {
   // Prune BEFORE compute, not after. The feature passes materialise the whole
   // retained window into memory, so an unbounded store OOM-kills run_pipeline
@@ -222,14 +227,13 @@ async function computeUserStore(
     captured_before: cutoff,
   })
 
-  // Compute for each day in the retention window (not just today) so historical
-  // data that arrived late or was re-imported still produces metrics.
-  const retentionDays = STORE_RETENTION_DAYS
-  const allDays: Date[] = []
-  for (let i = 0; i < retentionDays; i++) {
-    const d = new Date(Date.now() - i * 86_400_000)
-    allDays.push(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())))
-  }
+  // Compute for each day that has imported data + today. This ensures
+  // historical data produces metrics without running N empty pipelines.
+  const today = new Date()
+  const todayKey = today.toISOString().slice(0, 10)
+  const dayKeys = new Set<string>([todayKey])
+  if (dataDays) for (const d of dataDays) dayKeys.add(d)
+  const allDays = [...dayKeys].sort().map((k) => new Date(k + "T00:00:00Z"))
 
   for (const dayStart of allDays) {
     const windows = pipelineWindows(dayStart)
@@ -382,10 +386,12 @@ export async function parseAllPending(
       let core = new BullCore(config.binaryPath)
       const dbPath = deviceStorePath(config.dataDir, userId)
       const importedIds: string[] = []
+      const importedDays = new Set<string>()
       try {
         for (const bundle of bundles) {
           try {
-            await importBundleFrames(store, core, dbPath, bundle.storageKey)
+            const { days } = await importBundleFrames(store, core, dbPath, bundle.storageKey)
+            for (const d of days) importedDays.add(d)
             importedIds.push(bundle.id)
           } catch (error) {
             const message = errorMessage(error)
@@ -405,7 +411,7 @@ export async function parseAllPending(
           }
         }
         if (importedIds.length > 0) {
-          await computeUserStore(db, core, userId, dbPath, config)
+          await computeUserStore(db, core, userId, dbPath, config, importedDays)
           await db
             .update(uploadBundles)
             .set({ status: "parsed", parsedAt: new Date(), parseError: null })
@@ -460,8 +466,8 @@ export async function parseBundle(
   const core = new BullCore(config.binaryPath)
   try {
     const dbPath = deviceStorePath(config.dataDir, userId)
-    const frameCount = await importBundleFrames(store, core, dbPath, bundle.storageKey)
-    await computeUserStore(db, core, userId, dbPath, config)
+    const { frameCount, days } = await importBundleFrames(store, core, dbPath, bundle.storageKey)
+    await computeUserStore(db, core, userId, dbPath, config, days)
     await db
       .update(uploadBundles)
       .set({ status: "parsed", parsedAt: new Date(), parseError: null })
