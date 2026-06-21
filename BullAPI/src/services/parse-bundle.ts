@@ -348,34 +348,73 @@ async function computeUserStore(
   // feature passes never scan an unbounded window.)
 }
 
-// Serializes all drains (background interval + per-upload trigger) so only one
-// runs at a time — prevents concurrent writers to the same per-user SQLite store
-// and redundant re-compute. Caps drain CPU at a single core.
+// Serializes import+compute drains so only one runs at a time — prevents
+// concurrent writers to the same per-user SQLite store.
 let draining = false
-// Compute (run_pipeline + score scans) re-reads the WHOLE per-user store, so it
-// is expensive and grows with history. Throttle it: at most one drain that does
-// real work per this interval, regardless of how often uploads arrive. New data
-// is therefore at most this stale — fine for daily scores, and it keeps CPU from
-// pegging on a trickle of uploads.
-let lastDrainAt = 0
-const DRAIN_INTERVAL_MS = 5 * 60_000
+
+/** Steady-state throughput: imports stay aggressive; full compute is debounced per user. */
+function drainImportBatchSize(): number {
+  return Math.max(50, Math.min(1000, Number(process.env.BULL_DRAIN_IMPORT_BATCH ?? "500") || 500))
+}
+
+function drainImportIntervalMs(): number {
+  return Math.max(
+    15_000,
+    Math.min(300_000, Number(process.env.BULL_DRAIN_IMPORT_INTERVAL_MS ?? "45000") || 45_000),
+  )
+}
+
+function computeMinIntervalMs(): number {
+  return Math.max(
+    60_000,
+    Math.min(600_000, Number(process.env.BULL_COMPUTE_MIN_INTERVAL_MS ?? "180000") || 180_000),
+  )
+}
+
+let lastImportAt = 0
+const lastComputeAtByUser = new Map<string, number>()
+
+export interface ParseDrainResult {
+  imported: number
+  computedUsers: string[]
+}
+
+/** Admin / manual kick: allow the next import pass immediately. */
+export function resetParseImportThrottle(): void {
+  lastImportAt = 0
+}
+
+/** Force compute on next drain for this user (ignores compute debounce once). */
+export function requestParseComputeForUser(userId: string): void {
+  lastComputeAtByUser.delete(userId)
+}
+
+function shouldRunCompute(userId: string, forceCompute: boolean): boolean {
+  if (forceCompute) return true
+  const last = lastComputeAtByUser.get(userId) ?? 0
+  return Date.now() - last >= computeMinIntervalMs()
+}
 
 /**
- * Drain pending bundles across ALL users (bounded, oldest first). Imports every
- * bundle's frames, then runs compute ONCE per user — so a backlog of tiny
- * bundles costs N cheap imports + 1 compute, not N full pipelines. Returns the
- * number of bundles marked parsed.
+ * Import pending bundles (cheap), then debounced full compute per user (expensive).
+ * Bundles are marked parsed after successful import even if compute is skipped
+ * this cycle — metrics catch up on the next compute window.
  */
 export async function parseAllPending(
   db: Db,
   store: ObjectStore,
   config: ParseBundleConfig,
-  limit = 200,
-): Promise<number> {
-  if (draining) return 0
-  if (Date.now() - lastDrainAt < DRAIN_INTERVAL_MS) return 0
+  options?: { limit?: number; bypassImportThrottle?: boolean; forceCompute?: boolean },
+): Promise<ParseDrainResult> {
+  const empty: ParseDrainResult = { imported: 0, computedUsers: [] }
+  if (draining) return empty
+  const importInterval = drainImportIntervalMs()
+  if (!options?.bypassImportThrottle && Date.now() - lastImportAt < importInterval) {
+    return empty
+  }
   draining = true
   try {
+    const limit = options?.limit ?? drainImportBatchSize()
     const pending = await db
       .select({
         id: uploadBundles.id,
@@ -386,10 +425,8 @@ export async function parseAllPending(
       .where(eq(uploadBundles.status, "pending"))
       .orderBy(uploadBundles.createdAt)
       .limit(limit)
-    // Only consume the throttle window when there is actual work, so an idle
-    // poll doesn't delay the next real drain.
-    if (pending.length === 0) return 0
-    lastDrainAt = Date.now()
+    if (pending.length === 0) return empty
+    lastImportAt = Date.now()
 
     const byUser = new Map<string, { id: string; storageKey: string }[]>()
     for (const bundle of pending) {
@@ -398,7 +435,9 @@ export async function parseAllPending(
       byUser.set(bundle.userId, list)
     }
 
-    let parsed = 0
+    const dirtyUsers = new Map<string, Set<string>>()
+    let imported = 0
+
     for (const [userId, bundles] of byUser) {
       let core = new BullCore(config.binaryPath)
       const dbPath = deviceStorePath(config.dataDir, userId)
@@ -416,11 +455,6 @@ export async function parseAllPending(
               .update(uploadBundles)
               .set({ status: "failed", parseError: message })
               .where(eq(uploadBundles.id, bundle.id))
-            // If a bundle hard-crashed the sidecar (segfault/abort that
-            // catch_unwind can't intercept), the process is now dead and every
-            // remaining import in this batch would cascade-fail with the same
-            // "closed unexpectedly". Respawn a fresh sidecar so one poison
-            // bundle costs one failure, not the whole batch.
             if (sidecarDied(message)) {
               core.close()
               core = new BullCore(config.binaryPath)
@@ -428,27 +462,36 @@ export async function parseAllPending(
           }
         }
         if (importedIds.length > 0) {
-          await computeUserStore(db, core, userId, dbPath, config, importedDays)
           await db
             .update(uploadBundles)
             .set({ status: "parsed", parsedAt: new Date(), parseError: null })
             .where(inArray(uploadBundles.id, importedIds))
-          parsed += importedIds.length
-        }
-      } catch (error) {
-        // Compute failed: the frames are already imported (and feed future
-        // computes), so mark these failed rather than retry-looping on bad data.
-        if (importedIds.length > 0) {
-          await db
-            .update(uploadBundles)
-            .set({ status: "failed", parseError: errorMessage(error) })
-            .where(inArray(uploadBundles.id, importedIds))
+          imported += importedIds.length
+          dirtyUsers.set(userId, importedDays)
         }
       } finally {
         core.close()
       }
     }
-    return parsed
+
+    const computedUsers: string[] = []
+    const forceCompute = options?.forceCompute === true
+    for (const [userId, importedDays] of dirtyUsers) {
+      if (!shouldRunCompute(userId, forceCompute)) continue
+      const core = new BullCore(config.binaryPath)
+      const dbPath = deviceStorePath(config.dataDir, userId)
+      try {
+        await computeUserStore(db, core, userId, dbPath, config, importedDays)
+        lastComputeAtByUser.set(userId, Date.now())
+        computedUsers.push(userId)
+      } catch (error) {
+        console.error("[parse] compute failed", { userId, error: errorMessage(error) })
+      } finally {
+        core.close()
+      }
+    }
+
+    return { imported, computedUsers }
   } finally {
     draining = false
   }

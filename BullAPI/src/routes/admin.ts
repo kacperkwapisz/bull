@@ -1,8 +1,14 @@
-import { route, ok, jsonResponse } from "@hyper/core"
+import { Hyper, route, ok, jsonResponse } from "@hyper/core"
 import { unlinkSync, existsSync } from "node:fs"
 import { sql } from "drizzle-orm"
-import { deviceStorePath } from "../services/parse-bundle.ts"
+import {
+  deviceStorePath,
+  parseAllPending,
+  requestParseComputeForUser,
+  resetParseImportThrottle,
+} from "../services/parse-bundle.ts"
 import { getDb } from "../db/client.ts"
+import { getObjectStore } from "../lib/object-store.ts"
 import type { Env } from "../lib/env.ts"
 
 const json = jsonResponse
@@ -45,5 +51,44 @@ export function adminRoutes(env: Env) {
       return ok({ deleted: existed, path: storePath, requeued })
     })
 
-  return resetStore
+  const drain = route.post("/admin/drain").handle(async ({ req }) => {
+    const auth = req.headers.get("authorization")
+    if (auth !== `Bearer ${secret}`) {
+      return json(401, { error: "unauthorized" })
+    }
+    if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) {
+      return json(503, { error: "parse_not_configured" })
+    }
+    const db = getDb(env)
+    const store = getObjectStore(env)
+    if (!db || !store) return json(503, { error: "persistence_unavailable" })
+
+    const url = new URL(req.url)
+    const limitParam = url.searchParams.get("limit")
+    const limit = limitParam ? Math.min(1000, Math.max(50, Number(limitParam) || 500)) : undefined
+    const userId = url.searchParams.get("userId")?.trim()
+    const forceCompute = url.searchParams.get("forceCompute") === "1"
+
+    resetParseImportThrottle()
+    if (userId) requestParseComputeForUser(userId)
+
+    const drainOpts: {
+      bypassImportThrottle: true
+      forceCompute: boolean
+      limit?: number
+    } = {
+      bypassImportThrottle: true,
+      forceCompute: forceCompute || Boolean(userId),
+    }
+    if (limit !== undefined) drainOpts.limit = limit
+    const result = await parseAllPending(
+      db,
+      store,
+      { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR, env },
+      drainOpts,
+    )
+    return ok(result)
+  })
+
+  return new Hyper({ prefix: "" }).use([resetStore, drain])
 }

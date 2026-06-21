@@ -28,6 +28,11 @@ const envSchema = z.object({
   // holding per-user bull-core SQLite stores. Absent → parsing disabled (503).
   BULL_CORE_BIN: z.string().min(1).optional(),
   BULL_CORE_DATA_DIR: z.string().min(1).optional(),
+  // Parse drain (steady-state defaults in parse-bundle.ts if unset).
+  BULL_DRAIN_IMPORT_BATCH: z.coerce.number().int().positive().optional(),
+  BULL_DRAIN_IMPORT_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  BULL_COMPUTE_MIN_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  BULL_STORE_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 
   // Git commit the image was built from, injected at docker build time. Surfaced
   // on /health so a running deploy is identifiable (catches stale-image rolls).

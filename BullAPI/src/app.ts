@@ -81,14 +81,21 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
         if (draining) return
         draining = true
         try {
-          const n = await parseAllPending(db, store, config)
-          if (n > 0) console.log(`[parse] background drain parsed ${n} pending bundle(s)`)
+          const result = await parseAllPending(db, store, config)
+          if (result.imported > 0) {
+            console.log(
+              `[parse] imported ${result.imported} bundle(s)` +
+                (result.computedUsers.length > 0
+                  ? `; compute for ${result.computedUsers.length} user(s)`
+                  : "; compute skipped (debounced)"),
+            )
+          }
         } catch (error) {
           console.error("[parse] background drain failed", error)
         } finally {
           draining = false
         }
-      }, 30_000)
+      }, 20_000)
       // Don't let the drain timer keep the process alive on its own.
       timer.unref?.()
     }
