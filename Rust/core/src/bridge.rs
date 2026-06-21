@@ -3987,12 +3987,16 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         "raw_motion_step_estimate".to_string(),
         call(
             "metrics.raw_motion_step_estimate",
-            merge(base(), json!({
+            json!({
+                "database_path": db,
+                "start": daily.start_iso,
+                "end": daily.end_iso,
+                "min_owned_captures": 2,
                 "require_trusted_evidence": false,
                 "date_key": daily.date_key,
                 "timezone": daily.timezone,
                 "write_metric": true,
-            })),
+            }),
         )?,
     );
     reports.insert(
