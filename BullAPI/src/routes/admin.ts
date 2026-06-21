@@ -3,9 +3,8 @@ import { unlinkSync, existsSync } from "node:fs"
 import { sql } from "drizzle-orm"
 import {
   deviceStorePath,
-  parseAllPending,
   requestParseComputeForUser,
-  resetParseImportThrottle,
+  runParseDrainLoop,
 } from "../services/parse-bundle.ts"
 import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
@@ -69,19 +68,14 @@ export function adminRoutes(env: Env) {
     const userId = url.searchParams.get("userId")?.trim()
     const forceCompute = url.searchParams.get("forceCompute") === "1"
 
-    resetParseImportThrottle()
     if (userId) requestParseComputeForUser(userId)
 
-    const drainOpts: {
-      bypassImportThrottle: true
-      forceCompute: boolean
-      limit?: number
-    } = {
-      bypassImportThrottle: true,
+    const drainOpts: { forceCompute: boolean; limit?: number; maxBatches?: number } = {
       forceCompute: forceCompute || Boolean(userId),
+      maxBatches: 100,
     }
     if (limit !== undefined) drainOpts.limit = limit
-    const result = await parseAllPending(
+    const result = await runParseDrainLoop(
       db,
       store,
       { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR, env },

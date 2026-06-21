@@ -357,13 +357,6 @@ function drainImportBatchSize(): number {
   return Math.max(50, Math.min(1000, Number(process.env.BULL_DRAIN_IMPORT_BATCH ?? "500") || 500))
 }
 
-function drainImportIntervalMs(): number {
-  return Math.max(
-    15_000,
-    Math.min(300_000, Number(process.env.BULL_DRAIN_IMPORT_INTERVAL_MS ?? "45000") || 45_000),
-  )
-}
-
 function computeMinIntervalMs(): number {
   return Math.max(
     60_000,
@@ -371,17 +364,11 @@ function computeMinIntervalMs(): number {
   )
 }
 
-let lastImportAt = 0
 const lastComputeAtByUser = new Map<string, number>()
 
 export interface ParseDrainResult {
   imported: number
   computedUsers: string[]
-}
-
-/** Admin / manual kick: allow the next import pass immediately. */
-export function resetParseImportThrottle(): void {
-  lastImportAt = 0
 }
 
 /** Force compute on next drain for this user (ignores compute debounce once). */
@@ -395,26 +382,17 @@ function shouldRunCompute(userId: string, forceCompute: boolean): boolean {
   return Date.now() - last >= computeMinIntervalMs()
 }
 
-/**
- * Import pending bundles (cheap), then debounced full compute per user (expensive).
- * Bundles are marked parsed after successful import even if compute is skipped
- * this cycle — metrics catch up on the next compute window.
- */
-export async function parseAllPending(
+type ParseDrainOptions = { limit?: number; forceCompute?: boolean }
+
+/** One import batch + optional debounced compute. Caller must hold `draining` if serializing. */
+async function importAndComputeBatch(
   db: Db,
   store: ObjectStore,
   config: ParseBundleConfig,
-  options?: { limit?: number; bypassImportThrottle?: boolean; forceCompute?: boolean },
+  options?: ParseDrainOptions,
 ): Promise<ParseDrainResult> {
   const empty: ParseDrainResult = { imported: 0, computedUsers: [] }
-  if (draining) return empty
-  const importInterval = drainImportIntervalMs()
-  if (!options?.bypassImportThrottle && Date.now() - lastImportAt < importInterval) {
-    return empty
-  }
-  draining = true
-  try {
-    const limit = options?.limit ?? drainImportBatchSize()
+  const limit = options?.limit ?? drainImportBatchSize()
     const pending = await db
       .select({
         id: uploadBundles.id,
@@ -426,7 +404,6 @@ export async function parseAllPending(
       .orderBy(uploadBundles.createdAt)
       .limit(limit)
     if (pending.length === 0) return empty
-    lastImportAt = Date.now()
 
     const byUser = new Map<string, { id: string; storageKey: string }[]>()
     for (const bundle of pending) {
@@ -492,9 +469,45 @@ export async function parseAllPending(
     }
 
     return { imported, computedUsers }
+}
+
+/**
+ * Import until pending is empty or maxBatches (no idle cooldown between batches).
+ * Only `draining` + per-user compute debounce limit concurrency / CPU.
+ */
+export async function runParseDrainLoop(
+  db: Db,
+  store: ObjectStore,
+  config: ParseBundleConfig,
+  options?: ParseDrainOptions & { maxBatches?: number },
+): Promise<ParseDrainResult> {
+  const empty: ParseDrainResult = { imported: 0, computedUsers: [] }
+  if (draining) return empty
+  draining = true
+  try {
+    const maxBatches = Math.max(1, Math.min(100, options?.maxBatches ?? 40))
+    let totalImported = 0
+    const computed = new Set<string>()
+    for (let i = 0; i < maxBatches; i++) {
+      const batch = await importAndComputeBatch(db, store, config, options)
+      totalImported += batch.imported
+      for (const u of batch.computedUsers) computed.add(u)
+      if (batch.imported === 0) break
+    }
+    return { imported: totalImported, computedUsers: [...computed] }
   } finally {
     draining = false
   }
+}
+
+/** Single batch (e.g. fire-and-forget after one upload). */
+export async function parseAllPending(
+  db: Db,
+  store: ObjectStore,
+  config: ParseBundleConfig,
+  options?: ParseDrainOptions,
+): Promise<ParseDrainResult> {
+  return runParseDrainLoop(db, store, config, { ...options, maxBatches: 1 })
 }
 
 function errorMessage(error: unknown): string {

@@ -30,7 +30,6 @@ const envSchema = z.object({
   BULL_CORE_DATA_DIR: z.string().min(1).optional(),
   // Parse drain (steady-state defaults in parse-bundle.ts if unset).
   BULL_DRAIN_IMPORT_BATCH: z.coerce.number().int().positive().optional(),
-  BULL_DRAIN_IMPORT_INTERVAL_MS: z.coerce.number().int().positive().optional(),
   BULL_COMPUTE_MIN_INTERVAL_MS: z.coerce.number().int().positive().optional(),
   BULL_STORE_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 

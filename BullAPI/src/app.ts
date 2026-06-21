@@ -9,7 +9,7 @@ import { dataRoutes } from "./routes/data.ts"
 import { adminRoutes } from "./routes/admin.ts"
 import { ensureSchema, getDb, pingDb } from "./db/client.ts"
 import { getObjectStore } from "./lib/object-store.ts"
-import { parseAllPending } from "./services/parse-bundle.ts"
+import { runParseDrainLoop } from "./services/parse-bundle.ts"
 
 const env = loadEnv()
 
@@ -81,7 +81,7 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
         if (draining) return
         draining = true
         try {
-          const result = await parseAllPending(db, store, config)
+          const result = await runParseDrainLoop(db, store, config, { maxBatches: 40 })
           if (result.imported > 0) {
             console.log(
               `[parse] imported ${result.imported} bundle(s)` +
