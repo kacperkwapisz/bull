@@ -41,6 +41,28 @@ This is an active prototype. Because the data pipeline is still evolving, some m
 
 Bull is an independent project and is not affiliated with WHOOP. This repository does not include or reference source code owned by WHOOP. The app communicates with WHOOP 5.0 bands over Bluetooth using services and data exposed by the device, then parses and stores that local data through the Bull Rust core. Product names are used only to describe compatibility.
 
+## Architecture
+
+Bull runs a thin-client architecture:
+
+- **Device** captures the band's own sensor data over Bluetooth and relays the
+  raw frames to the user's authenticated Bull account. It keeps only a small
+  local buffer of not-yet-uploaded frames plus an on-disk cache of the latest
+  results for instant display — it does not retain decoded history or compute
+  metrics on device.
+- **Server (BullAPI)** durably stores each uploaded bundle, then runs the single
+  Bull Rust core parser and all metric compute (sleep, recovery, strain, stress,
+  energy, vitals, activity). It is the system of record, so history survives a
+  reinstall.
+- **App** is a viewer: it reads computed results back over the data API
+  (`/v1/data/*`, plus a read-through query proxy for nightly sleep, biometric
+  streams, and recorded activity) and caches them locally.
+
+One parser — `bull-core` in Rust — runs in both places (device library + server
+`bull-bridge-serve` sidecar) so the device and server agree. Every physiological
+metric derives from the connected device's own sensors; nothing is imported from
+third-party health stores.
+
 ## Design Credit
 
 The current health metric UI draws heavily from [Bevel](https://www.bevel.health/), especially the Sleep, Recovery, Strain, Stress, and trend-detail surfaces. Bevel is not affiliated with Bull; this credit is here because their product design has been a major visual reference.
@@ -173,7 +195,7 @@ script before compiling Swift.
 - Metric rows and trend sheets show where values came from when that information is available.
 - Raw packet payloads stay in debug/export flows rather than everyday health views.
 - Coach responses use the same local metric summaries shown in the app.
-- Health and fitness data is local by default. Any future backend or AI feature will need its own consent flow and privacy notes.
+- Health and fitness data is captured from the band and uploaded to the user's authenticated Bull account, where the server parses and computes it; it is scoped to that account and not shared with third parties. Physiological data originates only from the band's own sensors (HealthKit reads are limited to body weight for profile autofill).
 
 ## Documentation
 

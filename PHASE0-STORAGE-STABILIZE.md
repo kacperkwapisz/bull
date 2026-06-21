@@ -91,15 +91,17 @@ not spooled-and-uploaded *and* separately hoarded in the DB.
 | Phase | What | Status |
 |-------|------|--------|
 | **0** | **Upload-drain + WAL checkpoint** — frames bundle → upload → delete on 2xx; WAL truncate. Stops the crash; permanent plumbing. | ✅ verified on device (3 GB → 246 MB) |
-| **1** | **Server-side parsing** — `bull-core` over the R2 bundles → Postgres result tables. | ⬜ |
-| **2** | App **pulls results from `GET /v1/data/*`** + caches; **retire on-device historical compute**. | ⬜ |
-| **3** | Thin realtime preview path (the deferred FFI-lag fix), ephemeral, same parser. | ⬜ |
-| **4** | Cleanup → phone = live buffer + results cache + upload queue only. | ⬜ |
+| **1** | **Server-side parsing** — `bull-core` over the uploaded bundles → Postgres result tables. | ✅ (native `bull-bridge-serve` sidecar; batched per-user compute) |
+| **2** | App **pulls results from `GET /v1/data/*`** + caches; **retire on-device historical compute**. | ✅ (scores + input reports + read-through proxy; on-disk cache; on-device compute deleted) |
+| **3** | Thin realtime preview path (the deferred FFI-lag fix), ephemeral, same parser. | ⬜ (still deferred — perf, measure first) |
+| **4** | Cleanup → phone = live buffer + results cache + upload queue only. | ✅ (drain-to-empty: local store = unsynced buffer; deep history + display from server) |
 
-**Decisions locked:** hybrid thin-client (phone = pipe + viewer + live preview;
-server = system of record). One parser = `bull-core` in **Rust**, compiled for
-phone (lib) + server (WASM or sidecar) — **not** rewritten in TS. BullAPI stays
-Bun/TS as the app shell.
+**Decisions locked:** thin-client (phone = pipe + viewer + live preview; server =
+system of record). One parser = `bull-core` in **Rust**, compiled for phone (lib)
++ server (native `bull-bridge-serve` sidecar) — **not** rewritten in TS. BullAPI
+stays Bun/TS as the app shell. **Phases 1, 2, 4 are done and live** (2026-06-18);
+only Phase 3 (lean live preview parser) remains, deferred on perf grounds. The
+detailed checklists below are kept for history.
 
 ### Phase 1 — Server-side parsing (next)
 Goal: turn the `pending` R2 bundles into the metrics the app reads.

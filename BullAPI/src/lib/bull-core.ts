@@ -93,7 +93,8 @@ export class BullCore {
     return parts.length > 0 ? parts.join(" — ") : "no diagnostic output"
   }
 
-  /** Call a bridge method; throws BullCoreError if the sidecar reports !ok. */
+  /** Call a bridge method; throws BullCoreError if the sidecar reports !ok.
+   * Includes a 120s timeout per request to prevent hangs from dead sidecars. */
   async request<T = unknown>(method: string, args: unknown): Promise<T> {
     const id = String(++this.requestId)
     const payload =
@@ -102,13 +103,26 @@ export class BullCore {
     stdin.write(payload)
     stdin.flush?.()
 
-    const line = await this.readLine()
+    const line = await this.readLineWithTimeout(120_000, method)
     const response = JSON.parse(line) as BullCoreResponse<T>
     if (!response.ok) {
       const error = response.error ?? { code: "unknown", message: "no error detail" }
       throw new BullCoreError(method, error.code, error.message)
     }
     return response.result as T
+  }
+
+  private readLineWithTimeout(ms: number, method: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.close()
+        reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method}`))
+      }, ms)
+      this.readLine().then(
+        (line) => { clearTimeout(timer); resolve(line) },
+        (err) => { clearTimeout(timer); reject(err) },
+      )
+    })
   }
 
   private async readLine(): Promise<string> {

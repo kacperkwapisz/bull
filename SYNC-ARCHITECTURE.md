@@ -6,6 +6,16 @@ This supersedes the on-device decode/parse-everything approach (the source of th
 earlier storage blowup) for the **bulk historical path**. Live/realtime data
 keeps a lightweight on-device decode for immediate display.
 
+> **Status (2026-06-18): the thin-client migration is complete and live.** The
+> server runs the single parser + all compute; the app reads results back over
+> the data API (scores, input reports, and a read-through query proxy for nightly
+> sleep / biometric streams / activity) and caches them on disk; on-device
+> compute is deleted; the drain deletes every synced frame after upload, so the
+> local DB collapses to the not-yet-uploaded buffer. The phone→server
+> processed-watermark was **not** built: the upload endpoint persists the bundle
+> bytes before returning 2xx (received = durable), so delete-after-upload is safe
+> without it. See the per-phase status below.
+
 ## Principles
 
 - **Idempotent by construction.** Re-receiving the same record is a no-op. Dedup
@@ -13,10 +23,13 @@ keeps a lightweight on-device decode for immediate display.
 - **Derive the resume point, don't build a subsystem.** The "what's already
   synced" watermark is `MAX(device_timestamp)` over stored raw records — a query,
   not a bespoke cursor store.
-- **Two watermarks, two hops.**
+- **Watermark-driven upload, durable handoff.**
   - strap → phone: `MAX(device_timestamp)` of buffered raw → request only newer.
-  - phone → server: server reports `processed_through_ts`; phone uploads only the
-    delta, then prunes locally.
+  - phone → server: a persistent client-side upload watermark (A-5) marks
+    already-uploaded frames synced without re-sending; the upload endpoint stores
+    the bundle bytes durably **before** returning 2xx, so the phone drops every
+    synced frame after a confirmed upload (no server processed-watermark needed —
+    received = durable; the server re-parses from the stored bundle).
 - **Raw in, compute out.** Phone buffers raw frames; the single Rust parser runs
   server-side. History can be re-derived by re-parsing on the server without
   re-pulling the band.
@@ -46,8 +59,8 @@ keeps a lightweight on-device decode for immediate display.
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
-| C-1 | **Stop writing `parsed_payload_json` / `decoded_frames` for historical bulk** — buffer raw only. Keep a minimal decode for the live preview. | `store.rs`, pipeline | ⬜ |
-| C-2 | **Shrink retained window** — once compute is server-side, the local cap can drop well below 32 MB. | drain worker | ⬜ |
+| C-1 | **Stop persisting decoded history on device.** Approach changed: capture still decodes transiently, but the drain deletes every synced frame (raw + cascaded decoded) after upload, so nothing decoded is retained. On-device historical compute is deleted outright. | `store.rs`, pipeline, `BullFrameDrainUploader.swift` | ✅ |
+| C-2 | **Shrink retained window** — went past a smaller cap to **drain-to-empty**: `store.prune_synced_frames` with a far-future cutoff drops all synced frames; only the unsynced buffer remains. | drain worker | ✅ |
 
 ## Phase D — Server: parse + watermark read-back
 
@@ -55,9 +68,9 @@ keeps a lightweight on-device decode for immediate display.
 |---|------|-------|--------|
 | D-1 | **Run `bull-core` server-side** — native `bull-bridge-serve` sidecar (newline JSON over stdio), bundled in the API image via a multi-stage musl build (root build context). | BullAPI, Dockerfile | ✅ |
 | D-2 | **Parse pipeline** — bundle → import frames → `run_pipeline` → sleep score (persist) → recovery/strain/stress scores → fold into Postgres result tables (`dailySleep`/`vitalsDaily`/`dailyRecovery`/`dailyStrain`/`dailyStress`) → flip `pending→parsed`. Idempotent. **Auto-triggered** by a fire-and-forget pending-sweep on upload. | BullAPI | ✅ |
-| D-3 | **`GET /v1/data/high-watermark`** → newest parsed `timeframeEnd`; read APIs (`/v1/data/recovery|sleep|strain|stress|energy|vitals|spo2`) already serve the result tables. | BullAPI | ✅ |
-| D-4 | **Phone uploads only the delta** above the server watermark; **drain-to-empty** after 2xx. Skip-already-uploaded (A-5) covers the upload dedup; switching the cap to drain-to-empty waits until the app reads from the server (else local screens blank). | drain worker | ⬜ (post-deploy) |
-| D-5 | **App reads results from the server** and **drops on-device compute** — the device-side thin-client switch. Server read APIs exist; this must be validated against a deployed, populated server, so it is the post-deploy phase. | `HealthDataStore+*`, views | ⬜ (post-deploy) |
+| D-3 | **Read APIs serve the result tables** (`/v1/data/recovery|sleep|strain|stress|energy|vitals|spo2`, `/v1/data/inputs`) + a **read-through query proxy** (`POST /v1/data/query`) for nightly sleep / biometric streams / activity. The earlier `GET /v1/data/high-watermark` was **removed** (unused, and `max(timeframeEnd)` is NULL for drain bundles). | BullAPI | ✅ |
+| D-4 | **Drain-to-empty after 2xx.** Skip-already-uploaded (A-5) dedupes uploads; once the app read from the server (D-5) the drain switched to deleting all synced frames. | drain worker | ✅ |
+| D-5 | **App reads results from the server** and **on-device compute is deleted** (no fallback). Scores + input reports + the read-through tail (sleep/biometrics/activity) all read server-side; results cached on disk so launch shows last-known values. | `HealthDataStore+*`, views | ✅ |
 
 ## Notes
 
