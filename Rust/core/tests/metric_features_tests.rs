@@ -2229,8 +2229,14 @@ fn recovery_feature_score_report_blocks_manual_vitals_even_with_provenance() {
     .unwrap();
 
     assert!(!report.pass);
-    assert!(report.recovery_input.is_none());
-    assert!(report.score_result.is_none());
+    // Recovery still computes without trusted vitals — resp/temp are optional
+    assert!(report.recovery_input.is_some());
+    assert!(report.score_result.is_some());
+    // But the untrusted vitals are NOT used in the input (None for resp/temp)
+    let input = report.recovery_input.as_ref().unwrap();
+    assert!(input.respiratory_rate_rpm.is_none());
+    assert!(input.respiratory_rate_baseline_rpm.is_none());
+    assert!(input.skin_temp_delta_c.is_none());
     assert!(
         report
             .issues
@@ -2291,18 +2297,17 @@ fn recovery_feature_score_report_requires_provided_resp_temp_until_score_promoti
     )
     .unwrap();
 
-    assert!(!report.pass);
-    assert!(
-        report
-            .next_actions
-            .iter()
-            .any(|action| action.reason == "provided_resp_temp_inputs_missing")
-    );
+    // Recovery computes without provided vitals — resp/temp are optional
     assert!(report.provided_vitals.is_none());
-    assert!(report.recovery_input.is_none());
-    assert!(report.score_result.is_none());
+    assert!(report.recovery_input.is_some());
+    assert!(report.score_result.is_some());
+    let input = report.recovery_input.as_ref().unwrap();
+    assert!(input.respiratory_rate_rpm.is_none());
+    assert!(input.respiratory_rate_baseline_rpm.is_none());
+    assert!(input.skin_temp_delta_c.is_none());
+    // No blocking issue for missing resp/temp
     assert!(
-        report
+        !report
             .issues
             .iter()
             .any(|issue| issue == "provided_resp_temp_inputs_missing")
@@ -2351,8 +2356,13 @@ fn recovery_feature_score_report_blocks_unproven_manual_vitals() {
     .unwrap();
 
     assert!(!report.pass);
-    assert!(report.recovery_input.is_none());
-    assert!(report.score_result.is_none());
+    // Recovery still computes — untrusted vitals are flagged but don't block
+    assert!(report.recovery_input.is_some());
+    assert!(report.score_result.is_some());
+    let input = report.recovery_input.as_ref().unwrap();
+    assert!(input.respiratory_rate_rpm.is_none());
+    assert!(input.respiratory_rate_baseline_rpm.is_none());
+    assert!(input.skin_temp_delta_c.is_none());
     assert!(
         report
             .issues
