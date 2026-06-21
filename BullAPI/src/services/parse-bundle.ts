@@ -467,9 +467,11 @@ async function importAndComputeBatch(
       const core = new BullCore(config.binaryPath)
       const dbPath = deviceStorePath(config.dataDir, userId)
       try {
+        console.log(`[drain] computing user ${userId}, days: ${[...importedDays].join(',')}}`)
         await computeUserStore(db, core, userId, dbPath, config, importedDays)
         lastComputeAtByUser.set(userId, Date.now())
         computedUsers.push(userId)
+        console.log(`[drain] compute done for ${userId}`)
       } catch (error) {
         console.error("[parse] compute failed", { userId, error: errorMessage(error) })
       } finally {
