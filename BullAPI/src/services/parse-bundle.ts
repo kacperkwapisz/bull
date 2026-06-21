@@ -491,7 +491,10 @@ async function importAndComputeBatch(
         lastComputeAtByUser.set(userId, Date.now())
         computedUsers.push(userId)
       } catch (error) {
-        console.error("[parse] compute failed", { userId, error: errorMessage(error) })
+        console.error(`[parse] COMPUTE FAILED for ${userId}: ${errorMessage(error)}`)
+        // Set debounce even on failure so the drain loop doesn't retry
+        // compute 40 times in the same wake. Next wake retries.
+        lastComputeAtByUser.set(userId, Date.now())
       } finally {
         core.close()
       }
