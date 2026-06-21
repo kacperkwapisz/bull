@@ -237,6 +237,7 @@ async function computeUserStore(
   // Limit to 2 days (today + most recent data day) to avoid OOM from many
   // sequential full-store scans. Each run_pipeline re-scans all retained frames.
   const sortedDays = [...dayKeys].sort().slice(-2)
+  console.log(`[compute] ${userId} running pipeline for days: ${sortedDays.join(", ")}`)
   for (const k of sortedDays) {
     const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
     await core.request("metrics.run_pipeline", {
@@ -261,6 +262,11 @@ async function computeUserStore(
 
   // Score + ingest for each day that has exported vitals.
   const vitalsArray = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
+  if (vitalsArray.length > 0) {
+    console.log(`[compute] ${userId} export_curated vitals: ${vitalsArray.length} days, first:`, JSON.stringify(vitalsArray[0]).slice(0, 200))
+  } else {
+    console.log(`[compute] ${userId} export_curated vitals: EMPTY. exported counts:`, (exported as any)?.counts)
+  }
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
