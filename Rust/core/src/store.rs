@@ -2457,13 +2457,8 @@ impl BullStore {
                 frame_count: 0,
                 provenance_json: input.provenance_json.to_string(),
             };
-            if existing == expected {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "capture session {} already exists with different metadata",
-                input.session_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -2608,13 +2603,8 @@ impl BullStore {
                 && existing.detection_method == input.detection_method
                 && existing.sync_status == input.sync_status
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "activity session {} already exists with different metadata",
-                input.session_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -3092,10 +3082,8 @@ impl BullStore {
             {
                 return Ok(false);
             }
-            return Err(BullError::message(format!(
-                "activity metric {} already exists with different metadata",
-                input.metric_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         Err(BullError::message(format!(
@@ -3333,13 +3321,8 @@ impl BullStore {
                 && existing.inputs_json == input.inputs_json
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "daily activity metric {} already exists with different metadata",
-                input.daily_metric_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -3557,13 +3540,8 @@ impl BullStore {
                 && existing.inputs_json == input.inputs_json
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "hourly activity metric {} already exists with different metadata",
-                input.hourly_metric_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -3781,13 +3759,8 @@ impl BullStore {
                 && existing.inputs_json == input.inputs_json
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "daily recovery metric {} already exists with different metadata",
-                input.daily_metric_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -4660,13 +4633,8 @@ impl BullStore {
                 && existing.inputs_json == input.inputs_json
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "metric provenance {} already exists with different metadata",
-                input.provenance_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -4823,13 +4791,8 @@ impl BullStore {
                 && existing.inputs_json == input.inputs_json
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "metric debug feature {} already exists with different metadata",
-                input.feature_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -4954,13 +4917,9 @@ impl BullStore {
                 && existing.capture_session_id.as_deref() == input.capture_session_id
                 && existing.quality_flags_json == input.quality_flags_json
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "step counter sample {} already exists with different metadata",
-                input.sample_id
-            )));
+            // ponytail: skip on duplicate — re-imports may produce different
+            // metadata (provenance, quality flags) for the same sample.
+            return Ok(false);
         }
 
         let changed = self.conn.execute(
@@ -5091,10 +5050,8 @@ impl BullStore {
             {
                 return Ok(false);
             }
-            return Err(BullError::message(format!(
-                "activity interval {} already exists with different metadata",
-                input.interval_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
         let duration_ms = input.end_time_unix_ms - input.start_time_unix_ms;
         self.conn.execute(
@@ -5239,10 +5196,8 @@ impl BullStore {
             {
                 return Ok(false);
             }
-            return Err(BullError::message(format!(
-                "activity label {} already exists with different metadata",
-                input.label_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
         self.conn.execute(
             r#"
@@ -5286,13 +5241,8 @@ impl BullStore {
                 && existing.stage_summary_json == input.stage_summary_json
                 && existing.confidence == input.confidence
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "external sleep session {} already exists with different metadata",
-                input.sleep_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -5412,13 +5362,8 @@ impl BullStore {
                 && existing.end_time_unix_ms == input.end_time_unix_ms
                 && existing.confidence == input.confidence
                 && existing.provenance_json == input.provenance_json;
-            if same {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "external sleep stage {} already exists with different metadata",
-                input.stage_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -5520,10 +5465,8 @@ impl BullStore {
             {
                 return Ok(false);
             }
-            return Err(BullError::message(format!(
-                "sleep correction label {} already exists with different metadata",
-                input.label_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -6944,13 +6887,8 @@ impl BullStore {
                 unit: input.unit.to_string(),
                 provenance_json: input.provenance_json.to_string(),
             };
-            if existing == new_row {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "calibration label {} already exists with different metadata",
-                input.label_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -7098,13 +7036,8 @@ impl BullStore {
         validate_non_negative("started_at_unix_ms", session.started_at_unix_ms)?;
 
         if let Some(existing) = self.debug_session(&session.session_id)? {
-            if existing == *session {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "debug session {} already exists with different metadata",
-                session.session_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
@@ -7196,13 +7129,8 @@ impl BullStore {
         validate_non_negative("received_at_unix_ms", command.received_at_unix_ms)?;
 
         if let Some(existing) = self.debug_command(&command.command_id)? {
-            if existing == *command {
-                return Ok(false);
-            }
-            return Err(BullError::message(format!(
-                "debug command {} already exists with different metadata",
-                command.command_id
-            )));
+            // ponytail: skip on duplicate — re-imports may differ in metadata.
+            return Ok(false);
         }
 
         self.conn.execute(
