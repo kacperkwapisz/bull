@@ -92,9 +92,14 @@ const SCORE_ARGS = {
 
 /** Pull the 0-100 score out of a *_score_from_features report. */
 function scoreValue(report: unknown): number | null {
-  const output = (report as { score_result?: { output?: { score_0_to_100?: unknown } } })
-    ?.score_result?.output?.score_0_to_100
-  return typeof output === "number" ? output : null
+  const output = (report as { score_result?: { output?: Record<string, unknown> } })
+    ?.score_result?.output
+  if (!output) return null
+  // strain uses score_0_to_21; recovery/sleep/stress use score_0_to_100
+  for (const key of ["score_0_to_100", "score_0_to_21"]) {
+    if (typeof output[key] === "number") return output[key] as number
+  }
+  return null
 }
 
 /** Most recent day present in the curated export, or null when empty. */
