@@ -6,6 +6,7 @@ import { loadEnv, corsOrigins } from "./lib/env.ts"
 import { authRoutes } from "./routes/auth.ts"
 import { coachRoutes } from "./routes/coach.ts"
 import { dataRoutes } from "./routes/data.ts"
+import { adminRoutes } from "./routes/admin.ts"
 import { ensureSchema, getDb, pingDb } from "./db/client.ts"
 import { getObjectStore } from "./lib/object-store.ts"
 import { parseAllPending } from "./services/parse-bundle.ts"
@@ -38,6 +39,7 @@ const app = new Hyper()
   .use(authRoutes(env))
   .use(coachRoutes(env))
   .use(dataRoutes(env))
+  .use(adminRoutes(env))
 
 // Named export only. A default export with a `fetch` method makes Bun
 // auto-serve a SECOND server with the default 10s idleTimeout — that hidden

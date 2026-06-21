@@ -2287,7 +2287,7 @@ impl BullStore {
 
         let mut statement = self.conn.prepare_cached(
             r#"
-            INSERT OR IGNORE INTO decoded_frames (
+            INSERT INTO decoded_frames (
                 frame_id,
                 evidence_id,
                 device_type,
@@ -2307,6 +2307,12 @@ impl BullStore {
                 parser_version,
                 warnings_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            ON CONFLICT(frame_id) DO UPDATE SET
+                parsed_payload_json = excluded.parsed_payload_json,
+                parser_version = excluded.parser_version,
+                warnings_json = excluded.warnings_json
+            WHERE excluded.parser_version > decoded_frames.parser_version
+               OR decoded_frames.parser_version IS NULL
             "#,
         )?;
         let changed = statement.execute(params![
