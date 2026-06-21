@@ -425,8 +425,18 @@ async function importAndComputeBatch(
           lastComputeAtByUser.set(userId, Date.now())
           return { imported: 0, computedUsers: [userId] }
         } catch (error) {
-          console.error(`[parse] forced compute failed for ${userId}: ${errorMessage(error)}`)
-          return { imported: 0, computedUsers: [], error: errorMessage(error) }
+          const msg = errorMessage(error)
+          console.error(`[parse] forced compute failed for ${userId}: ${msg}`)
+          // Write error to a bundle so we can read it from DB
+          try {
+            await db
+              .update(uploadBundles)
+              .set({ parseError: `COMPUTE_ERROR: ${msg.slice(0, 500)}` })
+              .where(sql`${uploadBundles.userId} = ${userId} AND ${uploadBundles.id} = (
+                SELECT id FROM upload_bundles WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1
+              )`)
+          } catch {}
+          return { imported: 0, computedUsers: [], error: msg }
         } finally {
           core.close()
         }
@@ -491,7 +501,17 @@ async function importAndComputeBatch(
         lastComputeAtByUser.set(userId, Date.now())
         computedUsers.push(userId)
       } catch (error) {
-        console.error(`[parse] COMPUTE FAILED for ${userId}: ${errorMessage(error)}`)
+        const msg = errorMessage(error)
+        console.error(`[parse] COMPUTE FAILED for ${userId}: ${msg}`)
+        // Write error to DB for diagnostic visibility
+        try {
+          await db
+            .update(uploadBundles)
+            .set({ parseError: `COMPUTE_ERROR: ${msg.slice(0, 500)}` })
+            .where(sql`${uploadBundles.userId} = ${userId} AND ${uploadBundles.id} = (
+              SELECT id FROM upload_bundles WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1
+            )`)
+        } catch {}
         // Set debounce even on failure so the drain loop doesn't retry
         // compute 40 times in the same wake. Next wake retries.
         lastComputeAtByUser.set(userId, Date.now())
