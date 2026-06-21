@@ -260,13 +260,20 @@ async function computeUserStore(
     await ingestMetrics(db, userId, metricsPushSchema.parse(exported.body))
   }
 
-  // Score + ingest for each day that has exported vitals.
-  const vitalsArray = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
-  if (vitalsArray.length > 0) {
-    console.log(`[compute] ${userId} export_curated vitals: ${vitalsArray.length} days, first:`, JSON.stringify(vitalsArray[0]).slice(0, 200))
-  } else {
-    console.log(`[compute] ${userId} export_curated vitals: EMPTY. exported counts:`, (exported as any)?.counts)
+  // Merge vitals entries for the same day (export_curated returns one row per
+  // metric_id, so a single day may have separate resting_hr and hrv rows).
+  const rawVitals = (exported.body?.vitals ?? []) as Array<Record<string, unknown>>
+  const vitalsByDay = new Map<string, Record<string, unknown>>()
+  for (const v of rawVitals) {
+    const day = v.day as string | undefined
+    if (!day) continue
+    const existing = vitalsByDay.get(day) ?? { day }
+    for (const [k, val] of Object.entries(v)) {
+      if (val != null && k !== "raw") existing[k] = val
+    }
+    vitalsByDay.set(day, existing)
   }
+  const vitalsArray = [...vitalsByDay.values()]
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
