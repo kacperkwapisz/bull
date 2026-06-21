@@ -6,6 +6,7 @@ import {
   requestParseComputeForUser,
   runParseDrainLoop,
 } from "../services/parse-bundle.ts"
+import { BullCore } from "../lib/bull-core.ts"
 import { getDb } from "../db/client.ts"
 import { getObjectStore } from "../lib/object-store.ts"
 import type { Env } from "../lib/env.ts"
@@ -84,5 +85,20 @@ export function adminRoutes(env: Env) {
     return ok(result)
   })
 
-  return new Hyper({ prefix: "" }).use([resetStore, drain])
+  const debug = route.get("/admin/debug/:userId").handle(async ({ req, params }) => {
+    const auth = req.headers.get("authorization")
+    if (auth !== `Bearer ${secret}`) return json(401, { error: "unauthorized" })
+    if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) return json(503, { error: "not_configured" })
+    const userId = (params as any).userId as string
+    const dbPath = deviceStorePath(env.BULL_CORE_DATA_DIR, userId)
+    const core = new BullCore(env.BULL_CORE_BIN)
+    try {
+      const overview = await core.request("debug.db_overview", { database_path: dbPath })
+      return ok(overview)
+    } finally {
+      core.close()
+    }
+  })
+
+  return new Hyper({ prefix: "" }).use([resetStore, drain, debug])
 }
