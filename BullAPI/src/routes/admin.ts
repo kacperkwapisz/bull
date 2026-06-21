@@ -71,10 +71,11 @@ export function adminRoutes(env: Env) {
 
     if (userId) requestParseComputeForUser(userId)
 
-    const drainOpts: { forceCompute: boolean; limit?: number; maxBatches?: number } = {
+    const drainOpts: { forceCompute: boolean; limit?: number; maxBatches?: number; forceComputeUserId?: string } = {
       forceCompute: forceCompute || Boolean(userId),
       maxBatches: 100,
     }
+    if (userId) drainOpts.forceComputeUserId = userId
     if (limit !== undefined) drainOpts.limit = limit
     const result = await runParseDrainLoop(
       db,

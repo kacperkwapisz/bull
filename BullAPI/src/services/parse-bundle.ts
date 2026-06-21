@@ -392,7 +392,7 @@ function shouldRunCompute(userId: string, forceCompute: boolean): boolean {
   return Date.now() - last >= computeMinIntervalMs()
 }
 
-type ParseDrainOptions = { limit?: number; forceCompute?: boolean }
+type ParseDrainOptions = { limit?: number; forceCompute?: boolean; forceComputeUserId?: string }
 
 /** One import batch + optional debounced compute. Caller must hold `draining` if serializing. */
 async function importAndComputeBatch(
@@ -413,7 +413,25 @@ async function importAndComputeBatch(
       .where(eq(uploadBundles.status, "pending"))
       .orderBy(uploadBundles.createdAt)
       .limit(limit)
-    if (pending.length === 0) return empty
+    if (pending.length === 0) {
+      // No imports but caller wants compute for a specific user anyway.
+      if (options?.forceComputeUserId && options?.forceCompute) {
+        const userId = options.forceComputeUserId
+        const core = new BullCore(config.binaryPath)
+        const dbPath = deviceStorePath(config.dataDir, userId)
+        try {
+          await computeUserStore(db, core, userId, dbPath, config, new Set())
+          lastComputeAtByUser.set(userId, Date.now())
+          return { imported: 0, computedUsers: [userId] }
+        } catch (error) {
+          console.error("[parse] forced compute failed", { userId, error: errorMessage(error) })
+          return empty
+        } finally {
+          core.close()
+        }
+      }
+      return empty
+    }
 
     const byUser = new Map<string, { id: string; storageKey: string }[]>()
     for (const bundle of pending) {
