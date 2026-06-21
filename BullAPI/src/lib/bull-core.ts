@@ -103,7 +103,9 @@ export class BullCore {
     stdin.write(payload)
     stdin.flush?.()
 
-    const line = await this.readLineWithTimeout(120_000, method)
+    // run_pipeline does ~15 sub-steps scanning the full store; allow 5 min.
+    const timeoutMs = method.includes("run_pipeline") ? 300_000 : 120_000
+    const line = await this.readLineWithTimeout(timeoutMs, method)
     const response = JSON.parse(line) as BullCoreResponse<T>
     if (!response.ok) {
       const error = response.error ?? { code: "unknown", message: "no error detail" }
