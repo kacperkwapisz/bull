@@ -227,16 +227,17 @@ async function computeUserStore(
     captured_before: cutoff,
   })
 
-  // Compute for each day that has imported data + today. This ensures
-  // historical data produces metrics without running N empty pipelines.
+  // Run the pipeline for each day that has imported data + today.
+  // Each run only does the rollup/write step for that day; the feature passes
+  // (HR, HRV, motion etc.) scan the full store regardless of the daily window.
   const today = new Date()
   const todayKey = today.toISOString().slice(0, 10)
   const dayKeys = new Set<string>([todayKey])
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
-  const allDays = [...dayKeys].sort().map((k) => new Date(k + "T00:00:00Z"))
-
-  for (const dayStart of allDays) {
-    const windows = pipelineWindows(dayStart)
+  // Limit to 5 days max to avoid OOM from many sequential pipeline runs.
+  const sortedDays = [...dayKeys].sort().slice(-5)
+  for (const k of sortedDays) {
+    const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
     await core.request("metrics.run_pipeline", {
       database_path: dbPath,
       device_id: LOCAL_BIOMETRIC_DEVICE_ID,
