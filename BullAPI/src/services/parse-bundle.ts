@@ -91,13 +91,16 @@ const SCORE_ARGS = {
 } as const
 
 /** Pull the 0-100 score out of a *_score_from_features report. */
-function scoreValue(report: unknown): number | null {
+function scoreValue(report: unknown, label?: string): number | null {
   const output = (report as { score_result?: { output?: Record<string, unknown> } })
     ?.score_result?.output
   if (!output) return null
   // strain uses score_0_to_21; recovery/sleep/stress use score_0_to_100
   for (const key of ["score_0_to_100", "score_0_to_21"]) {
-    if (typeof output[key] === "number") return output[key] as number
+    if (typeof output[key] === "number") {
+      if (label) console.log(`[scoreValue] ${label}: ${key}=${output[key]}`)
+      return output[key] as number
+    }
   }
   return null
 }
@@ -311,8 +314,8 @@ async function computeUserStore(
             raw: recoveryReport,
           },
         ],
-        strain: [{ day, strain_score: scoreValue(strainReport), raw: strainReport }],
-        stress: [{ day, stress_score: scoreValue(stressReport), raw: stressReport }],
+        strain: [{ day, strain_score: scoreValue(strainReport, `strain.${day}`), raw: strainReport }],
+        stress: [{ day, stress_score: scoreValue(stressReport, `stress.${day}`), raw: stressReport }],
       }),
     )
     // Notify the user's devices that a fresh recovery score is available.
