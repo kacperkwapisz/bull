@@ -23,3 +23,7 @@ PLAN.md
 docs/research-sleep-recovery-references.md
 *.local.md
 .stacked
+
+# Throwaway debug scripts (may contain credentials)
+BullAPI/_*.mjs
+BullAPI/_*.ts
