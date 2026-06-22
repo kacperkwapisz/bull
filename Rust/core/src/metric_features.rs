@@ -1233,9 +1233,105 @@ pub fn run_heart_rate_feature_report_for_store(
     let trusted_frames = heart_rate_trusted_frames(&correlation);
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
+    // R20 PPG accumulator — same logic as the non-store path.
+    let r20_chunk_size = 60usize;
+    let mut r20_chunk: Vec<i32> = Vec::new();
+    let mut r20_chunk_frame_id = String::new();
+    let mut r20_chunk_evidence_id = String::new();
+    let mut r20_chunk_captured_at = String::new();
+    let mut r20_frames_in_chunk = 0usize;
     store.for_each_decoded_frame_between(start, end, |row| {
-        push_heart_rate_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)
+        push_heart_rate_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+        // Accumulate R20 optical PPG frames for chunked HR extraction.
+        let parsed: Option<ParsedPayload> =
+            serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
+        if let Some(ParsedPayload::DataPacket {
+            body_summary:
+                Some(DataPacketBodySummary::R20Optical {
+                    green_ppg_samples: ref ppg,
+                    ..
+                }),
+            ..
+        }) = parsed
+        {
+            if r20_frames_in_chunk == 0 {
+                r20_chunk_frame_id = row.frame_id.clone();
+                r20_chunk_evidence_id = row.evidence_id.clone();
+                r20_chunk_captured_at = row.captured_at.clone();
+            }
+            r20_chunk.extend_from_slice(ppg);
+            r20_frames_in_chunk += 1;
+            if r20_frames_in_chunk >= r20_chunk_size {
+                if let Some(hr) =
+                    crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm
+                {
+                    if (30.0..=220.0).contains(&hr) {
+                        candidate_frame_count += 1;
+                        features.push(HeartRateFeature {
+                            metric_input_id: format!(
+                                "{}.r20_ppg_hr",
+                                r20_chunk_frame_id
+                            ),
+                            frame_id: r20_chunk_frame_id.clone(),
+                            evidence_id: r20_chunk_evidence_id.clone(),
+                            captured_at: r20_chunk_captured_at.clone(),
+                            sample_time: r20_chunk_captured_at.clone(),
+                            sample_time_unix_ms: None,
+                            sample_time_source: "captured_at".to_string(),
+                            body_summary_kind: "r20_optical".to_string(),
+                            source_signal: "green_ppg_dsp".to_string(),
+                            heart_rate_bpm: hr,
+                            marker_offset: 0,
+                            marker_value: 0,
+                            device_timestamp_seconds: None,
+                            device_timestamp_subseconds: None,
+                            trusted_metric_input: true,
+                            quality_flags: vec!["r20_ppg_derived".to_string()],
+                            provenance: serde_json::json!({
+                                "source": "r20_ppg_dsp",
+                                "chunk_frames": r20_frames_in_chunk,
+                                "green_samples": r20_chunk.len(),
+                            }),
+                        });
+                    }
+                }
+                r20_chunk.clear();
+                r20_frames_in_chunk = 0;
+            }
+        }
+        Ok(())
     })?;
+    // Flush any remaining R20 chunk (partial last minute).
+    if r20_frames_in_chunk >= 15 {
+        if let Some(hr) = crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm {
+            if (30.0..=220.0).contains(&hr) {
+                candidate_frame_count += 1;
+                features.push(HeartRateFeature {
+                    metric_input_id: format!("{}.r20_ppg_hr", r20_chunk_frame_id),
+                    frame_id: r20_chunk_frame_id,
+                    evidence_id: r20_chunk_evidence_id,
+                    captured_at: r20_chunk_captured_at.clone(),
+                    sample_time: r20_chunk_captured_at,
+                    sample_time_unix_ms: None,
+                    sample_time_source: "captured_at".to_string(),
+                    body_summary_kind: "r20_optical".to_string(),
+                    source_signal: "green_ppg_dsp".to_string(),
+                    heart_rate_bpm: hr,
+                    marker_offset: 0,
+                    marker_value: 0,
+                    device_timestamp_seconds: None,
+                    device_timestamp_subseconds: None,
+                    trusted_metric_input: true,
+                    quality_flags: vec!["r20_ppg_derived".to_string()],
+                    provenance: serde_json::json!({
+                        "source": "r20_ppg_dsp",
+                        "chunk_frames": r20_frames_in_chunk,
+                        "green_samples": r20_chunk.len(),
+                    }),
+                });
+            }
+        }
+    }
     Ok(assemble_heart_rate_report(
         features,
         candidate_frame_count,
