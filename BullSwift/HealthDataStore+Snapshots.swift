@@ -43,7 +43,7 @@ extension HealthDataStore {
   private func applyHomeResponse(_ home: [String: Any]) {
     var anyScore = false
     for family in ["recovery", "sleep", "strain", "stress"] {
-      if let report = home[family] as? [String: Any] {
+      if let report = home[family] as? [String: Any], !report.isEmpty {
         packetScoreReports[family] = report
         anyScore = true
       }
@@ -472,8 +472,13 @@ extension HealthDataStore {
   }
 
   func sleepSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
-    if let output = Self.map(packetScoreReports["sleep"], "score_result", "output") {
-      let scoreText = Self.numberText(output["score_0_to_100"], fractionDigits: 0) ?? snapshot.value
+    // Try score_result.output first (full sleep score report), then top-level
+    // score_0_to_100 (curated export or simplified report structure).
+    let sleepReport = packetScoreReports["sleep"]
+    let score: Double? = Self.doubleValue(
+      Self.map(sleepReport, "score_result", "output")?["score_0_to_100"]
+    ) ?? Self.doubleValue(sleepReport?["score_0_to_100"])
+    if let score, let scoreText = Self.numberText(score, fractionDigits: 0) {
       return HealthMetricSnapshot(
         id: snapshot.id,
         route: snapshot.route,
@@ -481,7 +486,7 @@ extension HealthDataStore {
         title: snapshot.title,
         value: scoreText,
         unit: "%",
-        status: Self.sleepQualityLabel(score: Self.doubleValue(output["score_0_to_100"])),
+        status: Self.sleepQualityLabel(score: score),
         freshness: "Latest",
         provenance: "metrics.sleep_score_from_features",
         source: .bridge("bull.sleep.v1"),
