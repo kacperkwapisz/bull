@@ -38,6 +38,7 @@ struct ScoreDatePickerSheet: View {
   let title: String
   let routes: [HealthRoute]
   let snapshots: [HealthMetricSnapshot]
+  var calendarDays: [String: CalendarDayScores] = [:]
   @Binding var selectedDate: Date
 
   @Environment(\.dismiss) private var dismiss
@@ -57,6 +58,7 @@ struct ScoreDatePickerSheet: View {
               monthStart: monthStart,
               routes: routes,
               snapshots: snapshots,
+              calendarDays: calendarDays,
               selectedDate: $selectedDate,
               calendar: calendar,
               selectDate: { date in
@@ -113,6 +115,7 @@ struct ScoreDateMonthSection: View {
   let monthStart: Date
   let routes: [HealthRoute]
   let snapshots: [HealthMetricSnapshot]
+  var calendarDays: [String: CalendarDayScores] = [:]
   @Binding var selectedDate: Date
   let calendar: Calendar
   let selectDate: (Date) -> Void
@@ -138,6 +141,7 @@ struct ScoreDateMonthSection: View {
             for: date,
             routes: routes,
             snapshots: snapshots,
+            calendarDays: calendarDays,
             calendar: calendar
           )
           ScoreDateCell(

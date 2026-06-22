@@ -22,11 +22,12 @@ final class HealthDataStore: ObservableObject {
   var lastHomeFetchedAt = Date.distantPast
   // Calendar: full-month score summaries for instant date picker.
   // Keyed by day string "yyyy-MM-dd" → CalendarDayScores.
+  // Accumulates across months so the picker (which shows 2 months) works.
   var calendarDays: [String: CalendarDayScores] = [:]
-  var calendarMonth: String?
+  var calendarMonthsFetched: Set<String> = []
   /// Bumped when calendar data arrives so views re-render.
   @Published var calendarRevision = 0
-  var calendarFetchInFlight = false
+  var calendarFetchesInFlight: Set<String> = []
   @Published var calibrationTargetFamily = "recovery"
   @Published var calibrationLabelsImported = false
   @Published var calibrationRunComplete = false

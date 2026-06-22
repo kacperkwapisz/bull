@@ -182,6 +182,7 @@ struct SleepV2OverviewPage: View {
         title: "Sleep",
         routes: [.sleep],
         snapshots: [store.snapshot(for: .sleep)],
+        calendarDays: store.calendarDays,
         selectedDate: $selectedDate
       )
     }

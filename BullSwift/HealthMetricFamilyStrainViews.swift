@@ -107,6 +107,7 @@ struct HealthMetricFamilyView: View {
         title: route.title,
         routes: [route],
         snapshots: [store.snapshot(for: route)],
+        calendarDays: store.calendarDays,
         selectedDate: selectedDateBinding
       )
     }
@@ -522,6 +523,7 @@ struct StrainV2OverviewPage: View {
         title: "Strain",
         routes: [.strain],
         snapshots: [store.snapshot(for: .strain)],
+        calendarDays: store.calendarDays,
         selectedDate: $selectedDate
       )
     }

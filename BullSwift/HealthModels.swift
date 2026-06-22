@@ -211,10 +211,17 @@ enum ScoreDateTimeline {
     for date: Date,
     routes: [HealthRoute],
     snapshots: [HealthMetricSnapshot],
+    calendarDays: [String: CalendarDayScores] = [:],
     calendar: Calendar = .current
   ) -> ScoreDateEntry {
     let selectedDay = calendar.startOfDay(for: date)
     let today = calendar.startOfDay(for: Date())
+    let isToday = calendar.isDate(selectedDay, inSameDayAs: today)
+    let fmt = DateFormatter()
+    fmt.dateFormat = "yyyy-MM-dd"
+    fmt.calendar = calendar
+    let dateKey = fmt.string(from: selectedDay)
+    let calDay = calendarDays[dateKey]
     let metrics = routes.compactMap { route -> ScoreDateMetric? in
       guard let snapshot = snapshots.first(where: { $0.route == route }) else {
         return nil
@@ -222,7 +229,31 @@ enum ScoreDateTimeline {
       if route == .recovery, snapshot.source.kind == .unavailable {
         return ScoreDateMetric(route: route, score: 0, tint: snapshot.tint)
       }
-      let score = calendar.isDate(selectedDay, inSameDayAs: today) ? baseScorePercent(for: snapshot) : 0
+      let score: Int
+      if isToday {
+        score = baseScorePercent(for: snapshot)
+      } else if let calDay, calDay.hasData {
+        // Read from calendar cache for past days
+        let raw: Double?
+        switch route {
+        case .recovery: raw = calDay.recoveryScore
+        case .sleep: raw = calDay.sleepScore
+        case .strain: raw = calDay.strainScore
+        case .stress: raw = calDay.stressScore
+        default: raw = nil
+        }
+        if let raw {
+          if route == .strain {
+            score = min(max(Int((raw / 21 * 100).rounded()), 0), 100)
+          } else {
+            score = min(max(Int(raw.rounded()), 0), 100)
+          }
+        } else {
+          score = 0
+        }
+      } else {
+        score = 0
+      }
       return ScoreDateMetric(route: route, score: score, tint: snapshot.tint)
     }
 

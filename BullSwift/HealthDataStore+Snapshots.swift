@@ -101,25 +101,36 @@ extension HealthDataStore {
 
   /// Fetch a full month of daily score summaries. The response populates
   /// `calendarDays` so the date picker reads from cache — zero per-day fetches.
+  /// Also fetches the previous month (the picker shows 2 months).
   func fetchCalendarIfNeeded(for date: Date) {
     let calendar = Calendar.current
     let comps = calendar.dateComponents([.year, .month], from: date)
     guard let y = comps.year, let m = comps.month else { return }
     let monthKey = "\(y)-\(String(format: "%02d", m))"
-    guard monthKey != calendarMonth, !calendarFetchInFlight else { return }
-    calendarFetchInFlight = true
+    // Also pre-fetch previous month for the date picker
+    let prevDate = calendar.date(byAdding: .month, value: -1, to: date) ?? date
+    let prevComps = calendar.dateComponents([.year, .month], from: prevDate)
+    let prevKey = "\(prevComps.year!)-\(String(format: "%02d", prevComps.month!))"
+    for key in [monthKey, prevKey] {
+      fetchCalendarMonth(key)
+    }
+  }
+
+  private func fetchCalendarMonth(_ monthKey: String) {
+    guard !calendarMonthsFetched.contains(monthKey),
+          !calendarFetchesInFlight.contains(monthKey) else { return }
+    calendarFetchesInFlight.insert(monthKey)
     Task { [weak self] in
       let result = await Self.fetchCalendar(month: monthKey)
       guard let self else { return }
-      self.calendarFetchInFlight = false
-      guard !result.isEmpty else { return }
-      var map: [String: CalendarDayScores] = [:]
+      self.calendarFetchesInFlight.remove(monthKey)
+      self.calendarMonthsFetched.insert(monthKey)
       for day in result {
-        map[day.date] = day
+        self.calendarDays[day.date] = day
       }
-      self.calendarDays = map
-      self.calendarMonth = monthKey
-      self.calendarRevision += 1
+      if !result.isEmpty {
+        self.calendarRevision += 1
+      }
     }
   }
 

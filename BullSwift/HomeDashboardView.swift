@@ -151,6 +151,7 @@ struct HomeDashboardView: View {
         title: "Daily Scores",
         routes: [.sleep, .recovery, .strain],
         snapshots: scorePickerSnapshots(using: cached),
+        calendarDays: healthStore.calendarDays,
         selectedDate: $selectedDate
       )
     }

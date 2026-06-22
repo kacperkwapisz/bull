@@ -146,6 +146,7 @@ struct RecoveryV2OverviewPage: View {
         title: "Recovery",
         routes: [.recovery],
         snapshots: [store.snapshot(for: .recovery)],
+        calendarDays: store.calendarDays,
         selectedDate: $selectedDate
       )
     }
