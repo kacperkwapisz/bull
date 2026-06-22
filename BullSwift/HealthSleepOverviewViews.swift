@@ -217,7 +217,8 @@ struct SleepV2OverviewPage: View {
   private func pageData() -> SleepV2PageData {
     let selectedSnapshot = ScoreDateTimeline.datedSnapshot(
       from: store.snapshot(for: .sleep),
-      date: selectedDate
+      date: selectedDate,
+      calendarDays: store.calendarDays
     )
     let primarySleep = store.primarySleep()
     let score = SleepV2Numbers.firstInt(in: selectedSnapshot.value)

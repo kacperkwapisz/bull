@@ -183,7 +183,8 @@ struct RecoveryV2OverviewPage: View {
   private func pageData() -> RecoveryV2PageData {
     let selectedSnapshot = ScoreDateTimeline.datedSnapshot(
       from: store.snapshot(for: .recovery),
-      date: selectedDate
+      date: selectedDate,
+      calendarDays: store.calendarDays
     )
     let score: Int?
     if let selectedScore = SleepV2Numbers.firstInt(in: selectedSnapshot.value) {
@@ -396,6 +397,7 @@ struct StressV2OverviewPage: View {
   private func refreshData() {
     calibration.refreshUISnapshot(store: store, isBandConnected: model.ble.isConnectedForUserBaseline)
     cachedSummary = store.stressAlgorithmSummary(for: selectedDate)
+    // ponytail: trend rows only exist for today (live packet data); historical trends need server-side trend storage
     cachedTrendRows = Calendar.current.isDate(selectedDate, inSameDayAs: Date()) ? store.trendRows(for: .stress) : []
     cachedCoachTip = CoachTipFactory.metricTip(route: .stress, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     lastLiveRefresh = Date()

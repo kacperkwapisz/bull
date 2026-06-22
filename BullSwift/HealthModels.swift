@@ -137,6 +137,7 @@ enum ScoreDateTimeline {
   static func datedSnapshot(
     from snapshot: HealthMetricSnapshot,
     date: Date,
+    calendarDays: [String: CalendarDayScores] = [:],
     calendar: Calendar = .current
   ) -> HealthMetricSnapshot {
     guard snapshot.route.supportsScoreDatePicker else {
@@ -145,6 +146,8 @@ enum ScoreDateTimeline {
 
     let today = calendar.startOfDay(for: Date())
     let selectedDay = calendar.startOfDay(for: date)
+    let freshness = dateLabel(for: selectedDay, calendar: calendar)
+
     if snapshot.route == .recovery, snapshot.source.kind == .unavailable {
       return HealthMetricSnapshot(
         id: snapshot.id,
@@ -154,7 +157,7 @@ enum ScoreDateTimeline {
         value: "--",
         unit: "%",
         status: "No data",
-        freshness: dateLabel(for: selectedDay, calendar: calendar),
+        freshness: freshness,
         provenance: snapshot.provenance,
         source: snapshot.source,
         systemImage: snapshot.systemImage,
@@ -162,48 +165,87 @@ enum ScoreDateTimeline {
         trend: snapshot.trend
       )
     }
-    guard calendar.isDate(selectedDay, inSameDayAs: today) else {
+
+    if calendar.isDate(selectedDay, inSameDayAs: today) {
+      let score = baseScorePercent(for: snapshot)
       return HealthMetricSnapshot(
         id: snapshot.id,
         route: snapshot.route,
         group: snapshot.group,
         title: snapshot.title,
-        value: "--",
-        unit: snapshot.unit,
-        status: "No data",
-        freshness: dateLabel(for: selectedDay, calendar: calendar),
-        provenance: "No stored history for selected date",
-        source: .unavailable("selected date history not available"),
+        value: "\(score)",
+        unit: "%",
+        status: status(for: snapshot.route, score: score),
+        freshness: freshness,
+        provenance: snapshot.provenance,
+        source: snapshot.source,
         systemImage: snapshot.systemImage,
         tint: snapshot.tint,
-        trend: HealthTrendModel(
-          id: snapshot.trend.id,
-          title: snapshot.trend.title,
-          rangeLabel: "No data",
-          summary: "No stored history",
-          analysis: "No stored metric history exists for this selected date yet.",
-          resources: snapshot.trend.resources,
-          points: []
-        )
+        trend: snapshot.trend
       )
     }
 
-    let score = baseScorePercent(for: snapshot)
+    // Historical date: try calendar cache
+    let fmt = DateFormatter()
+    fmt.dateFormat = "yyyy-MM-dd"
+    fmt.calendar = calendar
+    let dateKey = fmt.string(from: selectedDay)
+    if let calDay = calendarDays[dateKey], calDay.hasData {
+      let raw: Double?
+      switch snapshot.route {
+      case .recovery: raw = calDay.recoveryScore
+      case .sleep: raw = calDay.sleepScore
+      case .strain: raw = calDay.strainScore
+      case .stress: raw = calDay.stressScore
+      default: raw = nil
+      }
+      if let raw {
+        let score: Int
+        if snapshot.route == .strain {
+          score = min(max(Int((raw / 21 * 100).rounded()), 0), 100)
+        } else {
+          score = min(max(Int(raw.rounded()), 0), 100)
+        }
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: "\(score)",
+          unit: "%",
+          status: status(for: snapshot.route, score: score),
+          freshness: freshness,
+          provenance: "calendar \(dateKey)",
+          source: .bridge("daily_calendar"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
 
     return HealthMetricSnapshot(
       id: snapshot.id,
       route: snapshot.route,
       group: snapshot.group,
       title: snapshot.title,
-      value: "\(score)",
-      unit: "%",
-      status: status(for: snapshot.route, score: score),
-      freshness: dateLabel(for: selectedDay, calendar: calendar),
-      provenance: snapshot.provenance,
-      source: snapshot.source,
+      value: "--",
+      unit: snapshot.unit,
+      status: "No data",
+      freshness: freshness,
+      provenance: "No stored history for selected date",
+      source: .unavailable("selected date history not available"),
       systemImage: snapshot.systemImage,
       tint: snapshot.tint,
-      trend: snapshot.trend
+      trend: HealthTrendModel(
+        id: snapshot.trend.id,
+        title: snapshot.trend.title,
+        rangeLabel: "No data",
+        summary: "No stored history",
+        analysis: "No stored metric history exists for this selected date yet.",
+        resources: snapshot.trend.resources,
+        points: []
+      )
     )
   }
 

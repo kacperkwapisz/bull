@@ -502,6 +502,20 @@ extension HealthDataStore {
     let base = Self.baseLandingSnapshots.first { $0.route == .strain } ?? Self.baseLandingSnapshots[0]
     let snapshot = strainSnapshot(base: base)
     guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
+      // Try calendar cache for historical dates
+      let dateKey = Self.metricDateKey(for: date, calendar: calendar)
+      if let calDay = calendarDays[dateKey], calDay.hasData, let raw = calDay.strainScore {
+        let pct = min(max(Int((raw / 21 * 100).rounded()), 0), 100)
+        return HealthMetricSnapshot(
+          id: snapshot.id, route: snapshot.route, group: snapshot.group, title: snapshot.title,
+          value: "\(pct)", unit: "%",
+          status: ScoreDateTimeline.status(for: .strain, score: pct),
+          freshness: ScoreDateTimeline.dateLabel(for: date, calendar: calendar),
+          provenance: "calendar \(dateKey)",
+          source: .bridge("daily_calendar"),
+          systemImage: snapshot.systemImage, tint: snapshot.tint, trend: snapshot.trend
+        )
+      }
       return zeroStrainSnapshot(
         base: snapshot,
         freshness: ScoreDateTimeline.dateLabel(for: date, calendar: calendar),
@@ -657,10 +671,15 @@ extension HealthDataStore {
   }
 
   func strainScore0To100(for date: Date = Date(), calendar: Calendar = .current) -> Double {
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
-      return 0
+    if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) {
+      return currentStrainScore0To21().map(Self.strainPercent) ?? 0
     }
-    return currentStrainScore0To21().map(Self.strainPercent) ?? 0
+    // Calendar cache fallback
+    let dateKey = Self.metricDateKey(for: date, calendar: calendar)
+    if let calDay = calendarDays[dateKey], let raw = calDay.strainScore {
+      return min(max(raw / 21 * 100, 0), 100)
+    }
+    return 0
   }
 
   func strainScoreDisplayText(for date: Date = Date(), calendar: Calendar = .current) -> String {
@@ -672,11 +691,13 @@ extension HealthDataStore {
   }
 
   func strainStatusText(for date: Date = Date(), calendar: Calendar = .current) -> String {
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())),
-          let rawScore = currentStrainScore0To21() else {
-      return "No strain data"
+    if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())),
+       let rawScore = currentStrainScore0To21() {
+      return Self.strainStatusLabel(score: Self.strainPercent(rawScore))
     }
-    return Self.strainStatusLabel(score: Self.strainPercent(rawScore))
+    let pct = strainScore0To100(for: date, calendar: calendar)
+    guard pct > 0 else { return "No strain data" }
+    return Self.strainStatusLabel(score: pct)
   }
 
   func strainTargetDisplayText() -> String {

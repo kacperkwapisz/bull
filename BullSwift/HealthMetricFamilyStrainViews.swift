@@ -119,7 +119,7 @@ struct HealthMetricFamilyView: View {
   }
 
   private var selectedSnapshot: HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(from: store.snapshot(for: route), date: selectedDateBinding.wrappedValue)
+    ScoreDateTimeline.datedSnapshot(from: store.snapshot(for: route), date: selectedDateBinding.wrappedValue, calendarDays: store.calendarDays)
   }
 
   private var selectedDateBinding: Binding<Date> {
@@ -164,12 +164,12 @@ struct HealthMetricFamilyView: View {
       ]
     case .recovery:
       let selectedDate = selectedDateBinding.wrappedValue
-      let isToday = Calendar.current.isDate(selectedDate, inSameDayAs: Date())
+      let recoverySnap = ScoreDateTimeline.datedSnapshot(from: store.snapshot(for: .recovery), date: selectedDate, calendarDays: store.calendarDays)
       return [
         HealthSummaryRow(
           "Recovery Score",
-          value: isToday ? store.recoveryScoreDisplayText() : "--",
-          source: isToday ? store.snapshot(for: .recovery).source : .unavailable("selected date has no stored recovery score"),
+          value: recoverySnap.value == "0" ? "--" : recoverySnap.displayValue,
+          source: recoverySnap.source,
           systemImage: "battery.100percent"
         ),
         HealthSummaryRow("Resting HRV", value: store.recoveryHRVDisplayText(for: selectedDate), source: store.recoveryHRVSource(for: selectedDate), systemImage: "waveform.path.ecg"),
@@ -178,12 +178,12 @@ struct HealthMetricFamilyView: View {
       ]
     case .strain:
       let selectedDate = selectedDateBinding.wrappedValue
-      let isToday = Calendar.current.isDate(selectedDate, inSameDayAs: Date())
+      let strainSnap = ScoreDateTimeline.datedSnapshot(from: store.snapshot(for: .strain), date: selectedDate, calendarDays: store.calendarDays)
       return [
         HealthSummaryRow(
           "Strain Score",
-          value: store.strainScoreDisplayText(for: selectedDate),
-          source: isToday ? store.snapshot(for: .strain).source : .unavailable("selected date has no stored strain score"),
+          value: strainSnap.value == "0" ? "--" : strainSnap.displayValue,
+          source: strainSnap.source,
           systemImage: "figure.run"
         ),
         HealthSummaryRow("Target strain", value: store.strainTargetDisplayText(), source: .unavailable("strain target unavailable"), systemImage: "target"),
