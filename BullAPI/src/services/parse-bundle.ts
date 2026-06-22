@@ -299,8 +299,7 @@ async function computeUserStore(
     const dayEnd = day + "T23:59:59Z"
     const recoveryArgs = {
       database_path: dbPath, ...wideArgs, date_key: day,
-      // Day's HRV + resting HR — baselines stay wide
-      start: dayStart, end: dayEnd,
+      // Day's HRV scoped to this day; baselines stay wide for 3-day minimum
       hrv_start: dayStart, hrv_end: dayEnd,
       resting_start: dayStart, resting_end: dayEnd,
       // Sleep: the night BEFORE this day
