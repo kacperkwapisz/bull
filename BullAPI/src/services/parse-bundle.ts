@@ -41,7 +41,7 @@ const LOCAL_BIOMETRIC_DEVICE_ID = "bull-local"
 // not lose baseline history. Override per-deployment via BULL_STORE_RETENTION_DAYS.
 const STORE_RETENTION_DAYS = Math.max(
   1,
-  Number(process.env.BULL_STORE_RETENTION_DAYS ?? "3") || 3,
+  Number(process.env.BULL_STORE_RETENTION_DAYS ?? "7") || 7,
 )
 
 // Nightly sleep-score tuning. Mirrors the device's read-time score call
