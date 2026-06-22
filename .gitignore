@@ -27,3 +27,5 @@ docs/research-sleep-recovery-references.md
 # Throwaway debug scripts (may contain credentials)
 BullAPI/_*.mjs
 BullAPI/_*.ts
+docs/reference-algos/*.swift
+!docs/reference-algos/PLAN.md
