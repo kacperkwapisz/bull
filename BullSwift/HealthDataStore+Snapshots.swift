@@ -138,12 +138,15 @@ extension HealthDataStore {
         systemImage: base.systemImage, tint: base.tint, trend: base.trend
       )
     }
-    // Extract score from the report's score_result.output structure
+    // Extract score from the report's score_result.output structure.
+    // Strain uses score_0_to_21; recovery/sleep/stress use score_0_to_100.
     let score: Double?
     if let output = Self.map(report, "score_result", "output") {
       score = Self.doubleValue(output["score_0_to_100"])
+        ?? Self.doubleValue(output["score_0_to_21"])
     } else {
       score = Self.doubleValue(report["score_0_to_100"])
+        ?? Self.doubleValue(report["score_0_to_21"])
         ?? Self.doubleValue(report["recovery_score"])
         ?? Self.doubleValue(report["sleep_score"])
         ?? Self.doubleValue(report["strain_score"])
@@ -158,10 +161,17 @@ extension HealthDataStore {
         systemImage: base.systemImage, tint: base.tint, trend: base.trend
       )
     }
-    let scoreInt = Int(score.rounded())
-    let displayValue = route == .strain
-      ? "\(min(max(Int((score / 21 * 100).rounded()), 0), 100))"
-      : "\(scoreInt)"
+    let displayValue: String
+    let scoreInt: Int
+    if route == .strain {
+      // Strain is 0–21 scale; convert to percent for display
+      let pct = min(max(Int((score / 21 * 100).rounded()), 0), 100)
+      displayValue = "\(pct)"
+      scoreInt = pct
+    } else {
+      scoreInt = Int(score.rounded())
+      displayValue = "\(scoreInt)"
+    }
     return HealthMetricSnapshot(
       id: base.id, route: base.route, group: base.group, title: base.title,
       value: displayValue, unit: "%",
