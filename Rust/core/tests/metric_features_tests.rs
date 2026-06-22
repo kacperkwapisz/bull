@@ -1770,9 +1770,10 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
         "expected fewer merged segments than raw intervals, got {:?}",
         window.stage_segments
     );
-    // Motion-only (no HR) cannot corroborate sleep, so the still epochs stage
-    // Awake; the point here is that adjacent compatible segments still merge.
-    assert_eq!(window.stage_segments[0].stage, SleepStageKind::Awake);
+    // Motion-only (no HR): still epochs default to Core (light sleep) — low
+    // motion without HR is more likely sleep than wakefulness. Adjacent
+    // compatible segments still merge.
+    assert_eq!(window.stage_segments[0].stage, SleepStageKind::Core);
     assert_eq!(window.stage_segments[0].start_time, "2026-05-27T22:00:00Z");
     assert!(window.stage_segments[0].duration_minutes > 60.0);
     assert_close(

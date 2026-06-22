@@ -6101,23 +6101,26 @@ fn infer_sleep_stage(
         );
     }
 
-    // Stillness alone is not sleep: every sleep stage requires heart-rate
-    // corroboration from the device's own sensors. An epoch with no HR, or
-    // with HR at wake level relative to this window's confidently-awake
-    // (high-motion) epochs, is quiet rest.
+    // Noop-aligned: low-motion with no HR defaults to light sleep, not awake.
+    // Missing HR during a still epoch is more likely sensor gap than wakefulness.
+    // A truly awake person would show motion. (Noop: "Missing RMSSD treated as
+    // pro-deep rather than deep-blocking")
     let Some(heart_rate_bpm) = heart_rate_bpm else {
         return (
-            SleepStageKind::Awake,
-            0.50,
+            SleepStageKind::Core,
+            0.40,
             stage_probability_map([
-                (SleepStageKind::Awake, 0.50),
-                (SleepStageKind::Core, 0.30),
-                (SleepStageKind::Deep, 0.10),
-                (SleepStageKind::Rem, 0.10),
+                (SleepStageKind::Awake, 0.20),
+                (SleepStageKind::Core, 0.50),
+                (SleepStageKind::Deep, 0.15),
+                (SleepStageKind::Rem, 0.15),
             ]),
-            vec!["sleep_requires_heart_rate_corroboration".to_string()],
+            vec!["light_sleep_default_no_hr".to_string()],
         );
     };
+    // Wake reference HR check: only reject as awake when reference is
+    // available AND HR is clearly at wake level. Without a reference,
+    // fall through to the HR-percentile staging below.
     if let Some(reference) = wake_reference_hr {
         if heart_rate_bpm > reference * SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION {
             return (
