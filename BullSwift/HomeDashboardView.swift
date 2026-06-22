@@ -125,6 +125,10 @@ struct HomeDashboardView: View {
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
+      healthStore.fetchScoresForDate(newValue)
+      refreshSnapshots()
+    }
+    .onChange(of: healthStore.selectedDateScoreRevision) { _, _ in
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
@@ -278,7 +282,17 @@ struct HomeDashboardView: View {
   }
 
   private func datedHomeSnapshot(for route: HealthRoute, in snapshots: [HealthMetricSnapshot]) -> HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(from: homeSnapshot(for: route, in: snapshots), date: selectedDate)
+    let base = homeSnapshot(for: route, in: snapshots)
+    let calendar = Calendar.current
+    if calendar.isDateInToday(selectedDate) {
+      return base
+    }
+    let dateKey = HealthDataStore.metricDateKey(for: selectedDate, calendar: calendar)
+    let hasDated = healthStore.selectedDateScoreDay == dateKey && !healthStore.selectedDateScoreReports.isEmpty
+    if hasDated {
+      return healthStore.datedSnapshot(for: route, dateKey: dateKey, base: base)
+    }
+    return ScoreDateTimeline.datedSnapshot(from: base, date: selectedDate)
   }
 
   private func openHealth(_ route: HealthRoute) {

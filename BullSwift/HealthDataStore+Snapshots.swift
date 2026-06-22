@@ -75,9 +75,17 @@ extension HealthDataStore {
   }
 
   /// GET /v1/data/home — single BFF request returning all score families + inputs.
-  nonisolated static func fetchHome() async -> [String: Any] {
+  /// Optional `dateKey` (yyyy-MM-dd) pins scores to that calendar day.
+  nonisolated static func fetchHome(dateKey: String? = nil) async -> [String: Any] {
     guard let token = CoachAuthKeychain.load() else { return [:] }
-    let url = CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/home")
+    var components = URLComponents(
+      url: CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/home"),
+      resolvingAgainstBaseURL: false
+    )
+    if let dateKey {
+      components?.queryItems = [URLQueryItem(name: "date", value: dateKey)]
+    }
+    guard let url = components?.url else { return [:] }
     var request = URLRequest(url: url)
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     request.timeoutInterval = 30
@@ -87,6 +95,81 @@ extension HealthDataStore {
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else { return [:] }
     return json
+  }
+
+  /// Fetch scores for a specific historical date and apply them.
+  /// Does NOT update the cooldown — date-specific fetches are independent.
+  func fetchScoresForDate(_ date: Date) {
+    let calendar = Calendar.current
+    guard !calendar.isDateInToday(date) else { return }
+    let dateKey = Self.metricDateKey(for: date, calendar: calendar)
+    Task { [weak self] in
+      let home = await Self.fetchHome(dateKey: dateKey)
+      guard let self else { return }
+      // Store date-specific scores in a separate map so today's scores aren't overwritten
+      var dated: [String: [String: Any]] = [:]
+      for family in ["recovery", "sleep", "strain", "stress"] {
+        if let report = home[family] as? [String: Any] {
+          dated[family] = report
+        }
+      }
+      self.selectedDateScoreReports = dated
+      self.selectedDateScoreDay = dateKey
+      self.selectedDateScoreRevision += 1
+    }
+  }
+
+  /// Build a snapshot for a historical date from the date-specific server scores.
+  func datedSnapshot(for route: HealthRoute, dateKey: String, base: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    let familyKey: String
+    switch route {
+    case .recovery: familyKey = "recovery"
+    case .sleep: familyKey = "sleep"
+    case .strain: familyKey = "strain"
+    case .stress: familyKey = "stress"
+    default: return base
+    }
+    guard let report = selectedDateScoreReports[familyKey] else {
+      return HealthMetricSnapshot(
+        id: base.id, route: base.route, group: base.group, title: base.title,
+        value: "--", unit: base.unit, status: "No data",
+        freshness: dateKey, provenance: "no server data for \(dateKey)",
+        source: .unavailable("no data for selected date"),
+        systemImage: base.systemImage, tint: base.tint, trend: base.trend
+      )
+    }
+    // Extract score from the report's score_result.output structure
+    let score: Double?
+    if let output = Self.map(report, "score_result", "output") {
+      score = Self.doubleValue(output["score_0_to_100"])
+    } else {
+      score = Self.doubleValue(report["score_0_to_100"])
+        ?? Self.doubleValue(report["recovery_score"])
+        ?? Self.doubleValue(report["sleep_score"])
+        ?? Self.doubleValue(report["strain_score"])
+        ?? Self.doubleValue(report["stress_score"])
+    }
+    guard let score else {
+      return HealthMetricSnapshot(
+        id: base.id, route: base.route, group: base.group, title: base.title,
+        value: "--", unit: base.unit, status: "No data",
+        freshness: dateKey, provenance: "score missing in server response",
+        source: .unavailable("score not computed for \(dateKey)"),
+        systemImage: base.systemImage, tint: base.tint, trend: base.trend
+      )
+    }
+    let scoreInt = Int(score.rounded())
+    let displayValue = route == .strain
+      ? "\(min(max(Int((score / 21 * 100).rounded()), 0), 100))"
+      : "\(scoreInt)"
+    return HealthMetricSnapshot(
+      id: base.id, route: base.route, group: base.group, title: base.title,
+      value: displayValue, unit: "%",
+      status: ScoreDateTimeline.status(for: route, score: scoreInt),
+      freshness: dateKey, provenance: "server \(familyKey) for \(dateKey)",
+      source: .bridge("daily_\(familyKey)"),
+      systemImage: base.systemImage, tint: base.tint, trend: base.trend
+    )
   }
 
   // MARK: - Legacy per-family fetch (kept for detail views / Coach)

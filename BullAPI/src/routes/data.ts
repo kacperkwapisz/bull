@@ -150,15 +150,17 @@ export function dataRoutes(env: Env) {
     })
 
   // BFF: single round-trip for everything the home + health screens need.
+  // Optional ?date=yyyy-MM-dd pins scores to that calendar day.
   const home = route
     .get("/v1/data/home")
+    .query(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
     .use(jwt)
-    .handle(async ({ ctx }) => {
+    .handle(async ({ ctx, query }) => {
       const db = getDb(env)
       if (!db) return json(503, { error: "persistence_unavailable" })
       const userId = userIdFrom(ctx)
       if (!userId) return json(403, { error: "user_scope_required" })
-      return ok(await fetchHome(db, userId))
+      return ok(await fetchHome(db, userId, query.date))
     })
 
   const summary = route

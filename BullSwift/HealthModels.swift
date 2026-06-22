@@ -236,7 +236,7 @@ enum ScoreDateTimeline {
     return min(max(Int(rawValue.rounded()), 0), 100)
   }
 
-  private static func status(for route: HealthRoute, score: Int) -> String {
+  static func status(for route: HealthRoute, score: Int) -> String {
     switch route {
     case .sleep:
       score >= 85 ? "High sleep performance" : score >= 70 ? "Moderate sleep performance" : "Low sleep performance"

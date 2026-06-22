@@ -240,25 +240,34 @@ export interface HomePayload {
   readonly computed_at: string | null
 }
 
-/** Fetch the latest row from each score/input table in parallel and return a
- *  single object the client can paint its entire home + health surface from. */
-export async function fetchHome(db: Db, userId: string): Promise<HomePayload> {
+/** Fetch the latest (or date-specific) row from each score/input table in
+ *  parallel and return a single object the client paints its entire surface from.
+ *  When `day` is provided (yyyy-MM-dd), scores are pinned to that calendar day;
+ *  inputs are always the latest (date-independent). */
+export async function fetchHome(db: Db, userId: string, day?: string): Promise<HomePayload> {
   const latestRaw = <T extends { raw?: unknown }>(rows: T[]): Record<string, unknown> | null =>
     (rows[0]?.raw as Record<string, unknown>) ?? null
 
+  // When a specific day is requested, filter each score table to that day.
+  // Otherwise fetch the most recent row (the common "today" case).
+  const scoreWhere = (table: typeof dailyRecovery | typeof dailySleep | typeof dailyStrain | typeof dailyStress | typeof dailyEnergy | typeof vitalsDaily) =>
+    day
+      ? and(eq(table.userId, userId), eq(table.day, day))
+      : eq(table.userId, userId)
+
   const [rec, slp, str, sts, ene, vit, inp] = await Promise.all([
     db.select({ raw: dailyRecovery.raw }).from(dailyRecovery)
-      .where(eq(dailyRecovery.userId, userId)).orderBy(desc(dailyRecovery.day)).limit(1),
+      .where(scoreWhere(dailyRecovery)).orderBy(desc(dailyRecovery.day)).limit(1),
     db.select({ raw: dailySleep.raw }).from(dailySleep)
-      .where(eq(dailySleep.userId, userId)).orderBy(desc(dailySleep.day)).limit(1),
+      .where(scoreWhere(dailySleep)).orderBy(desc(dailySleep.day)).limit(1),
     db.select({ raw: dailyStrain.raw }).from(dailyStrain)
-      .where(eq(dailyStrain.userId, userId)).orderBy(desc(dailyStrain.day)).limit(1),
+      .where(scoreWhere(dailyStrain)).orderBy(desc(dailyStrain.day)).limit(1),
     db.select({ raw: dailyStress.raw }).from(dailyStress)
-      .where(eq(dailyStress.userId, userId)).orderBy(desc(dailyStress.day)).limit(1),
+      .where(scoreWhere(dailyStress)).orderBy(desc(dailyStress.day)).limit(1),
     db.select({ raw: dailyEnergy.raw }).from(dailyEnergy)
-      .where(eq(dailyEnergy.userId, userId)).orderBy(desc(dailyEnergy.day)).limit(1),
+      .where(scoreWhere(dailyEnergy)).orderBy(desc(dailyEnergy.day)).limit(1),
     db.select({ raw: vitalsDaily.raw }).from(vitalsDaily)
-      .where(eq(vitalsDaily.userId, userId)).orderBy(desc(vitalsDaily.day)).limit(1),
+      .where(scoreWhere(vitalsDaily)).orderBy(desc(vitalsDaily.day)).limit(1),
     db.select({ raw: inputReports.raw, computedAt: inputReports.computedAt }).from(inputReports)
       .where(eq(inputReports.userId, userId)).limit(1),
   ])
