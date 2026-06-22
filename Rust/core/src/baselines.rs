@@ -515,7 +515,11 @@ impl PersonalBaseline {
         let mut hrv_state: Option<BaselineState> = None;
         let mut rhr_state: Option<BaselineState> = None;
         for row in rows {
-            let hrv_val = row.hrv_rmssd_ms.filter(|v| v.is_finite());
+            // Skip implausible HRV values (PPG jitter artifact). The HRV_CONFIG
+            // max is 250ms but values above 150ms from PPG are almost certainly
+            // inflated by quantization noise.
+            let hrv_val = row.hrv_rmssd_ms
+                .filter(|v| v.is_finite() && *v <= 150.0);
             let rhr_val = row.resting_hr_bpm.filter(|v| v.is_finite());
             hrv_state = Some(baseline_update(hrv_state.as_ref(), hrv_val, &HRV_CONFIG));
             rhr_state = Some(baseline_update(rhr_state.as_ref(), rhr_val, &RHR_CONFIG));
