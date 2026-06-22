@@ -500,12 +500,21 @@ pub struct PersonalBaseline {
 }
 
 impl PersonalBaseline {
-    /// Reconstruct baselines by replaying all `daily_recovery_metrics` rows.
+    /// Reconstruct baselines by replaying `daily_recovery_metrics` rows.
+    /// Uses only the most recent 14 rows to avoid poisoning from old
+    /// uncorrected values (e.g. inflated PPG-derived HRV before noise
+    /// floor subtraction).
     pub fn fold_from_store(store: &BullStore) -> BullResult<Self> {
-        let rows = store.daily_recovery_metrics_all_ordered()?;
+        let all_rows = store.daily_recovery_metrics_all_ordered()?;
+        // ponytail: take last 14 rows. Old inflated values age out naturally.
+        let rows = if all_rows.len() > 14 {
+            &all_rows[all_rows.len() - 14..]
+        } else {
+            &all_rows
+        };
         let mut hrv_state: Option<BaselineState> = None;
         let mut rhr_state: Option<BaselineState> = None;
-        for row in &rows {
+        for row in rows {
             let hrv_val = row.hrv_rmssd_ms.filter(|v| v.is_finite());
             let rhr_val = row.resting_hr_bpm.filter(|v| v.is_finite());
             hrv_state = Some(baseline_update(hrv_state.as_ref(), hrv_val, &HRV_CONFIG));
