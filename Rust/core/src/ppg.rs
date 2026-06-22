@@ -139,13 +139,30 @@ pub fn extract_hr_from_ppg(samples: &[i32], sample_rate_hz: f64) -> PpgHeartRate
     let mean_rr = valid_rr.iter().sum::<f64>() / valid_rr.len() as f64;
     let mean_hr_bpm = 60_000.0 / mean_rr;
 
-    // RMSSD: root mean square of successive differences.
+    // RMSSD: root mean square of successive differences (Task Force 1996).
     let rmssd_ms = if valid_rr.len() >= 2 {
         let sum_sq_diff: f64 = valid_rr
             .windows(2)
             .map(|pair| (pair[1] - pair[0]).powi(2))
             .sum();
-        Some((sum_sq_diff / (valid_rr.len() - 1) as f64).sqrt())
+        let raw_rmssd = (sum_sq_diff / (valid_rr.len() - 1) as f64).sqrt();
+        // At 25 Hz, peak detection has ±40ms resolution. Subtract the
+        // quantization noise floor: RMSSD_corrected = sqrt(RMSSD² − noise²)
+        // where noise ≈ sample_interval / sqrt(2) ≈ 28ms at 25 Hz.
+        let sample_interval_ms = 1000.0 / sample_rate_hz;
+        let noise_floor_ms = sample_interval_ms / std::f64::consts::SQRT_2;
+        let corrected = if raw_rmssd > noise_floor_ms {
+            (raw_rmssd.powi(2) - noise_floor_ms.powi(2)).sqrt()
+        } else {
+            0.0
+        };
+        // Cap at physiological maximum (150ms). Above this is almost certainly
+        // PPG artifact, not real HRV — even elite athletes rarely exceed 120ms.
+        let capped = corrected.min(150.0);
+        if raw_rmssd > 150.0 {
+            quality_flags.push("rmssd_capped_ppg_jitter".into());
+        }
+        Some(capped)
     } else {
         None
     };

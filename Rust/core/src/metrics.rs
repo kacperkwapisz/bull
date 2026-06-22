@@ -3532,7 +3532,7 @@ fn score_component(
     }
 }
 
-fn component_sum(components: &[ScoreComponent]) -> f64 {
+pub fn component_sum(components: &[ScoreComponent]) -> f64 {
     components
         .iter()
         .map(|component| component.contribution)

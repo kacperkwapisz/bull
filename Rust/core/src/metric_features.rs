@@ -2797,7 +2797,43 @@ pub fn run_recovery_feature_score_report_for_store(
             prior_strain_0_to_21,
             input_ids,
         };
-        let mut result = bull_recovery_v0(&input);
+        // Try the Winsorized baseline scorer first (z-score + logistic).
+        // Falls back to v0 when the personal baseline is still calibrating.
+        let personal_bl = crate::baselines::PersonalBaseline::fold_from_store(store)?;
+        let personal_recovery = crate::baselines::recovery_score(
+            &crate::baselines::RecoveryInput {
+                hrv: input.hrv_rmssd_ms,
+                rhr: input.resting_hr_bpm,
+                resp: input.respiratory_rate_rpm,
+                sleep_perf: Some(input.sleep_score_0_to_100 / 100.0),
+                skin_temp_dev: input.skin_temp_delta_c,
+            },
+            &personal_bl.hrv,
+            Some(&personal_bl.resting_hr),
+            None,
+        );
+        let mut result = if let Some(pr) = personal_recovery {
+            // Override the v0 score with the baseline-normalized score.
+            let mut v0_result = bull_recovery_v0(&input);
+            if let Some(ref mut output) = v0_result.output {
+                output.score_0_to_100 = crate::metrics::component_sum(&output.components);
+                // Replace score with the personal-baseline version
+                output.score_0_to_100 = pr.score;
+                output.algorithm_version = "0.2.0-winsorized".to_string();
+            }
+            v0_result.provenance["recovery_v2"] = serde_json::json!({
+                "method": "winsorized_ewma_z_logistic",
+                "composite_z": pr.composite_z,
+                "hrv_z": pr.hrv_z,
+                "rhr_z": pr.rhr_z,
+                "band": pr.band,
+                "hrv_baseline_n": personal_bl.hrv.n_valid,
+                "rhr_baseline_n": personal_bl.resting_hr.n_valid,
+            });
+            v0_result
+        } else {
+            bull_recovery_v0(&input)
+        };
         if let Some(vitals) = &vitals_opt {
             result
                 .quality_flags
@@ -6101,26 +6137,43 @@ fn infer_sleep_stage(
         );
     }
 
-    // Noop-aligned: low-motion with no HR defaults to light sleep, not awake.
-    // Missing HR during a still epoch is more likely sensor gap than wakefulness.
-    // A truly awake person would show motion. (Noop: "Missing RMSSD treated as
-    // pro-deep rather than deep-blocking")
+    // No HR available: classify based on motion level and night position.
+    // Low motion in the middle of the night is likely sleep; low motion at the
+    // edges or with moderate motion is ambiguous → Core with low confidence.
+    // High-motion epochs are already classified as Awake above.
     let Some(heart_rate_bpm) = heart_rate_bpm else {
+        // Very still + middle of sleep window → likely Core
+        if motion_intensity_0_to_1 <= options.low_motion_threshold_0_to_1
+            && night_fraction_0_to_1 > 0.15
+            && night_fraction_0_to_1 < 0.85
+        {
+            return (
+                SleepStageKind::Core,
+                0.35,
+                stage_probability_map([
+                    (SleepStageKind::Awake, 0.25),
+                    (SleepStageKind::Core, 0.45),
+                    (SleepStageKind::Deep, 0.15),
+                    (SleepStageKind::Rem, 0.15),
+                ]),
+                vec!["light_sleep_inferred_no_hr_still_mid_night".to_string()],
+            );
+        }
+        // Edge of night or moderate motion without HR → Awake
         return (
-            SleepStageKind::Core,
-            0.40,
+            SleepStageKind::Awake,
+            0.45,
             stage_probability_map([
-                (SleepStageKind::Awake, 0.20),
-                (SleepStageKind::Core, 0.50),
-                (SleepStageKind::Deep, 0.15),
-                (SleepStageKind::Rem, 0.15),
+                (SleepStageKind::Awake, 0.45),
+                (SleepStageKind::Core, 0.35),
+                (SleepStageKind::Deep, 0.10),
+                (SleepStageKind::Rem, 0.10),
             ]),
-            vec!["light_sleep_default_no_hr".to_string()],
+            vec!["awake_no_hr_edge_or_motion".to_string()],
         );
     };
-    // Wake reference HR check: only reject as awake when reference is
-    // available AND HR is clearly at wake level. Without a reference,
-    // fall through to the HR-percentile staging below.
+    // Wake reference HR check: reject as awake when HR is clearly at wake level.
+    // Without a reference, fall through to HR-percentile staging.
     if let Some(reference) = wake_reference_hr {
         if heart_rate_bpm > reference * SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION {
             return (
