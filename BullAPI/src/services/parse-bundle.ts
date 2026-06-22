@@ -49,7 +49,7 @@ const STORE_RETENTION_DAYS = Math.max(
 // produces the same per-night scores. "0000"/"9999" are full-range scan bounds
 // (not timestamps), so no window derivation is needed.
 function sleepScoreArgs() {
-  const start = new Date(Date.now() - 3 * 86_400_000).toISOString()
+  const start = new Date(Date.now() - 14 * 86_400_000).toISOString()
   return {
   start,
   end: "9999",
@@ -68,7 +68,7 @@ function sleepScoreArgs() {
 // ponytail: bound scans to 30 days back from today to keep sidecar calls fast
 // on large stores. Full-range "0000"→"9999" caused sidecar timeouts.
 function scoreArgs() {
-  const start = new Date(Date.now() - 3 * 86_400_000).toISOString()
+  const start = new Date(Date.now() - 14 * 86_400_000).toISOString()
   return {
   start,
   end: "9999",
@@ -244,9 +244,9 @@ async function computeUserStore(
   const todayKey = today.toISOString().slice(0, 10)
   const dayKeys = new Set<string>([todayKey])
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
-  // ponytail: cap at 2 days (today + yesterday). Each run_pipeline does a
-  // full-store scan; more days → OOM on constrained containers.
-  const sortedDays = [...dayKeys].sort().slice(-2)
+  // ponytail: with 3-day retention the store is small enough to scan.
+  // Run pipeline for every day that has data so rollups populate each day.
+  const sortedDays = [...dayKeys].sort()
   console.log(`[compute] ${userId} running pipeline for days: ${sortedDays.join(", ")}`)
   for (const k of sortedDays) {
     const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
