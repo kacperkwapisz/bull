@@ -5371,6 +5371,11 @@ const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
 /// not scoreable sleep; reporting them as sleep is dishonest. Windows between
 /// this floor and the overnight span are kept but flagged as short.
 const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
+/// Maximum span (in minutes) for a sleep cluster. Continuous band wear can
+/// produce motion features all day with no 2-hour gap; capping prevents a
+/// 17-hour cluster from being scored as sleep. When a cluster exceeds this,
+/// it is trimmed from the start to keep the most recent (overnight) portion.
+const SLEEP_CLUSTER_MAX_SPAN_MINUTES: i64 = 840; // 14 hours
 /// A low-motion epoch may stage as sleep only when its heart rate sits at or
 /// below this fraction of the wake-reference HR (median HR across high-motion
 /// epochs of the same window). Quiet rest with wake-level HR is not sleep.
@@ -5383,6 +5388,9 @@ const SLEEP_WAKE_CONFIRMATION_MINUTES: i64 = 10;
 struct SleepClusterSelection {
     start_minute: i64,
     end_minute: i64,
+    /// True when the cluster exceeded `SLEEP_CLUSTER_MAX_SPAN_MINUTES` and was
+    /// trimmed from the start.
+    capped: bool,
 }
 
 /// Pick the most recent overnight cluster from a sorted set of timed motion
@@ -5409,25 +5417,37 @@ fn select_most_recent_sleep_cluster(
     }
     clusters.push((cluster_start, previous));
 
+    // ponytail: cap cluster span — continuous wear can create 17h+ clusters.
+    // Trim from start so the most recent (overnight) portion is kept.
+    let cap = |start: i64, end: i64| -> SleepClusterSelection {
+        if end - start > SLEEP_CLUSTER_MAX_SPAN_MINUTES {
+            SleepClusterSelection {
+                start_minute: end - SLEEP_CLUSTER_MAX_SPAN_MINUTES,
+                end_minute: end,
+                capped: true,
+            }
+        } else {
+            SleepClusterSelection {
+                start_minute: start,
+                end_minute: end,
+                capped: false,
+            }
+        }
+    };
+
     if let Some((start, end)) = clusters
         .iter()
         .rev()
         .find(|(start, end)| end - start >= SLEEP_CLUSTER_MIN_SPAN_MINUTES)
     {
-        return Some(SleepClusterSelection {
-            start_minute: *start,
-            end_minute: *end,
-        });
+        return Some(cap(*start, *end));
     }
 
     clusters
         .iter()
         .rev()
         .find(|(start, end)| end - start >= SLEEP_WINDOW_MIN_SPAN_MINUTES)
-        .map(|(start, end)| SleepClusterSelection {
-            start_minute: *start,
-            end_minute: *end,
-        })
+        .map(|(start, end)| cap(*start, *end))
 }
 
 fn sleep_window_feature(
@@ -5492,6 +5512,9 @@ fn sleep_window_feature(
     quality_flags.insert("stage_estimates_require_personal_calibration".to_string());
     if window_segmented {
         quality_flags.insert("sleep_window_segmented_to_most_recent_night".to_string());
+    }
+    if segmentation.capped {
+        quality_flags.insert("sleep_cluster_capped_to_max_span".to_string());
     }
     if segmentation.end_minute - segmentation.start_minute < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
         quality_flags.insert("sleep_window_below_overnight_span".to_string());

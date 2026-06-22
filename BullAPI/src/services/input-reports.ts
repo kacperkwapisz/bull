@@ -191,6 +191,20 @@ export async function computeInputReports(
     ...base,
     max_candidate_fields: 1_000,
   })
+  // Raw-motion step estimate — runs when the device counter path has no
+  // explicit step field (common for this hardware). Writes a daily activity
+  // metric with source_kind "local_estimate" so the app can display steps
+  // even without a dedicated step counter packet.
+  await call("raw_motion_step_estimate", "metrics.raw_motion_step_estimate", {
+    database_path: dbPath,
+    start: daily.startISO,
+    end: daily.endISO,
+    min_owned_captures: 2,
+    require_trusted_evidence: false,
+    date_key: daily.dateKey,
+    timezone: daily.timezone,
+    write_metric: true,
+  })
   await call("biometric_ingest", "biometrics.ingest_from_decoded", {
     database_path: dbPath,
     device_id: BIOMETRIC_DEVICE_ID,
