@@ -13,9 +13,9 @@
  */
 
 import { inflateRawSync } from "node:zlib"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
-import { dailySleep, inputReports, uploadBundles } from "../db/schema.ts"
+import { dailyRecovery, dailySleep, dailyStrain, inputReports, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
 import { computeInputReports } from "./input-reports.ts"
 import { ingestMetrics, metricsPushSchema } from "./metrics-ingest.ts"
@@ -334,15 +334,83 @@ async function computeUserStore(
     }
   } // end per-day loop
 
+  // Inject a `daily` array into the latest recovery row's raw so the app's
+  // calibration check can count scored days without fetching multiple rows.
+  {
+    const scored = await db
+      .select({ day: dailyRecovery.day, recovery_score: dailyRecovery.recoveryScore })
+      .from(dailyRecovery)
+      .where(and(eq(dailyRecovery.userId, userId), isNotNull(dailyRecovery.recoveryScore)))
+      .orderBy(desc(dailyRecovery.day))
+      .limit(14)
+    if (scored.length > 0 && scored[0]) {
+      const latest = scored[0]
+      const existing = await db
+        .select({ raw: dailyRecovery.raw })
+        .from(dailyRecovery)
+        .where(and(eq(dailyRecovery.userId, userId), eq(dailyRecovery.day, latest.day)))
+        .limit(1)
+      const rawObj = (existing[0]?.raw as Record<string, unknown>) ?? {}
+      rawObj.daily = scored.map((r) => ({
+        day: r.day,
+        score_0_to_100: r.recovery_score,
+      }))
+      await db
+        .update(dailyRecovery)
+        .set({ raw: rawObj })
+        .where(and(eq(dailyRecovery.userId, userId), eq(dailyRecovery.day, latest.day)))
+    }
+  }
+
+  // Inject `daily` arrays into the latest sleep/strain rows' raw for app calibration.
   const latestDay = vitalsArray.map((v) => v.day as string).filter(Boolean).sort().at(-1)
   const sleepDays = (exported.body?.sleep as Array<{ day?: unknown }> | undefined)
     ?.map((row) => row.day)
     .filter((value): value is string => typeof value === "string") ?? []
   const latestSleepDay = sleepDays.length > 0 ? sleepDays.sort().at(-1)! : latestDay ?? new Date().toISOString().slice(0, 10)
-  await db
-    .update(dailySleep)
-    .set({ raw: sleepReport })
-    .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, latestSleepDay)))
+  {
+    const scoredSleep = await db
+      .select({ day: dailySleep.day, score: dailySleep.sleepScore })
+      .from(dailySleep)
+      .where(and(eq(dailySleep.userId, userId), isNotNull(dailySleep.sleepScore)))
+      .orderBy(desc(dailySleep.day))
+      .limit(14)
+    const sleepRaw = (sleepReport as Record<string, unknown>) ?? {}
+    sleepRaw.daily = scoredSleep.map((r) => ({
+      day: r.day,
+      score_0_to_100: r.score,
+      sleep_duration_minutes: null,
+    }))
+    await db
+      .update(dailySleep)
+      .set({ raw: sleepRaw })
+      .where(and(eq(dailySleep.userId, userId), eq(dailySleep.day, latestSleepDay)))
+  }
+  {
+    const scoredStrain = await db
+      .select({ day: dailyStrain.day, score: dailyStrain.strainScore })
+      .from(dailyStrain)
+      .where(and(eq(dailyStrain.userId, userId), isNotNull(dailyStrain.strainScore)))
+      .orderBy(desc(dailyStrain.day))
+      .limit(14)
+    if (scoredStrain.length > 0 && scoredStrain[0]) {
+      const latestStrainDay = scoredStrain[0].day
+      const existingStrain = await db
+        .select({ raw: dailyStrain.raw })
+        .from(dailyStrain)
+        .where(and(eq(dailyStrain.userId, userId), eq(dailyStrain.day, latestStrainDay)))
+        .limit(1)
+      const strainRaw = (existingStrain[0]?.raw as Record<string, unknown>) ?? {}
+      strainRaw.daily = scoredStrain.map((r) => ({
+        day: r.day,
+        score_0_to_21: r.score,
+      }))
+      await db
+        .update(dailyStrain)
+        .set({ raw: strainRaw })
+        .where(and(eq(dailyStrain.userId, userId), eq(dailyStrain.day, latestStrainDay)))
+    }
+  }
 
   // Packet-derived input reports (HRV, resting HR, steps, energy, motion, vital
   // events, daily/hourly rollups) — the map the app reads to render dashboards.
