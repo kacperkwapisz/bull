@@ -1853,27 +1853,40 @@ pub fn bull_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutp
     }
 
     let output = if errors.is_empty() {
+        // Edwards 5-zone TRIMP: each zone's minutes × weight (1-5).
+        // Zones at 50/60/70/80/90 %HRR cut-offs (Edwards 1993).
         let zone_load = input
             .hr_zone_minutes
             .iter()
             .zip([1.0, 2.0, 3.0, 4.0, 5.0])
             .map(|(minutes, weight)| minutes * weight)
             .sum::<f64>();
-        let zone_score_0_to_21 = clamp_0_to(21.0, zone_load / 20.0);
+
+        // Logarithmic compression (Noop/TRIMP model):
+        // strain = 21 × ln(TRIMP + 1) / ln(D), D = 7201
+        // D chosen so top zone × 24h (weight 5 × 1440 min = 7200) → exactly 21.
+        const STRAIN_DENOMINATOR: f64 = 7201.0;
+        let score_0_to_21 = if zone_load > 0.0 {
+            (21.0 * (zone_load + 1.0).ln() / STRAIN_DENOMINATOR.ln())
+                .clamp(0.0, 21.0)
+        } else {
+            0.0
+        };
+
         let hr_reserve_fraction = clamp_fraction(
             (input.average_hr_bpm - input.resting_hr_bpm)
                 / (input.max_hr_bpm - input.resting_hr_bpm),
         );
-        let zone_score_0_to_100 = zone_score_0_to_21 / 21.0 * 100.0;
+        let zone_score_0_to_100 = score_0_to_21 / 21.0 * 100.0;
         let avg_hr_score_0_to_100 = hr_reserve_fraction * 100.0;
 
         let components = vec![
             score_component(
                 "zone_load",
                 zone_load,
-                "weighted_zone_minutes",
+                "edwards_trimp",
                 zone_score_0_to_100,
-                0.70,
+                0.85,
                 21.0,
             ),
             score_component(
@@ -1881,7 +1894,7 @@ pub fn bull_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutp
                 hr_reserve_fraction,
                 "fraction",
                 avg_hr_score_0_to_100,
-                0.30,
+                0.15,
                 21.0,
             ),
         ];
@@ -1909,9 +1922,10 @@ pub fn bull_strain_v0(input: &StrainInput) -> AlgorithmRunResult<StrainScoreOutp
         errors,
         provenance: json!({
             "input_ids": input.input_ids,
-            "score_policy": "weighted_zone_load_and_average_hr_reserve",
+            "score_policy": "edwards_trimp_log_compression",
             "zone_weights": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "expected_values_policy": "hand-derived-tests-and-versioned-bull-output"
+            "compression": "ln(TRIMP+1)/ln(7201)",
+            "references": ["Edwards 1993", "Karvonen 1957", "Tanaka 2001"],
         }),
     }
 }
@@ -3957,7 +3971,7 @@ fn require_bounded(name: &str, value: f64, min: f64, max: f64, errors: &mut Vec<
     }
 }
 
-const RECOVERY_POPULATION_MEAN: f64 = 58.0;
+pub const RECOVERY_POPULATION_MEAN: f64 = 58.0;
 
 /// Colour band for the Recovery V1 score, named in PT-PT.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

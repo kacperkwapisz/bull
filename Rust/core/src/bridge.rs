@@ -99,9 +99,10 @@ use crate::{
     },
     metrics::{
         AlgorithmRunResult, BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, BULL_RECOVERY_V0_ID,
-        BULL_RECOVERY_V0_VERSION, BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION, BULL_SLEEP_V1_ID,
-        BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION, BULL_STRESS_V0_ID,
-        BULL_STRESS_V0_VERSION, HrvInput, RecoveryInput, SleepInput, SleepModelStatusInput,
+        BULL_RECOVERY_V0_VERSION, BULL_RECOVERY_V1_ID, BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION,
+        BULL_SLEEP_V1_ID, BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION,
+        BULL_STRESS_V0_ID, BULL_STRESS_V0_VERSION, ColourBand, HrvInput, RecoveryInput,
+        RecoveryV1Output, RECOVERY_POPULATION_MEAN, SleepInput, SleepModelStatusInput,
         SleepNightHistoryInput, SleepStageSegment, SleepV1Input, StrainInput, StressInput,
         ReadinessInput, RecoveryV1Input, algorithm_run_record, built_in_algorithm_definitions,
         built_in_default_algorithm_preferences, default_algorithm_preferences_for_scope,
@@ -3304,16 +3305,45 @@ struct RecoveryV1BridgeArgs {
 
 fn bull_recovery_v1_bridge(args: RecoveryV1BridgeArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
-    let baseline = EwmaBaseline::fold_history(&store)?;
-    let input = RecoveryV1Input {
-        device_id: args.device_id,
-        date_key: args.date_key,
-        hrv_rmssd_ms: args.hrv_rmssd_ms,
-        resting_hr_bpm: args.resting_hr_bpm,
-        resp_rate_rpm: args.resp_rate_rpm,
-        sleep_performance_fraction: args.sleep_performance_fraction,
+    // Use new Winsorized EWMA baselines for the actual scoring.
+    let personal = crate::baselines::PersonalBaseline::fold_from_store(&store)?;
+    let rec_input = crate::baselines::RecoveryInput {
+        hrv: args.hrv_rmssd_ms,
+        rhr: args.resting_hr_bpm,
+        resp: args.resp_rate_rpm,
+        sleep_perf: args.sleep_performance_fraction,
+        skin_temp_dev: None,
     };
-    let output = bull_recovery_v1(&input, &baseline);
+    let result = crate::baselines::recovery_score(
+        &rec_input,
+        &personal.hrv,
+        Some(&personal.resting_hr),
+        None, // resp baseline not yet tracked
+    );
+    let trust_level = personal.hrv.status.as_str().to_string();
+    let (score, band, z_hrv, z_rhr) = match result {
+        Some(out) => (
+            Some(out.score),
+            ColourBand::from_score(out.score).as_str().to_string(),
+            out.hrv_z,
+            out.rhr_z,
+        ),
+        None => (
+            None,
+            ColourBand::from_score(RECOVERY_POPULATION_MEAN).as_str().to_string(),
+            None,
+            None,
+        ),
+    };
+    let output = RecoveryV1Output {
+        algorithm_id: BULL_RECOVERY_V1_ID.to_string(),
+        algorithm_version: "1.1.0-winsorized".to_string(),
+        score_0_to_100: score,
+        trust_level,
+        colour_band: band,
+        z_hrv,
+        z_rhr,
+    };
     serde_json::to_value(output)
         .map_err(|e| BullError::message(format!("cannot serialize recovery_v1 output: {e}")))
 }

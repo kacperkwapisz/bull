@@ -9,6 +9,43 @@
 //!   3. Peak detection → beat timestamps
 //!   4. RR intervals → instantaneous HR + RMSSD HRV
 
+/// Malik-style ectopic rejection (Malik et al. 1989).
+/// Drops any beat whose RR interval deviates > 20% from a centered 5-beat
+/// local median. Beats with too few neighbours are kept.
+fn malik_ectopic_filter(nn: &[f64]) -> Vec<f64> {
+    const THRESHOLD: f64 = 0.20;
+    const RADIUS: usize = 2; // window = 2*2+1 = 5 beats
+    if nn.len() <= RADIUS {
+        return nn.to_vec();
+    }
+    let mut kept = Vec::with_capacity(nn.len());
+    for i in 0..nn.len() {
+        let lo = i.saturating_sub(RADIUS);
+        let hi = (i + RADIUS + 1).min(nn.len());
+        let mut neighbours: Vec<f64> = (lo..hi).filter(|&j| j != i).map(|j| nn[j]).collect();
+        if neighbours.len() < 2 {
+            kept.push(nn[i]);
+            continue;
+        }
+        neighbours.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let med = if neighbours.len() % 2 == 1 {
+            neighbours[neighbours.len() / 2]
+        } else {
+            (neighbours[neighbours.len() / 2 - 1] + neighbours[neighbours.len() / 2]) / 2.0
+        };
+        if med <= 0.0 {
+            kept.push(nn[i]);
+            continue;
+        }
+        let deviation = (nn[i] - med).abs() / med;
+        if deviation <= THRESHOLD {
+            kept.push(nn[i]);
+        }
+        // else: drop as ectopic
+    }
+    kept
+}
+
 /// Result of processing a window of PPG samples.
 #[derive(Debug, Clone)]
 pub struct PpgHeartRateResult {
@@ -74,13 +111,18 @@ pub fn extract_hr_from_ppg(samples: &[i32], sample_rate_hz: f64) -> PpgHeartRate
         .map(|pair| (pair[1] - pair[0]) as f64 / sample_rate_hz * 1000.0)
         .collect();
 
-    // Filter out physiologically implausible RR intervals (< 250ms = 240 BPM,
-    // > 2000ms = 30 BPM).
-    let valid_rr: Vec<f64> = rr_intervals_ms
+    // Step 1: Range filter — drop physiologically implausible intervals
+    // (< 300ms = 200 BPM, > 2000ms = 30 BPM). Task Force 1996.
+    let range_filtered: Vec<f64> = rr_intervals_ms
         .iter()
         .copied()
-        .filter(|rr| (250.0..=2000.0).contains(rr))
+        .filter(|rr| (300.0..=2000.0).contains(rr))
         .collect();
+
+    // Step 2: Malik ectopic rejection — drop beats deviating > 20% from
+    // local 5-beat median (Malik et al. 1989). Removes physiologically
+    // impossible beat-to-beat jumps before computing HRV.
+    let valid_rr = malik_ectopic_filter(&range_filtered);
 
     if valid_rr.is_empty() {
         quality_flags.push("no_plausible_rr_intervals".into());

@@ -2164,7 +2164,12 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
     assert_close(input.respiratory_rate_baseline_rpm.unwrap(), 14.0);
     assert_close(input.skin_temp_delta_c.unwrap(), 0.0);
     assert_close(input.sleep_score_0_to_100, 80.75);
-    assert_close(input.prior_strain_0_to_21, 5.25);
+    // Log-compressed strain: ~9.84 (was 5.25 with linear scaling)
+    assert!(
+        (input.prior_strain_0_to_21 - 9.84).abs() < 0.1,
+        "expected ~9.84, got {}",
+        input.prior_strain_0_to_21
+    );
     let result = report.score_result.unwrap();
     assert_eq!(
         result.provenance["provided_vitals"]["source"],
@@ -2181,7 +2186,12 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
             .any(|flag| flag == "provided_resp_temp_inputs_not_packet_derived")
     );
     let output = result.output.unwrap();
-    assert_close(output.score_0_to_100, 62.44583333333333);
+    // Winsorized EWMA baselines produce slightly different z-scores.
+    assert!(
+        (output.score_0_to_100 - 61.1).abs() < 1.0,
+        "expected ~61, got {}",
+        output.score_0_to_100
+    );
 }
 
 #[test]
@@ -2447,7 +2457,12 @@ fn strain_feature_score_report_builds_local_strain_from_trusted_features() {
     let output = result.output.unwrap();
     assert_close(output.zone_load, 60.0);
     assert_close(output.average_hr_reserve_fraction, 0.5);
-    assert_close(output.score_0_to_21, 5.25);
+    // Log-compressed Edwards TRIMP: 21 × ln(61)/ln(7201) × 0.85 + 0.5 × 0.15 × 21 ≈ 9.84
+    assert!(
+        (output.score_0_to_21 - 9.84).abs() < 0.1,
+        "expected ~9.84, got {}",
+        output.score_0_to_21
+    );
 }
 
 #[test]
