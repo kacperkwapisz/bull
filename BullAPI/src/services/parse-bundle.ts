@@ -293,18 +293,38 @@ async function computeUserStore(
   for (const vitalsForDay of vitalsArray) {
     const day = vitalsForDay?.day as string | undefined
     if (!day) continue
-    const dayScoreArgs = { database_path: dbPath, ...scoreArgs(), date_key: day }
+    // Per-day windows: HRV/RHR/strain scoped to the day; baselines use full window.
+    const wideArgs = scoreArgs()
+    const dayStart = day + "T00:00:00Z"
+    const dayEnd = day + "T23:59:59Z"
+    const recoveryArgs = {
+      database_path: dbPath, ...wideArgs, date_key: day,
+      // Day's HRV + resting HR — baselines stay wide
+      start: dayStart, end: dayEnd,
+      hrv_start: dayStart, hrv_end: dayEnd,
+      resting_start: dayStart, resting_end: dayEnd,
+      // Sleep: the night BEFORE this day
+      sleep_start: new Date(new Date(dayStart).getTime() - 86_400_000).toISOString(),
+      sleep_end: dayEnd,
+      // Prior strain: the day before
+      prior_strain_start: new Date(new Date(dayStart).getTime() - 86_400_000).toISOString(),
+      prior_strain_end: dayStart,
+    }
+    const strainArgs = {
+      database_path: dbPath, ...wideArgs, date_key: day,
+      start: dayStart, end: dayEnd,
+    }
     const recoveryReport = await core.request<Record<string, unknown>>(
       "metrics.recovery_score_from_features",
-      dayScoreArgs,
+      recoveryArgs,
     )
     const strainReport = await core.request<Record<string, unknown>>(
       "metrics.strain_score_from_features",
-      dayScoreArgs,
+      strainArgs,
     )
     const stressReport = await core.request<Record<string, unknown>>(
       "metrics.stress_score_from_features",
-      dayScoreArgs,
+      { database_path: dbPath, ...wideArgs, date_key: day, start: dayStart, end: dayEnd },
     )
     await ingestMetrics(
       db,
