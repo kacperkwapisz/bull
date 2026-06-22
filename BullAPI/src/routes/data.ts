@@ -18,6 +18,7 @@ import { JOURNAL_CATALOG } from "../services/journal-catalog.ts"
 import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
 import {
   dataSummary,
+  fetchCalendar,
   fetchHome,
   getBundleForUser,
   getInputReports,
@@ -161,6 +162,19 @@ export function dataRoutes(env: Env) {
       const userId = userIdFrom(ctx)
       if (!userId) return json(403, { error: "user_scope_required" })
       return ok(await fetchHome(db, userId, query.date))
+    })
+
+  // Calendar: full month of daily score summaries for the date picker.
+  const calendar = route
+    .get("/v1/data/calendar")
+    .query(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+    .use(jwt)
+    .handle(async ({ ctx, query }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      return ok(await fetchCalendar(db, userId, query.month))
     })
 
   const summary = route
@@ -459,6 +473,7 @@ export function dataRoutes(env: Env) {
     download,
     parse,
     home,
+    calendar,
     summary,
     recovery,
     sleep,

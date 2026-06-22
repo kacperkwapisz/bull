@@ -20,11 +20,13 @@ final class HealthDataStore: ObservableObject {
   var packetScoresComputeInFlight = false
   // ponytail: cooldown timestamp — skip re-fetch if <120s since last success
   var lastHomeFetchedAt = Date.distantPast
-  // Date-specific score cache for the score date picker (non-today dates)
-  var selectedDateScoreReports: [String: [String: Any]] = [:]
-  var selectedDateScoreDay: String?
-  /// Bumped when date-specific scores arrive so views can observe the change.
-  @Published var selectedDateScoreRevision = 0
+  // Calendar: full-month score summaries for instant date picker.
+  // Keyed by day string "yyyy-MM-dd" → CalendarDayScores.
+  var calendarDays: [String: CalendarDayScores] = [:]
+  var calendarMonth: String?
+  /// Bumped when calendar data arrives so views re-render.
+  @Published var calendarRevision = 0
+  var calendarFetchInFlight = false
   @Published var calibrationTargetFamily = "recovery"
   @Published var calibrationLabelsImported = false
   @Published var calibrationRunComplete = false

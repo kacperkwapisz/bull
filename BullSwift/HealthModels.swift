@@ -55,6 +55,17 @@ enum HealthRoute: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+/// Pre-computed daily score summary from the calendar endpoint.
+/// One per day in the month, populated in a single server round-trip.
+struct CalendarDayScores {
+  let date: String
+  let hasData: Bool
+  let recoveryScore: Double?
+  let sleepScore: Double?
+  let strainScore: Double?
+  let stressScore: Double?
+}
+
 struct HealthMetricSnapshot: Identifiable {
   let id: String
   let route: HealthRoute

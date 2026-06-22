@@ -3,7 +3,7 @@
  * Honest empty states: missing data returns empty arrays / nulls, never guesses.
  */
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import {
   dailyEnergy,
@@ -282,4 +282,80 @@ export async function fetchHome(db: Db, userId: string, day?: string): Promise<H
     inputs: (inp[0]?.raw as Record<string, unknown>) ?? null,
     computed_at: inp[0]?.computedAt?.toISOString() ?? null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Calendar: full month of daily score summaries in one round-trip.
+// ---------------------------------------------------------------------------
+
+export interface CalendarDay {
+  readonly date: string
+  readonly has_data: boolean
+  readonly recovery_score: number | null
+  readonly sleep_score: number | null
+  readonly strain_score: number | null
+  readonly stress_score: number | null
+}
+
+export interface CalendarPayload {
+  readonly month: string
+  readonly days: CalendarDay[]
+}
+
+/** Return score summaries for every day in the given month (yyyy-MM). */
+export async function fetchCalendar(
+  db: Db,
+  userId: string,
+  month: string,
+): Promise<CalendarPayload> {
+  const from = `${month}-01`
+  // Last day: first of next month (exclusive upper bound via <).
+  const parts = month.split("-").map(Number)
+  const y = parts[0]!
+  const m = parts[1]!
+  const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`
+
+  const [rec, slp, str, sts] = await Promise.all([
+    db.select({ day: dailyRecovery.day, score: dailyRecovery.recoveryScore })
+      .from(dailyRecovery)
+      .where(and(eq(dailyRecovery.userId, userId), gte(dailyRecovery.day, from), lt(dailyRecovery.day, nextMonth)))
+      .orderBy(asc(dailyRecovery.day)),
+    db.select({ day: dailySleep.day, score: dailySleep.sleepScore })
+      .from(dailySleep)
+      .where(and(eq(dailySleep.userId, userId), gte(dailySleep.day, from), lt(dailySleep.day, nextMonth)))
+      .orderBy(asc(dailySleep.day)),
+    db.select({ day: dailyStrain.day, score: dailyStrain.strainScore })
+      .from(dailyStrain)
+      .where(and(eq(dailyStrain.userId, userId), gte(dailyStrain.day, from), lt(dailyStrain.day, nextMonth)))
+      .orderBy(asc(dailyStrain.day)),
+    db.select({ day: dailyStress.day, score: dailyStress.stressScore })
+      .from(dailyStress)
+      .where(and(eq(dailyStress.userId, userId), gte(dailyStress.day, from), lt(dailyStress.day, nextMonth)))
+      .orderBy(asc(dailyStress.day)),
+  ])
+
+  // Index by day for O(1) merge.
+  const byDay = new Map<string, CalendarDay>()
+  const ensure = (day: string): CalendarDay => {
+    let d = byDay.get(day)
+    if (!d) {
+      d = { date: day, has_data: false, recovery_score: null, sleep_score: null, strain_score: null, stress_score: null }
+      byDay.set(day, d)
+    }
+    return d
+  }
+  for (const r of rec) { const d = ensure(r.day!); (d as any).recovery_score = r.score; (d as any).has_data = true }
+  for (const r of slp) { const d = ensure(r.day!); (d as any).sleep_score = r.score; (d as any).has_data = true }
+  for (const r of str) { const d = ensure(r.day!); (d as any).strain_score = r.score; (d as any).has_data = true }
+  for (const r of sts) { const d = ensure(r.day!); (d as any).stress_score = r.score; (d as any).has_data = true }
+
+  // Fill in the full month so the client doesn't have to infer missing days.
+  const daysInMonth = new Date(y!, m!, 0).getDate()
+  const days: CalendarDay[] = []
+  for (let i = 1; i <= daysInMonth; i++) {
+    const key = `${month}-${String(i).padStart(2, "0")}`
+    days.push(byDay.get(key) ?? { date: key, has_data: false, recovery_score: null, sleep_score: null, strain_score: null, stress_score: null })
+  }
+
+  return { month, days }
 }

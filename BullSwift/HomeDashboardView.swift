@@ -120,15 +120,16 @@ struct HomeDashboardView: View {
     .task {
       healthStore.loadBridgeCatalogsIfNeeded()
       healthStore.refreshHomeIfNeeded()
+      healthStore.fetchCalendarIfNeeded(for: selectedDate)
       model.refreshActivityTimeline(for: selectedDate)
       refreshSnapshots()
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
-      healthStore.fetchScoresForDate(newValue)
+      healthStore.fetchCalendarIfNeeded(for: newValue)
       refreshSnapshots()
     }
-    .onChange(of: healthStore.selectedDateScoreRevision) { _, _ in
+    .onChange(of: healthStore.calendarRevision) { _, _ in
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
@@ -287,12 +288,9 @@ struct HomeDashboardView: View {
     if calendar.isDateInToday(selectedDate) {
       return base
     }
+    // Read from calendar cache — populated in one request per month
     let dateKey = HealthDataStore.metricDateKey(for: selectedDate, calendar: calendar)
-    let hasDated = healthStore.selectedDateScoreDay == dateKey && !healthStore.selectedDateScoreReports.isEmpty
-    if hasDated {
-      return healthStore.datedSnapshot(for: route, dateKey: dateKey, base: base)
-    }
-    return ScoreDateTimeline.datedSnapshot(from: base, date: selectedDate)
+    return healthStore.calendarSnapshot(for: route, dateKey: dateKey, base: base)
   }
 
   private func openHealth(_ route: HealthRoute) {

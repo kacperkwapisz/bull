@@ -97,66 +97,87 @@ extension HealthDataStore {
     return json
   }
 
-  /// Fetch scores for a specific historical date and apply them.
-  /// Does NOT update the cooldown — date-specific fetches are independent.
-  func fetchScoresForDate(_ date: Date) {
+  // MARK: - Calendar (full month of scores in one request)
+
+  /// Fetch a full month of daily score summaries. The response populates
+  /// `calendarDays` so the date picker reads from cache — zero per-day fetches.
+  func fetchCalendarIfNeeded(for date: Date) {
     let calendar = Calendar.current
-    guard !calendar.isDateInToday(date) else { return }
-    let dateKey = Self.metricDateKey(for: date, calendar: calendar)
+    let comps = calendar.dateComponents([.year, .month], from: date)
+    guard let y = comps.year, let m = comps.month else { return }
+    let monthKey = "\(y)-\(String(format: "%02d", m))"
+    guard monthKey != calendarMonth, !calendarFetchInFlight else { return }
+    calendarFetchInFlight = true
     Task { [weak self] in
-      let home = await Self.fetchHome(dateKey: dateKey)
+      let result = await Self.fetchCalendar(month: monthKey)
       guard let self else { return }
-      // Store date-specific scores in a separate map so today's scores aren't overwritten
-      var dated: [String: [String: Any]] = [:]
-      for family in ["recovery", "sleep", "strain", "stress"] {
-        if let report = home[family] as? [String: Any] {
-          dated[family] = report
-        }
+      self.calendarFetchInFlight = false
+      guard !result.isEmpty else { return }
+      var map: [String: CalendarDayScores] = [:]
+      for day in result {
+        map[day.date] = day
       }
-      self.selectedDateScoreReports = dated
-      self.selectedDateScoreDay = dateKey
-      self.selectedDateScoreRevision += 1
+      self.calendarDays = map
+      self.calendarMonth = monthKey
+      self.calendarRevision += 1
     }
   }
 
-  /// Build a snapshot for a historical date from the date-specific server scores.
-  func datedSnapshot(for route: HealthRoute, dateKey: String, base: HealthMetricSnapshot) -> HealthMetricSnapshot {
-    let familyKey: String
-    switch route {
-    case .recovery: familyKey = "recovery"
-    case .sleep: familyKey = "sleep"
-    case .strain: familyKey = "strain"
-    case .stress: familyKey = "stress"
-    default: return base
+  /// GET /v1/data/calendar?month=yyyy-MM
+  nonisolated static func fetchCalendar(month: String) async -> [CalendarDayScores] {
+    guard let token = CoachAuthKeychain.load() else { return [] }
+    var components = URLComponents(
+      url: CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/calendar"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [URLQueryItem(name: "month", value: month)]
+    guard let url = components?.url else { return [] }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 30
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let days = json["days"] as? [[String: Any]]
+    else { return [] }
+    return days.compactMap { d in
+      guard let date = d["date"] as? String else { return nil }
+      return CalendarDayScores(
+        date: date,
+        hasData: d["has_data"] as? Bool ?? false,
+        recoveryScore: d["recovery_score"] as? Double,
+        sleepScore: d["sleep_score"] as? Double,
+        strainScore: d["strain_score"] as? Double,
+        stressScore: d["stress_score"] as? Double
+      )
     }
-    guard let report = selectedDateScoreReports[familyKey] else {
+  }
+
+  /// Build a snapshot for a historical date from the calendar cache.
+  func calendarSnapshot(for route: HealthRoute, dateKey: String, base: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    guard let day = calendarDays[dateKey], day.hasData else {
       return HealthMetricSnapshot(
         id: base.id, route: base.route, group: base.group, title: base.title,
         value: "--", unit: base.unit, status: "No data",
-        freshness: dateKey, provenance: "no server data for \(dateKey)",
+        freshness: dateKey, provenance: "no data for \(dateKey)",
         source: .unavailable("no data for selected date"),
         systemImage: base.systemImage, tint: base.tint, trend: base.trend
       )
     }
-    // Extract score from the report's score_result.output structure.
-    // Strain uses score_0_to_21; recovery/sleep/stress use score_0_to_100.
     let score: Double?
-    if let output = Self.map(report, "score_result", "output") {
-      score = Self.doubleValue(output["score_0_to_100"])
-        ?? Self.doubleValue(output["score_0_to_21"])
-    } else {
-      score = Self.doubleValue(report["score_0_to_100"])
-        ?? Self.doubleValue(report["score_0_to_21"])
-        ?? Self.doubleValue(report["recovery_score"])
-        ?? Self.doubleValue(report["sleep_score"])
-        ?? Self.doubleValue(report["strain_score"])
-        ?? Self.doubleValue(report["stress_score"])
+    switch route {
+    case .recovery: score = day.recoveryScore
+    case .sleep: score = day.sleepScore
+    case .strain: score = day.strainScore
+    case .stress: score = day.stressScore
+    default: return base
     }
     guard let score else {
       return HealthMetricSnapshot(
         id: base.id, route: base.route, group: base.group, title: base.title,
         value: "--", unit: base.unit, status: "No data",
-        freshness: dateKey, provenance: "score missing in server response",
+        freshness: dateKey, provenance: "score missing for \(dateKey)",
         source: .unavailable("score not computed for \(dateKey)"),
         systemImage: base.systemImage, tint: base.tint, trend: base.trend
       )
@@ -164,7 +185,6 @@ extension HealthDataStore {
     let displayValue: String
     let scoreInt: Int
     if route == .strain {
-      // Strain is 0–21 scale; convert to percent for display
       let pct = min(max(Int((score / 21 * 100).rounded()), 0), 100)
       displayValue = "\(pct)"
       scoreInt = pct
@@ -176,8 +196,8 @@ extension HealthDataStore {
       id: base.id, route: base.route, group: base.group, title: base.title,
       value: displayValue, unit: "%",
       status: ScoreDateTimeline.status(for: route, score: scoreInt),
-      freshness: dateKey, provenance: "server \(familyKey) for \(dateKey)",
-      source: .bridge("daily_\(familyKey)"),
+      freshness: dateKey, provenance: "calendar \(dateKey)",
+      source: .bridge("daily_calendar"),
       systemImage: base.systemImage, tint: base.tint, trend: base.trend
     )
   }
