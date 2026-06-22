@@ -66,7 +66,8 @@ struct HealthView: View {
       calibration.ensureStarted(connectedAt: model.ble.connectedAt)
       store.loadBridgeCatalogsIfNeeded()
       store.refreshHeartRateTimeline()
-      store.computePacketScoresIfNeeded()
+      // ponytail: unified home refresh with 120s cooldown — no re-fetch on tab switch
+      store.refreshHomeIfNeeded()
       refreshSnapshots()
     }
     .onChange(of: model.ble.liveHeartRateBPM) { _, _ in
@@ -122,6 +123,7 @@ struct HealthView: View {
   private func refreshUserData() async {
     store.loadBridgeCatalogsIfNeeded()
     store.refreshHeartRateTimeline()
+    store.refreshHomeIfNeeded()
     refreshSnapshots()
   }
 }

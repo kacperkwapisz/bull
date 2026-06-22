@@ -18,6 +18,8 @@ final class HealthDataStore: ObservableObject {
   @Published var primarySleepDetail: PrimarySleepDetail?
   @Published var nightlySleepHistory: [NightlySleepRecord] = []
   var packetScoresComputeInFlight = false
+  // ponytail: cooldown timestamp — skip re-fetch if <120s since last success
+  var lastHomeFetchedAt = Date.distantPast
   @Published var calibrationTargetFamily = "recovery"
   @Published var calibrationLabelsImported = false
   @Published var calibrationRunComplete = false
@@ -107,8 +109,9 @@ final class HealthDataStore: ObservableObject {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
-        self?.runPacketScores()
-        self?.runPacketInputs()
+        // ponytail: force a fresh home fetch after sync completes
+        self?.lastHomeFetchedAt = .distantPast
+        self?.runHomeRefresh()
         self?.writeDebugOverview()
       }
     }
@@ -168,12 +171,8 @@ final class HealthDataStore: ObservableObject {
   }
 
   func refreshPacketInputsIfNeeded() {
-    // Always refresh from the server when not already in flight; the cache keeps
-    // the screen populated while the fetch runs.
-    guard !packetInputIsRunning else {
-      return
-    }
-    runPacketInputs()
+    // ponytail: unified home refresh handles both scores + inputs with cooldown
+    refreshHomeIfNeeded()
   }
 
   func refreshHeartRateTimeline(for date: Date = Date()) {
@@ -318,14 +317,8 @@ final class HealthDataStore: ObservableObject {
 
   func refreshSleepAfterBandSync(packetCount: Int) {
     bandSleepImportStatus = "Band sync captured \(packetCount) packets | loading from server..."
-    // Band data is uploaded to the server, which parses and computes; refresh
-    // the server-backed inputs and scores rather than computing on-device.
-    runPacketInputs { [weak self] in
-      guard let self else {
-        return
-      }
-      self.runPacketScores()
-      self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
-    }
+    // ponytail: unified home refresh handles both scores + inputs in one request
+    lastHomeFetchedAt = .distantPast // force refresh
+    runHomeRefresh()
   }
 }

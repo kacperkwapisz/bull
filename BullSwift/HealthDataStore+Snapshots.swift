@@ -4,69 +4,95 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
-  /// Compute packet-derived scores once if they have not been computed yet, so
-  /// the Health/Sleep cards populate when the screen opens instead of requiring
-  /// the developer "Run Packet-Derived Scores" button.
+  // ponytail: 120s cooldown — tab switches serve cache, no network.
+  static let homeFetchCooldownSeconds: TimeInterval = 120
+
+  /// Refresh scores + inputs if stale or never fetched. The single-request BFF
+  /// endpoint replaces the old 6-sequential-fetch pattern.
+  func refreshHomeIfNeeded() {
+    guard !packetScoresComputeInFlight else { return }
+    let elapsed = Date().timeIntervalSince(lastHomeFetchedAt)
+    guard elapsed >= Self.homeFetchCooldownSeconds else { return }
+    runHomeRefresh()
+  }
+
+  /// Backwards compat: still used by post-sync observers.
   func computePacketScoresIfNeeded() {
-    // Always refresh from the server when not already in flight; the cache keeps
-    // the cards populated while the fetch runs.
-    guard !packetScoresComputeInFlight else {
-      return
-    }
-    runPacketScores()
+    refreshHomeIfNeeded()
   }
 
-  /// Load the server-computed score reports for the most recent day. The server
-  /// runs the same parser/algorithms and stores each family's full report; the
-  /// app reads them verbatim into `packetScoreReports` rather than recomputing
-  /// on-device. No on-device fallback by design — if the server has nothing yet,
-  /// the screens show honest unavailable states.
-  func runPacketScores() {
+  /// Single server fetch for all score families + inputs. Replaces the old
+  /// `runPacketScores()` + `runPacketInputs()` pair (6 sequential requests → 1).
+  func runHomeRefresh() {
     packetScoresComputeInFlight = true
-    packetScoreStatus = "Loading scores from server..."
+    packetScoreStatus = "Loading from server..."
+    packetInputStatus = "Loading from server..."
     Task { [weak self] in
-      let reports = await Self.fetchServerScoreReports()
+      let home = await Self.fetchHome()
       guard let self else { return }
-      if let sleep = reports["sleep"] {
-        self.packetScoreReports["sleep"] = sleep
-        self.refreshPrimarySleepFromScoreReport()
-        self.loadNightlySleepHistory()
-      }
-      if let strain = reports["strain"] { self.packetScoreReports["strain"] = strain }
-      if let recovery = reports["recovery"] {
-        self.packetScoreReports["recovery"] = recovery
-        BullNotificationScheduler.shared.evaluateRecovery(
-          score: self.recoveryScoreValue().map { Int($0.rounded()) }
-        )
-      }
-      if let stress = reports["stress"] { self.packetScoreReports["stress"] = stress }
-      if !reports.isEmpty {
-        Self.saveReportsCache(self.packetScoreReports, name: "scores")
-      }
+      self.applyHomeResponse(home)
       self.packetScoresComputeInFlight = false
-      self.packetScoreStatus = reports.isEmpty
-        ? "No server-computed scores yet"
-        : "Scores loaded from server"
+      self.packetInputIsRunning = false
     }
   }
 
-  /// Fetch the latest stored report for each score family from the server.
-  /// `nonisolated` so the network work runs off the main actor.
-  nonisolated static func fetchServerScoreReports() async -> [String: [String: Any]] {
-    guard let token = CoachAuthKeychain.load() else { return [:] }
-    var out: [String: [String: Any]] = [:]
+  /// Also callable as the old `runPacketScores()` entry point.
+  func runPacketScores() { runHomeRefresh() }
+
+  /// Apply the unified home payload into the existing report maps.
+  private func applyHomeResponse(_ home: [String: Any]) {
+    var anyScore = false
     for family in ["recovery", "sleep", "strain", "stress"] {
-      if let report = await fetchServerScoreReport(family: family, token: token) {
-        out[family] = report
+      if let report = home[family] as? [String: Any] {
+        packetScoreReports[family] = report
+        anyScore = true
       }
     }
-    return out
+    if packetScoreReports["sleep"] != nil {
+      refreshPrimarySleepFromScoreReport()
+      loadNightlySleepHistory()
+    }
+    if packetScoreReports["recovery"] != nil {
+      BullNotificationScheduler.shared.evaluateRecovery(
+        score: recoveryScoreValue().map { Int($0.rounded()) }
+      )
+    }
+    if anyScore {
+      Self.saveReportsCache(packetScoreReports, name: "scores")
+    }
+    packetScoreStatus = anyScore ? "Scores loaded from server" : "No server-computed scores yet"
+
+    if let inputs = home["inputs"] as? [String: [String: Any]], !inputs.isEmpty {
+      packetInputReports = inputs
+      Self.saveReportsCache(inputs, name: "inputs")
+      packetInputStatus = "Inputs loaded from server"
+    } else {
+      packetInputStatus = packetInputReports.isEmpty
+        ? "No server-computed inputs yet"
+        : "Inputs loaded from cache"
+    }
+    lastHomeFetchedAt = Date()
   }
 
-  /// GET /v1/data/<family>?limit=1 and pull the newest row's `raw` (the full
-  /// score report the parse pipeline stored). Returns nil on any failure so the
-  /// caller leaves that family's screen in its unavailable state.
-  nonisolated private static func fetchServerScoreReport(
+  /// GET /v1/data/home — single BFF request returning all score families + inputs.
+  nonisolated static func fetchHome() async -> [String: Any] {
+    guard let token = CoachAuthKeychain.load() else { return [:] }
+    let url = CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/home")
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 30
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return [:] }
+    return json
+  }
+
+  // MARK: - Legacy per-family fetch (kept for detail views / Coach)
+
+  /// Fetch the latest stored report for a single score family from the server.
+  nonisolated static func fetchServerScoreReport(
     family: String,
     token: String
   ) async -> [String: Any]? {

@@ -224,3 +224,53 @@ export async function getInputReports(db: Db, userId: string) {
     .limit(1)
   return rows[0] ?? null
 }
+
+// ---------------------------------------------------------------------------
+// BFF: single home payload — everything the app needs in one round-trip.
+// ---------------------------------------------------------------------------
+
+export interface HomePayload {
+  readonly recovery: Record<string, unknown> | null
+  readonly sleep: Record<string, unknown> | null
+  readonly strain: Record<string, unknown> | null
+  readonly stress: Record<string, unknown> | null
+  readonly energy: Record<string, unknown> | null
+  readonly vitals: Record<string, unknown> | null
+  readonly inputs: Record<string, unknown> | null
+  readonly computed_at: string | null
+}
+
+/** Fetch the latest row from each score/input table in parallel and return a
+ *  single object the client can paint its entire home + health surface from. */
+export async function fetchHome(db: Db, userId: string): Promise<HomePayload> {
+  const latestRaw = <T extends { raw?: unknown }>(rows: T[]): Record<string, unknown> | null =>
+    (rows[0]?.raw as Record<string, unknown>) ?? null
+
+  const [rec, slp, str, sts, ene, vit, inp] = await Promise.all([
+    db.select({ raw: dailyRecovery.raw }).from(dailyRecovery)
+      .where(eq(dailyRecovery.userId, userId)).orderBy(desc(dailyRecovery.day)).limit(1),
+    db.select({ raw: dailySleep.raw }).from(dailySleep)
+      .where(eq(dailySleep.userId, userId)).orderBy(desc(dailySleep.day)).limit(1),
+    db.select({ raw: dailyStrain.raw }).from(dailyStrain)
+      .where(eq(dailyStrain.userId, userId)).orderBy(desc(dailyStrain.day)).limit(1),
+    db.select({ raw: dailyStress.raw }).from(dailyStress)
+      .where(eq(dailyStress.userId, userId)).orderBy(desc(dailyStress.day)).limit(1),
+    db.select({ raw: dailyEnergy.raw }).from(dailyEnergy)
+      .where(eq(dailyEnergy.userId, userId)).orderBy(desc(dailyEnergy.day)).limit(1),
+    db.select({ raw: vitalsDaily.raw }).from(vitalsDaily)
+      .where(eq(vitalsDaily.userId, userId)).orderBy(desc(vitalsDaily.day)).limit(1),
+    db.select({ raw: inputReports.raw, computedAt: inputReports.computedAt }).from(inputReports)
+      .where(eq(inputReports.userId, userId)).limit(1),
+  ])
+
+  return {
+    recovery: latestRaw(rec),
+    sleep: latestRaw(slp),
+    strain: latestRaw(str),
+    stress: latestRaw(sts),
+    energy: latestRaw(ene),
+    vitals: latestRaw(vit),
+    inputs: (inp[0]?.raw as Record<string, unknown>) ?? null,
+    computed_at: inp[0]?.computedAt?.toISOString() ?? null,
+  }
+}

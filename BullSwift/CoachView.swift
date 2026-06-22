@@ -61,7 +61,8 @@ struct CoachView: View {
     .onAppear {
       model.recordUIAction("page.opened", detail: "Coach")
       healthStore.loadBridgeCatalogsIfNeeded()
-      healthStore.refreshPacketInputsIfNeeded()
+      // ponytail: unified home refresh with 120s cooldown
+      healthStore.refreshHomeIfNeeded()
       chat.refreshAuth()
       applyRequestedCoachPromptIfNeeded()
       refreshCoachSnapshot()

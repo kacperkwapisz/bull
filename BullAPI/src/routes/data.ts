@@ -18,6 +18,7 @@ import { JOURNAL_CATALOG } from "../services/journal-catalog.ts"
 import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
 import {
   dataSummary,
+  fetchHome,
   getBundleForUser,
   getInputReports,
   listEnergy,
@@ -146,6 +147,18 @@ export function dataRoutes(env: Env) {
         byte_size: bundle.byteSize,
         content_type: bundle.contentType,
       })
+    })
+
+  // BFF: single round-trip for everything the home + health screens need.
+  const home = route
+    .get("/v1/data/home")
+    .use(jwt)
+    .handle(async ({ ctx }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      return ok(await fetchHome(db, userId))
     })
 
   const summary = route
@@ -443,6 +456,7 @@ export function dataRoutes(env: Env) {
     upload,
     download,
     parse,
+    home,
     summary,
     recovery,
     sleep,
