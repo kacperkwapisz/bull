@@ -1445,7 +1445,7 @@ pub fn bull_sleep_v1(input: &SleepV1Input) -> AlgorithmRunResult<SleepV1Output> 
             let sleep_hr_recovery_score = input
                 .sleep
                 .heart_rate_dip_percent
-                .map(|dip| clamp_0_100(dip / 20.0 * 100.0));
+                .map(|dip| logistic_score(dip, 10.0, -0.35));
             let rolling_sleep_debt_minutes = sleep_v1_rolling_sleep_debt_minutes(
                 input,
                 baseline.as_ref(),
@@ -3234,10 +3234,14 @@ fn sleep_need_fulfillment_score(
     rolling_sleep_debt_minutes: f64,
     naps_minutes: f64,
 ) -> f64 {
-    let debt_pressure_minutes = (rolling_sleep_debt_minutes * 0.20).min(120.0);
+    // ponytail: smooth debt pressure via soft ceiling instead of hard .min(120)
+    let debt_pressure_minutes = soft_ceiling(rolling_sleep_debt_minutes * 0.20, rolling_sleep_debt_minutes * 0.20, 120.0, 120.0, 0.05);
     let effective_sleep_need = (sleep_need_minutes + debt_pressure_minutes - naps_minutes * 0.50)
         .max(sleep_need_minutes * 0.75);
-    clamp_0_100(sleep_duration_minutes / effective_sleep_need * 100.0)
+    // Higher ratio is better → negative steepness.
+    // Midpoint at 0.85 (85% fulfillment → score 50). ratio=1.0 → ~95.
+    let ratio = sleep_duration_minutes / effective_sleep_need;
+    logistic_score(ratio, 0.85, -12.0)
 }
 
 fn sleep_continuity_score(
@@ -3246,10 +3250,15 @@ fn sleep_continuity_score(
     wake_after_sleep_onset_minutes: f64,
     wake_episode_count: u32,
 ) -> f64 {
-    let efficiency_score = clamp_0_100((efficiency_fraction - 0.70) / 0.25 * 100.0);
-    let latency_score = clamp_0_100(100.0 - sleep_latency_minutes / 60.0 * 100.0);
-    let waso_score = clamp_0_100(100.0 - wake_after_sleep_onset_minutes / 120.0 * 100.0);
-    let episode_score = clamp_0_100(100.0 - wake_episode_count as f64 / 8.0 * 100.0);
+    // Logistic curves: smooth degradation, no hard clipping.
+    // Efficiency: higher is better → negative steepness.
+    let efficiency_score = logistic_score(efficiency_fraction, 0.82, -20.0);
+    // Latency: lower is better → positive steepness.
+    let latency_score = logistic_score(sleep_latency_minutes, 20.0, 0.12);
+    // WASO: lower is better → positive steepness.
+    let waso_score = logistic_score(wake_after_sleep_onset_minutes, 30.0, 0.08);
+    // Wake episodes: fewer is better → positive steepness.
+    let episode_score = logistic_score(wake_episode_count as f64, 3.0, 0.6);
     efficiency_score * 0.40 + latency_score * 0.20 + waso_score * 0.25 + episode_score * 0.15
 }
 
@@ -3261,7 +3270,8 @@ fn sleep_schedule_score(
     let average_deviation = bedtime_deviation_minutes * 0.35
         + wake_time_deviation_minutes * 0.35
         + midpoint_deviation_minutes * 0.30;
-    clamp_0_100(100.0 - average_deviation / 120.0 * 100.0)
+    // Lower deviation is better → positive steepness.
+    logistic_score(average_deviation, 45.0, 0.05)
 }
 
 fn sleep_architecture_score(
@@ -3270,7 +3280,9 @@ fn sleep_architecture_score(
     baseline: Option<&SleepBaseline>,
 ) -> f64 {
     if stage_minutes_by_kind.is_empty() {
-        return 55.0;
+        // ponytail: population prior instead of hard 55.0;
+        // 60 is the neutral midpoint for unknown architecture
+        return 60.0;
     }
 
     let population_score =
@@ -3296,8 +3308,10 @@ fn sleep_architecture_population_score(
     let restorative_sleep_minutes = deep_sleep_minutes + rem_sleep_minutes;
     let restorative_fraction = restorative_sleep_minutes / sleep_duration_minutes.max(1.0);
     let core_fraction = core_sleep_minutes / sleep_duration_minutes.max(1.0);
-    let restorative_score = clamp_0_100(restorative_fraction / 0.38 * 100.0);
-    let core_balance_score = clamp_0_100(100.0 - (core_fraction - 0.55).abs() / 0.35 * 100.0);
+    // Higher restorative fraction is better → negative steepness. midpoint at 0.30.
+    let restorative_score = logistic_score(restorative_fraction, 0.30, -15.0);
+    // Core balance: deviation from 0.55 → lower is better → positive steepness.
+    let core_balance_score = logistic_score((core_fraction - 0.55).abs(), 0.15, 8.0);
     restorative_score * 0.70 + core_balance_score * 0.30
 }
 
@@ -3365,10 +3379,11 @@ fn sleep_architecture_prior_calibration_provenance(
 }
 
 fn sleep_cardiovascular_score(input: &SleepV1Input, baseline: Option<&SleepBaseline>) -> f64 {
+    // Higher dip is better → negative steepness. midpoint at 10%.
     let dip_score = input
         .sleep
         .heart_rate_dip_percent
-        .map(|dip| clamp_0_100(dip / 18.0 * 100.0))
+        .map(|dip| logistic_score(dip, 10.0, -0.35))
         .unwrap_or(60.0);
     let pre_sleep_hr_score = pre_sleep_awake_hr_score(
         input.pre_sleep_awake_hr_average_bpm,
@@ -3393,7 +3408,8 @@ fn sleep_cardiovascular_score(input: &SleepV1Input, baseline: Option<&SleepBasel
         baseline_window.average_sleep_hr_bpm,
     ) {
         (Some(current), Some(baseline)) => {
-            clamp_0_100(100.0 - (current - baseline).max(0.0) / 12.0 * 100.0)
+            // Lower elevation above baseline is better → positive steepness.
+            logistic_score((current - baseline).max(0.0), 6.0, 0.4)
         }
         _ => 75.0,
     };
@@ -3402,7 +3418,7 @@ fn sleep_cardiovascular_score(input: &SleepV1Input, baseline: Option<&SleepBasel
         baseline_window.average_sleep_hr_min_bpm,
     ) {
         (Some(current), Some(baseline)) => {
-            clamp_0_100(100.0 - (current - baseline).max(0.0) / 10.0 * 100.0)
+            logistic_score((current - baseline).max(0.0), 5.0, 0.5)
         }
         _ => 75.0,
     };
@@ -3410,7 +3426,10 @@ fn sleep_cardiovascular_score(input: &SleepV1Input, baseline: Option<&SleepBasel
         input.sleep.heart_rate_dip_percent,
         baseline_window.average_hr_dip_percent,
     ) {
-        (Some(current), Some(baseline)) => clamp_0_100(70.0 + (current - baseline) / 8.0 * 30.0),
+        (Some(current), Some(baseline)) => {
+            // Higher current dip vs baseline is better → negative steepness.
+            logistic_score(current - baseline, 0.0, -0.5)
+        }
         _ => dip_score,
     };
     let trend_score = sleep_hr_trend_score(
@@ -3445,11 +3464,8 @@ fn pre_sleep_awake_hr_score(
     let pre_sleep_awake_hr_bpm = pre_sleep_awake_hr_bpm?;
     let sleep_hr_bpm = sleep_hr_bpm?;
     let drop_bpm = pre_sleep_awake_hr_bpm - sleep_hr_bpm;
-    Some(clamp_0_100(if drop_bpm >= 0.0 {
-        70.0 + drop_bpm.min(10.0) / 10.0 * 30.0
-    } else {
-        70.0 + drop_bpm.max(-8.0) / 8.0 * 45.0
-    }))
+    // Larger drop (pre-sleep HR higher than sleep HR) is better → negative steepness.
+    Some(logistic_score(drop_bpm, 5.0, -0.3))
 }
 
 fn sleep_hr_trend_score(
@@ -3458,19 +3474,54 @@ fn sleep_hr_trend_score(
 ) -> Option<f64> {
     let current = current_bpm_per_hour?;
     let expected = baseline_bpm_per_hour.unwrap_or(0.0);
-    let excess_rise = (current - expected).max(0.0);
-    let recovery_drop = (expected - current).max(0.0);
-    Some(clamp_0_100(
-        82.0 - excess_rise / 3.0 * 62.0 + recovery_drop.min(2.0) / 2.0 * 18.0,
-    ))
+    let deviation = current - expected;
+    // Lower deviation (less HR rise) is better → positive steepness.
+    Some(logistic_score(deviation, 0.0, 1.5))
 }
 
 fn sleep_context_score(prior_day_strain: Option<f64>, naps_minutes: f64) -> f64 {
-    let strain_penalty = prior_day_strain
-        .map(|strain| (strain - 12.0).max(0.0) / 9.0 * 20.0)
-        .unwrap_or(5.0);
-    let nap_penalty = (naps_minutes - 45.0).max(0.0) / 90.0 * 20.0;
-    clamp_0_100(100.0 - strain_penalty - nap_penalty)
+    // Higher strain is worse → positive steepness.
+    let strain_score = prior_day_strain
+        .map(|strain| logistic_score(strain, 14.0, 0.3))
+        .unwrap_or(85.0);
+    // More nap minutes is worse → positive steepness.
+    let nap_score = logistic_score(naps_minutes, 60.0, 0.04);
+    strain_score * 0.60 + nap_score * 0.40
+}
+
+/// Smooth attenuation toward a ceiling value using a logistic curve.
+/// When `x` is well past `threshold`, score converges toward `ceiling`.
+/// When `x` is well before `threshold`, score passes through unchanged.
+/// `steepness` controls transition sharpness (higher = sharper).
+fn soft_ceiling(score: f64, x: f64, threshold: f64, ceiling: f64, steepness: f64) -> f64 {
+    if !x.is_finite() || !score.is_finite() {
+        return ceiling; // ponytail: degrade to ceiling on garbage
+    }
+    // attenuation = 1 when x << threshold (no effect), 0 when x >> threshold (full ceiling)
+    let attenuation = 1.0 / (1.0 + (steepness * (x - threshold)).exp());
+    // ponytail: skip if attenuation is essentially 1.0 (no meaningful effect)
+    if attenuation > 0.999 {
+        return score;
+    }
+    let result = score * attenuation + ceiling * (1.0 - attenuation);
+    // Never raise the score — ceiling only pulls down.
+    result.min(score)
+}
+
+/// Logistic sub-score: smooth S-curve from 0 to 100.
+/// `midpoint` is the input value that yields score 50.
+/// Positive `steepness`: higher x → higher score.
+/// Negative `steepness`: higher x → lower score.
+fn logistic_score(x: f64, midpoint: f64, steepness: f64) -> f64 {
+    if !x.is_finite() || !midpoint.is_finite() || !steepness.is_finite() {
+        return 50.0; // ponytail: neutral fallback for garbage input
+    }
+    // Round to 12 decimal places to ensure JSON round-trip stability.
+    // Without this, 1-ULP differences in inputs from f64→JSON→f64 round-trips
+    // get amplified by the steep logistic curve near the midpoint.
+    let raw = 100.0 / (1.0 + (steepness * (x - midpoint)).exp());
+    let rounded = (raw * 1e12).round() / 1e12;
+    clamp_0_100(rounded)
 }
 
 fn sleep_v1_guardrailed_score(
@@ -3480,19 +3531,35 @@ fn sleep_v1_guardrailed_score(
     quality_flags: &mut Vec<String>,
 ) -> f64 {
     let mut score = clamp_0_100(score_0_to_100);
-    if input.sleep.sleep_duration_minutes < 180.0 {
-        quality_flags.push("sleep_v1_guardrail_very_short_sleep".to_string());
-        score = score.min(45.0);
+
+    // Short sleep: smooth sigmoid attenuation centered at 180 min.
+    // Below 180 min, score converges toward ~45. Above 180, minimal effect.
+    if input.sleep.sleep_duration_minutes < 240.0 {
+        let short_sleep_factor = 1.0 / (1.0 + (-0.03 * (input.sleep.sleep_duration_minutes - 180.0)).exp());
+        let attenuated = score * short_sleep_factor + 45.0 * (1.0 - short_sleep_factor);
+        score = attenuated.min(score); // never raise
+        if input.sleep.sleep_duration_minutes < 180.0 {
+            quality_flags.push("sleep_v1_guardrail_very_short_sleep".to_string());
+        }
     }
-    if input.sleep.wake_after_sleep_onset_minutes >= 120.0 || input.sleep.wake_episode_count >= 10 {
+
+    // Severe fragmentation: smooth attenuation from WASO and wake episodes.
+    // Quality flag fires on input thresholds regardless of score impact.
+    if input.sleep.wake_after_sleep_onset_minutes >= 90.0 || input.sleep.wake_episode_count >= 8 {
         quality_flags.push("sleep_v1_guardrail_severe_fragmentation".to_string());
-        score = score.min(65.0);
     }
+    // ponytail: steepness=0.1 so curve is <0.1% at WASO=42 but engages at ~100+
+    score = soft_ceiling(score, input.sleep.wake_after_sleep_onset_minutes, 120.0, 65.0, 0.1);
+    score = soft_ceiling(score, input.sleep.wake_episode_count as f64, 10.0, 65.0, 1.0);
+
+    // Low efficiency: smooth attenuation. x = 1-eff, threshold at 1-0.55=0.45.
+    // steepness=30 so eff=0.875 (x=0.125) is fully out of range (att>0.999).
     if efficiency_fraction < 0.55 {
         quality_flags.push("sleep_v1_guardrail_low_efficiency".to_string());
-        score = score.min(60.0);
     }
-    score
+    score = soft_ceiling(score, 1.0 - efficiency_fraction, 0.45, 60.0, 30.0);
+
+    clamp_0_100(score)
 }
 
 fn preferred_sleep_baseline_window(baseline: &SleepBaseline) -> Option<&SleepBaselineWindow> {
