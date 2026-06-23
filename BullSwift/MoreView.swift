@@ -17,6 +17,7 @@ struct MoreView: View {
   @AppStorage(OnboardingStorage.heightMm) private var profileHeightMm = 0
   @AppStorage(OnboardingStorage.weightGrams) private var profileWeightGrams = 0
   @AppStorage("bull.notif.enabled") private var notificationsEnabled = true
+  @State private var recalculateStatus = ""
 
   @MainActor
   init(healthStore: HealthDataStore) {
@@ -69,6 +70,17 @@ struct MoreView: View {
           Label("Device Biometrics", systemImage: "drop.fill")
         }
         .accessibilityLabel("Device biometric streams")
+
+        Button {
+          recalculateStatus = store.clearCachedSleepScores()
+        } label: {
+          Label("Recalculate Sleep Scores", systemImage: "arrow.clockwise")
+        }
+        if !recalculateStatus.isEmpty {
+          Text(recalculateStatus)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
 
       Section("Device") {

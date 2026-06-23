@@ -4112,6 +4112,29 @@ impl BullStore {
     }
 
     /// Idempotent EWMA baseline update: record a night's raw recovery metrics for
+    /// Delete all rows from `daily_sleep_metrics`. Returns the count deleted.
+    pub fn clear_daily_sleep_metrics(&self) -> BullResult<usize> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM daily_sleep_metrics", [])?;
+        Ok(deleted)
+    }
+
+    /// Delete all `algorithm_runs` whose `algorithm_id` belongs to the given
+    /// metric family (e.g. "sleep"). Cascades to `metric_values` and
+    /// `metric_components` via ON DELETE CASCADE. Returns the count deleted.
+    pub fn clear_algorithm_runs_for_family(&self, family: &str) -> BullResult<usize> {
+        // algorithm_definitions maps algorithm_id → metric_family.
+        // algorithm_runs references algorithm_id.
+        let deleted = self.conn.execute(
+            r#"DELETE FROM algorithm_runs WHERE algorithm_id IN (
+                SELECT algorithm_id FROM algorithm_definitions WHERE metric_family = ?1
+            )"#,
+            [family],
+        )?;
+        Ok(deleted)
+    }
+
     /// `date_key` under a BEGIN EXCLUSIVE transaction.
     ///
     /// No dedicated EWMA table is introduced — baseline state is always

@@ -156,6 +156,23 @@ extension MoreDataStore {
     }
   }
 
+  func clearCachedSleepScores() -> String {
+    guard databaseExists else {
+      return "No database"
+    }
+    do {
+      let result = try bridge.request(
+        method: "sleep.clear_cached_scores",
+        args: ["database_path": databasePath]
+      )
+      let sleepRows = result["deleted_daily_sleep_metrics"] as? Int ?? 0
+      let runRows = result["deleted_algorithm_runs"] as? Int ?? 0
+      return "Cleared \(sleepRows) nights, \(runRows) runs"
+    } catch {
+      return "Failed: \(Self.errorSummary(error))"
+    }
+  }
+
   func persistAlgorithmPreference(family: String, algorithm: HealthAlgorithmDefinition) {
     guard databaseExists else {
       algorithmPreferenceStatus = "Selected \(algorithm.displayName); persistence waits for database"

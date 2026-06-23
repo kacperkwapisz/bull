@@ -146,6 +146,7 @@ struct MoreRawExportView: View {
 struct MoreAlgorithmsView: View {
   @ObservedObject var store: MoreDataStore
   @ObservedObject var healthStore: HealthDataStore
+  @State private var recalculateStatus = ""
   let openHealthAlgorithms: () -> Void
 
   var body: some View {
@@ -185,6 +186,23 @@ struct MoreAlgorithmsView: View {
         ForEach(healthStore.referenceDefinitions) { definition in
           MoreInfoRow(title: definition.family.uppercased(), value: "\(definition.displayName) | \(definition.status) | \(definition.provider)", systemImage: "scalemass", status: .ready)
         }
+      }
+
+      Section {
+        Button {
+          recalculateStatus = store.clearCachedSleepScores()
+        } label: {
+          Label("Recalculate Sleep Scores", systemImage: "arrow.clockwise")
+        }
+        if !recalculateStatus.isEmpty {
+          Text(recalculateStatus)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Recalculate")
+      } footer: {
+        Text("Deletes cached sleep scores so they recompute from raw sensor data using the current algorithm. Scores refresh when you view each night.")
       }
 
       Section("Metric Context") {

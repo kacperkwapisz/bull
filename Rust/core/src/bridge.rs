@@ -311,6 +311,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "settings.list_algorithm_preferences",
     "settings.set_algorithm_preference",
     "sleep.add_correction_label",
+    "sleep.clear_cached_scores",
     "sleep.import_external_history",
     "sleep.list_correction_labels",
     "sleep.list_nightly",
@@ -2686,6 +2687,11 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
                 .map(|value| bridge_ok(&request.request_id, value))
                 .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error))
         }
+        "sleep.clear_cached_scores" => request_args::<SleepClearCachedScoresArgs>(&request)
+            .and_then(sleep_clear_cached_scores_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+
         "sleep.import_external_history" => request_args::<ExternalSleepHistoryImportArgs>(&request)
             .and_then(external_sleep_history_import_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -7752,6 +7758,30 @@ fn activity_list_intervals_bridge(
         "activity_session_id": args.activity_session_id,
         "interval_count": intervals.len(),
         "intervals": intervals,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Sleep clear cached scores (sleep.clear_cached_scores)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct SleepClearCachedScoresArgs {
+    database_path: String,
+}
+
+/// Delete all cached sleep scores and algorithm runs so the next view
+/// recomputes them from raw sensor data using the current algorithm.
+fn sleep_clear_cached_scores_bridge(
+    args: SleepClearCachedScoresArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let deleted_sleep = store.clear_daily_sleep_metrics()?;
+    let deleted_runs = store.clear_algorithm_runs_for_family("sleep")?;
+    Ok(json!({
+        "schema": "bull.sleep-clear-cached-scores-result.v1",
+        "deleted_daily_sleep_metrics": deleted_sleep,
+        "deleted_algorithm_runs": deleted_runs,
     }))
 }
 
