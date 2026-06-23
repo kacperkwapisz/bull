@@ -190,7 +190,10 @@ struct MoreAlgorithmsView: View {
 
       Section {
         Button {
-          recalculateStatus = store.clearCachedSleepScores()
+          recalculateStatus = "Clearing..."
+          store.clearCachedSleepScores { status in
+            recalculateStatus = status
+          }
         } label: {
           Label("Recalculate Sleep Scores", systemImage: "arrow.clockwise")
         }

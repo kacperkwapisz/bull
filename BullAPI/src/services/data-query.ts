@@ -28,6 +28,27 @@ export function isQueryableMethod(method: string): boolean {
 }
 
 /**
+ * Clear cached sleep scores for a user so they recompute from raw sensor data
+ * on the next read. Returns the bridge result or null if no store exists.
+ */
+export async function clearCachedSleepScores(
+  env: Env,
+  userId: string,
+): Promise<unknown | null> {
+  if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) {
+    throw new Error("sidecar_unavailable")
+  }
+  const core = new BullCore(env.BULL_CORE_BIN)
+  try {
+    const dbPath = deviceStorePath(env.BULL_CORE_DATA_DIR, userId)
+    if (!existsSync(dbPath)) return null
+    return await core.request("sleep.clear_cached_scores", { database_path: dbPath })
+  } finally {
+    core.close()
+  }
+}
+
+/**
  * Returns the method result, or `null` when the user has no server store yet
  * (honest empty). Throws `method_not_allowed:<m>` for non-whitelisted methods
  * and `sidecar_unavailable` when the core binary/data dir isn't configured.

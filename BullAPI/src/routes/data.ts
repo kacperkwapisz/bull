@@ -15,7 +15,7 @@ import {
   upsertJournalEntry,
 } from "../services/journal.ts"
 import { JOURNAL_CATALOG } from "../services/journal-catalog.ts"
-import { isQueryableMethod, runDataQuery } from "../services/data-query.ts"
+import { isQueryableMethod, runDataQuery, clearCachedSleepScores } from "../services/data-query.ts"
 import {
   dataSummary,
   fetchCalendar,
@@ -468,6 +468,23 @@ export function dataRoutes(env: Env) {
       return ok(result)
     })
 
+  const sleepRecalculate = route
+    .post("/v1/data/sleep/recalculate")
+    .use(jwt)
+    .handle(async ({ ctx }) => {
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      try {
+        const result = await clearCachedSleepScores(env, userId)
+        if (result === null) return ok({ cleared: false, reason: "no_store" })
+        return ok({ cleared: true, ...(result as object) })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message === "sidecar_unavailable") return json(503, { error: "compute_unavailable" })
+        return json(500, { error: "clear_failed" })
+      }
+    })
+
   return new Hyper({ prefix: "" }).use([
     upload,
     download,
@@ -477,6 +494,7 @@ export function dataRoutes(env: Env) {
     summary,
     recovery,
     sleep,
+    sleepRecalculate,
     strain,
     stress,
     energy,

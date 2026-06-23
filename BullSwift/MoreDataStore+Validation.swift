@@ -156,20 +156,27 @@ extension MoreDataStore {
     }
   }
 
-  func clearCachedSleepScores() -> String {
-    guard databaseExists else {
-      return "No database"
-    }
-    do {
-      let result = try bridge.request(
-        method: "sleep.clear_cached_scores",
-        args: ["database_path": databasePath]
-      )
-      let sleepRows = result["deleted_daily_sleep_metrics"] as? Int ?? 0
-      let runRows = result["deleted_algorithm_runs"] as? Int ?? 0
-      return "Cleared \(sleepRows) nights, \(runRows) runs"
-    } catch {
-      return "Failed: \(Self.errorSummary(error))"
+  func clearCachedSleepScores(completion: @escaping (String) -> Void) {
+    Task {
+      do {
+        var request = URLRequest(url: CoachAPIConfiguration.baseURL.appendingPathComponent("v1/data/sleep/recalculate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = CoachAuthKeychain.load() {
+          request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        if httpResponse?.statusCode == 200 {
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+          let deleted = json?["deleted_daily_sleep_metrics"] as? Int ?? 0
+          await MainActor.run { completion("Cleared \(deleted) nights — scores will refresh") }
+        } else {
+          await MainActor.run { completion("Server returned \(httpResponse?.statusCode ?? 0)") }
+        }
+      } catch {
+        await MainActor.run { completion("Failed: \(error.localizedDescription)") }
+      }
     }
   }
 
