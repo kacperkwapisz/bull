@@ -151,17 +151,19 @@ fn algo_benchmark_fails_label_threshold_without_hiding_error_value() {
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(output_path).unwrap()).unwrap();
     assert_eq!(report["pass"], false);
+    // Strain v0 uses log-compression: 21*ln(TRIMP+1)/ln(7201).
+    // zone_load=140, hr_reserve=0.5 → score ≈ 11.52.
     assert_close(
         report["label_comparison"]["prediction_value"]
             .as_f64()
             .unwrap(),
-        8.049999999999999,
+        11.520463954898524,
     );
     assert_close(
         report["label_comparison"]["absolute_error"]
             .as_f64()
             .unwrap(),
-        1.950000000000001,
+        1.520463954898524,
     );
     assert_eq!(report["label_comparison"]["error_within_threshold"], false);
     assert!(report["errors"].as_array().unwrap().iter().any(|error| {

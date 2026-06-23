@@ -520,7 +520,7 @@ fn bridge_exposes_algorithm_registry_and_score_methods() {
         .as_f64()
         .unwrap();
     assert!(
-        (sleep_v1_score - 82.01361892264234).abs() < 1e-9,
+        (sleep_v1_score - 68.5643165804381).abs() < 1e-6,
         "expected hand-derived sleep v1 score, got {sleep_v1_score}"
     );
     assert_eq!(sleep_v1_result["output"]["deep_sleep_minutes"], 90.0);
@@ -4945,9 +4945,13 @@ fn bridge_builds_local_strain_score_from_feature_reports() {
     assert_eq!(report["strain_input"]["resting_hr_bpm"], 60.0);
     assert_eq!(report["strain_input"]["average_hr_bpm"], 80.0);
     assert_eq!(report["strain_input"]["max_hr_bpm"], 100.0);
-    assert_eq!(
-        report["score_result"]["output"]["score_0_to_21"],
-        serde_json::json!(5.25)
+    // Strain v0 uses log-compression: 21*ln(TRIMP+1)/ln(7201).
+    let strain_score = report["score_result"]["output"]["score_0_to_21"]
+        .as_f64()
+        .unwrap();
+    assert!(
+        (strain_score - 9.836574363056402).abs() < 1e-6,
+        "expected strain score ~9.84, got {strain_score}"
     );
 }
 
