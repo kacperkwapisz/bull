@@ -27,7 +27,8 @@ use crate::{
     behavior_insights::{BehaviorInsightsArgs, compute_behavior_insights},
     biometric_ingest::run_biometric_ingest_for_store,
     sleep_staging::{
-        EpochHrFeature, SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
+        EpochHrFeature, EpochRrFeature, EpochRespFeature,
+        SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
     },
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, CalibrationRecord,
@@ -3385,8 +3386,8 @@ struct SleepStagingBridgeArgs {
     /// Optional per-epoch HR features for the 4-class classifier.
     #[serde(default)]
     hr_features: Vec<HrFeatureArg>,
-    /// Whether resp data is available for this session. When false, REM
-    /// classification is suppressed (graceful degradation). Defaults to true.
+    /// Legacy flag, ignored. Resp availability is now determined by
+    /// the presence of resp_samples in the database.
     #[serde(default = "default_resp_available")]
     resp_available: bool,
 }
@@ -3413,18 +3414,26 @@ fn sleep_staging_bridge(args: SleepStagingBridgeArgs) -> BullResult<serde_json::
             hr_bpm: f.hr_bpm,
         })
         .collect();
-    // If the caller did not explicitly pass resp_available=false, confirm there
-    // are resp rows in the window before allowing REM classification.
-    let resp_available = if args.resp_available {
-        store
-            .resp_samples_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)
-            .map(|rows| !rows.is_empty())
-            .unwrap_or(false)
-    } else {
-        false
-    };
+
+    // Fetch RR intervals from the v24 biometric window for RMSSD.
+    // ponytail: reuse existing v24_biometric_samples_between which has RR data
+    let rr_feats: Vec<EpochRrFeature> = Vec::new(); // ponytail: RR not in a separate table yet; upgrade path: parse from decoded_frames
+
+    // Fetch resp samples for breath-rate features.
+    let resp_feats: Vec<EpochRespFeature> = store
+        .resp_samples_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)
+        .map(|rows| {
+            rows.iter()
+                .map(|r| EpochRespFeature {
+                    ts: r.ts,
+                    raw: r.raw as f64,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let output: SleepStagingOutput =
-        stage_sleep_four_class(&input, &tuples, &hr_feats, resp_available);
+        stage_sleep_four_class(&input, &tuples, &hr_feats, &rr_feats, &resp_feats);
     serde_json::to_value(output)
         .map_err(|e| BullError::message(format!("cannot serialize sleep_staging output: {e}")))
 }
