@@ -636,7 +636,6 @@ extension BullBLEClient {
     }
     let percent = min(max(defaults.integer(forKey: DefaultsKey.lastBatteryPackPercent), 0), 100)
     batteryPackPercent = percent
-    batteryPackPresent = true
     batteryPackUpdatedAt = defaults.object(forKey: DefaultsKey.lastBatteryPackCapturedAt) as? Date
     batteryPackColorway = defaults.string(forKey: DefaultsKey.lastBatteryPackColorway)
     switch defaults.string(forKey: DefaultsKey.lastBatteryPackType) {

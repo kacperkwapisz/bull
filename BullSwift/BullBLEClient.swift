@@ -950,8 +950,12 @@ final class BullBLEClient: NSObject, ObservableObject {
     return highFrequencyHistorySyncStatus
   }
 
+  var isVisiblyCharging: Bool {
+    batteryIsCharging == true && batteryPowerStatus == "Charging"
+  }
+
   var batteryChargeDisplayStatus: String {
-    if batteryIsCharging == true {
+    if isVisiblyCharging {
       return "Charging"
     }
     if batteryIsCharging == false {
@@ -982,7 +986,7 @@ final class BullBLEClient: NSObject, ObservableObject {
     guard batteryPackPresent == true else {
       return batteryPackPresent == false ? "Not attached" : "Unknown"
     }
-    return batteryIsCharging == true ? "Charging device" : "Attached"
+    return batteryIsCharging == true ? "Charging device" : ""
   }
 
   var batteryPackDisplaySummary: String {
@@ -997,8 +1001,10 @@ final class BullBLEClient: NSObject, ObservableObject {
     if !typeName.isEmpty {
       parts.append(typeName)
     }
-    parts.append(batteryPackStateSummary)
-    return parts.joined(separator: " | ")
+    if !batteryPackStateSummary.isEmpty {
+      parts.append(batteryPackStateSummary)
+    }
+    return parts.isEmpty ? "Detected" : parts.joined(separator: " | ")
   }
 
   var canReconnectRemembered: Bool {

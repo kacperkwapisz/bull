@@ -5,6 +5,7 @@ final class BullBatteryPackParsingTests: XCTestCase {
   func test_commandResponseDoesNotTreatRevisionAsPercent() throws {
     var body = Array(repeating: UInt8(0), count: 28)
     body[0] = 1
+    body[1] = 1
     body[8..<14] = Array("Puffin".utf8)
     body[26] = 12
     body[27] = 1
@@ -15,6 +16,18 @@ final class BullBatteryPackParsingTests: XCTestCase {
     XCTAssertEqual(info.type, .puffin)
     XCTAssertEqual(info.colorway, "Full Black")
     XCTAssertEqual(info.deviceName, "Puffin")
+    XCTAssertTrue(info.present)
+  }
+
+  func test_commandResponseCanReportNoAttachedPack() throws {
+    var body = Array(repeating: UInt8(0), count: 28)
+    body[0] = 1
+    body[26] = 12
+
+    let info = try XCTUnwrap(BullBLEClient.parseBatteryPackCommandResponseBody(body))
+
+    XCTAssertNil(info.percent)
+    XCTAssertFalse(info.present)
   }
 
   func test_eventBodyParsesScaledPercent() throws {
@@ -36,13 +49,13 @@ final class BullBatteryPackParsingTests: XCTestCase {
   func test_metadataOnlyUpdatePreservesKnownPercent() throws {
     let ble = BullBLEClient(startCentral: false)
     ble.applyBatteryPackInfo(
-      BatteryPackInfo(percent: 65, type: .puffin, colorway: nil, deviceName: nil),
+      BatteryPackInfo(percent: 65, type: .puffin, colorway: nil, deviceName: nil, present: true),
       source: "test",
       capturedAt: Date()
     )
 
     ble.applyBatteryPackInfo(
-      BatteryPackInfo(percent: nil, type: .penguin, colorway: "Full Black", deviceName: nil),
+      BatteryPackInfo(percent: nil, type: .penguin, colorway: "Full Black", deviceName: nil, present: true),
       source: "test",
       capturedAt: Date()
     )

@@ -169,15 +169,27 @@ extension BullBLEClient {
     let eventType = UInt16(payload[2]) | UInt16(payload[3]) << 8
     let eventBody = Array(payload.dropFirst(12))
     switch eventType {
+    case 7:
+      batteryIsCharging = true
+      batteryPowerStatus = "Charging"
+      inferredBatteryChargingUntil = nil
+      persistInferredBatteryChargingUntil(nil)
+      record(source: "ble.battery", title: "charging.on")
+    case 8:
+      batteryIsCharging = false
+      batteryPowerStatus = "Not charging"
+      inferredBatteryChargingUntil = nil
+      persistInferredBatteryChargingUntil(nil)
+      record(source: "ble.battery", title: "charging.off")
     case 109:
       // BATTERY_PACK_INFO push.
       if let info = Self.parseBatteryPackEventBody(eventBody) {
         applyBatteryPackInfo(info, source: "ble.battery_pack.event", capturedAt: Date())
       }
     case 21:
-      // BATTERY_PACK_CONNECTED.
-      batteryPackPresent = true
-      record(source: "ble.battery_pack", title: "battery_pack.connected")
+      // BATTERY_PACK_CONNECTED. Official app flips this state from the event path;
+      // GET_BATTERY_PACK_INFO only enriches/corrects it.
+      markBatteryPackConnected(source: "ble.battery_pack.event")
       requestBatteryPackInfo(reason: "connected_event")
     case 22:
       // BATTERY_PACK_REMOVED.

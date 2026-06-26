@@ -35,6 +35,7 @@ struct BatteryPackInfo {
   let type: PackType
   let colorway: String?
   let deviceName: String?
+  let present: Bool
 }
 
 extension BullBLEClient {
@@ -177,8 +178,8 @@ extension BullBLEClient {
 
   // Parses the GET_BATTERY_PACK_INFO (command 151) response body. The response
   // body is the command-response payload with the 5-byte header removed.
-  // Layout: revision@0, flag@1, mac@2..7, name@8..23, pack type@26,
-  // colorway@27. Percent is not present here; event 109 carries charge.
+  // Layout: revision@0, present flag@1, mac@2..7, name@8..23,
+  // pack type@26, colorway@27. Percent is not present here; event 109 carries charge.
   static func parseBatteryPackCommandResponseBody(_ body: [UInt8]) -> BatteryPackInfo? {
     guard body.count >= 28 else {
       return nil
@@ -186,7 +187,7 @@ extension BullBLEClient {
     let type = BatteryPackInfo.PackType(byte: body[26])
     let colorway = batteryPackColorwayName(body[27])
     let name = batteryPackDeviceName(Array(body[8..<24]))
-    return BatteryPackInfo(percent: nil, type: type, colorway: colorway, deviceName: name)
+    return BatteryPackInfo(percent: nil, type: type, colorway: colorway, deviceName: name, present: body[1] == 1)
   }
 
   // Parses a BATTERY_PACK_INFO strap event body (event id 109). The event body
@@ -203,24 +204,34 @@ extension BullBLEClient {
     let type = BatteryPackInfo.PackType(byte: body[26])
     let colorway = batteryPackColorwayName(body[25])
     let name = batteryPackDeviceName(Array(body[7..<23]))
-    return BatteryPackInfo(percent: percent, type: type, colorway: colorway, deviceName: name)
+    return BatteryPackInfo(percent: percent, type: type, colorway: colorway, deviceName: name, present: true)
   }
 
   func applyBatteryPackInfo(_ info: BatteryPackInfo, source: String, capturedAt: Date) {
+    guard info.present else {
+      markBatteryPackRemoved(source: source)
+      return
+    }
+
     if let percent = info.percent {
       batteryPackPercent = percent
     }
     batteryPackType = info.type
     batteryPackColorway = info.colorway
-    batteryPackPresent = true
-    batteryPackUpdatedAt = capturedAt
-    lastSyncAt = capturedAt
+    markBatteryPackConnected(source: source, capturedAt: capturedAt)
     persistBatteryPackSample(info, capturedAt: capturedAt)
     record(
       source: source,
       title: "battery_pack.info",
       body: "percent=\(info.percent.map(String.init) ?? "unknown") type=\(info.type.displayName.isEmpty ? "unknown" : info.type.displayName) colorway=\(info.colorway ?? "none")"
     )
+  }
+
+  func markBatteryPackConnected(source: String, capturedAt: Date = Date()) {
+    batteryPackPresent = true
+    batteryPackUpdatedAt = capturedAt
+    lastSyncAt = capturedAt
+    record(source: source, title: "battery_pack.connected")
   }
 
   func markBatteryPackRemoved(source: String) {
