@@ -239,9 +239,8 @@ async function computeUserStore(
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
 
   const sortedDays = [...dayKeys].sort()
-  console.log(`[compute] ${userId} running pipeline for days: ${sortedDays.join(", ")}`)
-  for (const k of sortedDays) {
-    const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
+  const runPipelineDay = async (day: string, skipFeaturePasses: boolean) => {
+    const windows = pipelineWindows(new Date(day + "T00:00:00Z"))
     const featureWindowStart = new Date(
       windows.daily.start_time_unix_ms - STORE_RETENTION_DAYS * 86_400_000,
     ).toISOString()
@@ -251,7 +250,15 @@ async function computeUserStore(
       daily_window: windows.daily,
       hourly_window: windows.hourly,
       feature_window_start_iso: featureWindowStart,
+      skip_feature_passes: skipFeaturePasses,
     })
+  }
+
+  console.log(`[compute] ${userId} running pipeline feature pass for ${todayKey}; backfill days: ${sortedDays.join(", ")}`)
+  await runPipelineDay(todayKey, false)
+  for (const k of sortedDays) {
+    if (k === todayKey) continue
+    await runPipelineDay(k, true)
   }
 
   const sleepReport = await core.request<Record<string, unknown>>(

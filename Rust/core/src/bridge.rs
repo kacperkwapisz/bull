@@ -26,10 +26,6 @@ use crate::{
     baselines::{EwmaBaseline, EwmaTrustLevel},
     behavior_insights::{BehaviorInsightsArgs, compute_behavior_insights},
     biometric_ingest::run_biometric_ingest_for_store,
-    sleep_staging::{
-        EpochHrFeature, EpochRrFeature, EpochRespFeature,
-        SleepStagingInput, SleepStagingOutput, stage_sleep_four_class,
-    },
     calibration::{
         CalibrationApplicationInput, CalibrationDataset, CalibrationOptions, CalibrationRecord,
         CalibrationReport, apply_calibration, calibration_run_record, evaluate_linear_calibration,
@@ -102,13 +98,13 @@ use crate::{
         AlgorithmRunResult, BULL_HRV_V0_ID, BULL_HRV_V0_VERSION, BULL_RECOVERY_V0_ID,
         BULL_RECOVERY_V0_VERSION, BULL_RECOVERY_V1_ID, BULL_SLEEP_V0_ID, BULL_SLEEP_V0_VERSION,
         BULL_SLEEP_V1_ID, BULL_SLEEP_V1_VERSION, BULL_STRAIN_V0_ID, BULL_STRAIN_V0_VERSION,
-        BULL_STRESS_V0_ID, BULL_STRESS_V0_VERSION, ColourBand, HrvInput, RecoveryInput,
-        RecoveryV1Output, RECOVERY_POPULATION_MEAN, SleepInput, SleepModelStatusInput,
-        SleepNightHistoryInput, SleepStageSegment, SleepV1Input, StrainInput, StressInput,
-        ReadinessInput, RecoveryV1Input, algorithm_run_record, built_in_algorithm_definitions,
-        built_in_default_algorithm_preferences, default_algorithm_preferences_for_scope,
-        bull_hrv_v0, bull_readiness_v1, bull_recovery_v0, bull_recovery_v1, bull_sleep_v0,
-        bull_sleep_v1, bull_strain_v0, bull_stress_v0, sleep_history_night_is_usable,
+        BULL_STRESS_V0_ID, BULL_STRESS_V0_VERSION, ColourBand, HrvInput, RECOVERY_POPULATION_MEAN,
+        ReadinessInput, RecoveryInput, RecoveryV1Input, RecoveryV1Output, SleepInput,
+        SleepModelStatusInput, SleepNightHistoryInput, SleepStageSegment, SleepV1Input,
+        StrainInput, StressInput, algorithm_run_record, built_in_algorithm_definitions,
+        built_in_default_algorithm_preferences, bull_hrv_v0, bull_readiness_v1, bull_recovery_v0,
+        bull_recovery_v1, bull_sleep_v0, bull_sleep_v1, bull_strain_v0, bull_stress_v0,
+        default_algorithm_preferences_for_scope, sleep_history_night_is_usable,
     },
     openwhoop_reference::{
         OPENWHOOP_REFERENCE_ATTRIBUTION, OPENWHOOP_REFERENCE_COMMIT,
@@ -133,6 +129,10 @@ use crate::{
     },
     reference::reference_algorithm_definitions,
     rr_hr_consistency::{RrHrConsistencyOptions, run_rr_hr_consistency_report},
+    sleep_staging::{
+        EpochHrFeature, EpochRespFeature, EpochRrFeature, SleepStagingInput, SleepStagingOutput,
+        stage_sleep_four_class,
+    },
     sleep_validation::{
         SleepStageLabelValidationOptions, SleepV1EvidenceFolderOptions,
         SleepV1ExplanationStabilityOptions, SleepV1ReleaseGateInput,
@@ -155,12 +155,12 @@ use crate::{
     storage_check::{StorageCheckOptions, check_storage_database},
     store::{
         ActivityIntervalInput, ActivityMetricInput, ActivityMetricRow, ActivitySessionInput,
-        ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, CURRENT_SCHEMA_VERSION,
-        CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput, CaptureSessionRow,
-        CommandValidationRecord, DailyRecoveryMetricInput, DailyRecoveryMetricRow,
-        DailySleepMetricInput, DailySleepMetricRow, DecodedFrameRow, ExerciseSessionRow,
-        ExternalSleepSessionInput, ExternalSleepSessionRow, ExternalSleepStageInput,
-        ExternalSleepStageRow, BullStore, GravityRow,
+        ActivitySessionRow, AlgorithmPreferenceRecord, AlgorithmRunRecord, BullStore,
+        CURRENT_SCHEMA_VERSION, CalibrationLabelInput, CalibrationLabelRow, CaptureSessionInput,
+        CaptureSessionRow, CommandValidationRecord, DailyRecoveryMetricInput,
+        DailyRecoveryMetricRow, DailySleepMetricInput, DailySleepMetricRow, DecodedFrameRow,
+        ExerciseSessionRow, ExternalSleepSessionInput, ExternalSleepSessionRow,
+        ExternalSleepStageInput, ExternalSleepStageRow, GravityRow,
         OvernightHistoricalRangePollInput, OvernightRawNotificationInput,
         OvernightSyncSessionInput, SleepCorrectionLabelInput, StoreMaintenanceOptions,
     },
@@ -2195,26 +2195,31 @@ pub fn handle_bridge_request_json(request_json: &str) -> String {
         .map(|request| request.request_id)
         .filter(|id| !id.trim().is_empty())
         .unwrap_or_else(|| "unknown".to_string());
-    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        match serde_json::from_str::<BridgeRequest>(request_json) {
-            Ok(request) => handle_bridge_request(request),
-            Err(error) => BridgeResponse {
-                schema: BRIDGE_RESPONSE_SCHEMA.to_string(),
-                request_id: "unknown".to_string(),
-                ok: false,
-                result: None,
-                error: Some(BridgeError {
-                    code: "invalid_json".to_string(),
-                    message: error.to_string(),
-                }),
-                timing: None,
+    let response =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || match serde_json::from_str::<BridgeRequest>(request_json) {
+                Ok(request) => handle_bridge_request(request),
+                Err(error) => BridgeResponse {
+                    schema: BRIDGE_RESPONSE_SCHEMA.to_string(),
+                    request_id: "unknown".to_string(),
+                    ok: false,
+                    result: None,
+                    error: Some(BridgeError {
+                        code: "invalid_json".to_string(),
+                        message: error.to_string(),
+                    }),
+                    timing: None,
+                },
             },
-        }
-    }))
-    .unwrap_or_else(|payload| {
-        let message = panic_payload_message(&payload);
-        bridge_error(&request_id, "panic", format!("bridge method panicked: {message}"))
-    });
+        ))
+        .unwrap_or_else(|payload| {
+            let message = panic_payload_message(&payload);
+            bridge_error(
+                &request_id,
+                "panic",
+                format!("bridge method panicked: {message}"),
+            )
+        });
     serialize_response(&response)
 }
 
@@ -3337,7 +3342,9 @@ fn bull_recovery_v1_bridge(args: RecoveryV1BridgeArgs) -> BullResult<serde_json:
         ),
         None => (
             None,
-            ColourBand::from_score(RECOVERY_POPULATION_MEAN).as_str().to_string(),
+            ColourBand::from_score(RECOVERY_POPULATION_MEAN)
+                .as_str()
+                .to_string(),
             None,
             None,
         ),
@@ -3404,7 +3411,8 @@ fn default_resp_available() -> bool {
 
 fn sleep_staging_bridge(args: SleepStagingBridgeArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
-    let gravity_rows = store.gravity_rows_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)?;
+    let gravity_rows =
+        store.gravity_rows_between(&args.device_id, args.sleep_start_ts, args.sleep_end_ts)?;
     let tuples: Vec<(f64, f64, f64, f64)> =
         gravity_rows.iter().map(|r| (r.ts, r.x, r.y, r.z)).collect();
     let input = SleepStagingInput {
@@ -3548,7 +3556,9 @@ fn biometric_stream_summary_bridge(
     let store = open_bridge_store(&args.database_path)?;
     let summary = store.biometric_stream_summary(&args.device_id)?;
     serde_json::to_value(summary).map_err(|error| {
-        BullError::message(format!("cannot serialize biometric stream summary: {error}"))
+        BullError::message(format!(
+            "cannot serialize biometric stream summary: {error}"
+        ))
     })
 }
 
@@ -3698,7 +3708,8 @@ fn insert_v24_biometric_batch_bridge(args: InsertV24BatchArgs) -> BullResult<ser
 
 fn v24_biometric_samples_between_bridge(args: V24BetweenArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
-    let window = store.v24_biometric_samples_between(&args.device_id, args.start_ts, args.end_ts)?;
+    let window =
+        store.v24_biometric_samples_between(&args.device_id, args.start_ts, args.end_ts)?;
     let spo2: Vec<serde_json::Value> = window
         .spo2
         .iter()
@@ -3936,6 +3947,12 @@ struct RunPipelineArgs {
     /// historical scan; durable baseline rollups are stored separately.
     #[serde(default)]
     feature_window_start_iso: Option<String>,
+    /// When true, reuse already-materialized feature tables and only run the
+    /// cheap day/hour rollups for the supplied windows. Server backfills use
+    /// this after one full retained-window feature pass so missed projection
+    /// days catch up without rescanning the same raw evidence N times.
+    #[serde(default)]
+    skip_feature_passes: bool,
     #[serde(default)]
     profile: RunPipelineProfile,
 }
@@ -3973,7 +3990,9 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
                 .error
                 .map(|error| error.message)
                 .unwrap_or_else(|| "unknown error".to_string());
-            eprintln!("metrics.run_pipeline: step_error method={method} elapsed_ms={elapsed_ms} error={message}");
+            eprintln!(
+                "metrics.run_pipeline: step_error method={method} elapsed_ms={elapsed_ms} error={message}"
+            );
             Err(BullError::message(format!("{method} failed: {message}")))
         }
     };
@@ -4022,30 +4041,80 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
 
     let mut reports = serde_json::Map::new();
 
-    reports.insert(
-        "readiness".to_string(),
-        call(
-            "metrics.input_readiness",
-            json!({
-                "database_path": db, "start": &feature_start, "end": "9999",
-                "min_owned_captures": 2, "require_owned_captures": false,
-                "require_scores_ready": true,
-            }),
-        )?,
-    );
-    reports.insert("motion".to_string(), call("metrics.motion_features", base())?);
-    reports.insert(
-        "step_discovery".to_string(),
-        call("metrics.step_packet_discovery", merge(base(), json!({ "max_candidate_fields": 100 })))?,
-    );
-    reports.insert(
-        "step_counter_ingest".to_string(),
-        call("metrics.step_counter_ingest", merge(base(), json!({ "max_candidate_fields": 1000 })))?,
-    );
+    if !args.skip_feature_passes {
+        reports.insert(
+            "readiness".to_string(),
+            call(
+                "metrics.input_readiness",
+                json!({
+                    "database_path": db, "start": &feature_start, "end": "9999",
+                    "min_owned_captures": 2, "require_owned_captures": false,
+                    "require_scores_ready": true,
+                }),
+            )?,
+        );
+        reports.insert(
+            "motion".to_string(),
+            call("metrics.motion_features", base())?,
+        );
+        reports.insert(
+            "step_discovery".to_string(),
+            call(
+                "metrics.step_packet_discovery",
+                merge(base(), json!({ "max_candidate_fields": 100 })),
+            )?,
+        );
+        reports.insert(
+            "step_counter_ingest".to_string(),
+            call(
+                "metrics.step_counter_ingest",
+                merge(base(), json!({ "max_candidate_fields": 1000 })),
+            )?,
+        );
+        reports.insert(
+            "biometric_ingest".to_string(),
+            call(
+                "biometrics.ingest_from_decoded",
+                json!({ "database_path": db, "device_id": args.device_id, "start": &feature_start, "end": "9999" }),
+            )?,
+        );
+        reports.insert(
+            "heart_rate".to_string(),
+            call("metrics.heart_rate_features", base())?,
+        );
+        reports.insert(
+            "vital_event".to_string(),
+            call("metrics.vital_event_features", base())?,
+        );
+        reports.insert(
+            "hrv".to_string(),
+            call(
+                "metrics.hrv_features",
+                merge(base(), json!({ "min_rr_intervals_to_compute": 2, "baseline_min_days": 3, "require_baseline": false })),
+            )?,
+        );
+        reports.insert(
+            "window".to_string(),
+            call("metrics.window_features", base())?,
+        );
+        reports.insert(
+            "resting_hr".to_string(),
+            call(
+                "metrics.resting_hr_features",
+                merge(
+                    base(),
+                    json!({ "baseline_min_days": 3, "require_baseline": false }),
+                ),
+            )?,
+        );
+    } else {
+        reports.insert("feature_passes_skipped".to_string(), json!(true));
+    }
     // Raw-motion step estimate from R21 IMU — runs when the device counter
     // path (step_counter_ingest) has no explicit step field, which is the
     // common case for this device. Writes a daily_activity_metric when the
-    // estimate passes, so the unavailable-status gate sees it.
+    // estimate passes, so the unavailable-status gate sees it. Keep this in
+    // per-day backfill mode because it is scoped to the daily window and cheap.
     reports.insert(
         "raw_motion_step_estimate".to_string(),
         call(
@@ -4062,27 +4131,6 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
             }),
         )?,
     );
-    reports.insert(
-        "biometric_ingest".to_string(),
-        call(
-            "biometrics.ingest_from_decoded",
-            json!({ "database_path": db, "device_id": args.device_id, "start": &feature_start, "end": "9999" }),
-        )?,
-    );
-    reports.insert("heart_rate".to_string(), call("metrics.heart_rate_features", base())?);
-    reports.insert("vital_event".to_string(), call("metrics.vital_event_features", base())?);
-    reports.insert(
-        "hrv".to_string(),
-        call(
-            "metrics.hrv_features",
-            merge(base(), json!({ "min_rr_intervals_to_compute": 2, "baseline_min_days": 3, "require_baseline": false })),
-        )?,
-    );
-    reports.insert("window".to_string(), call("metrics.window_features", base())?);
-    reports.insert(
-        "resting_hr".to_string(),
-        call("metrics.resting_hr_features", merge(base(), json!({ "baseline_min_days": 3, "require_baseline": false })))?,
-    );
     let resting_rollup = call(
         "metrics.resting_hr_daily_rollup",
         json!({
@@ -4093,7 +4141,9 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
             "write_metric": true,
         }),
     )?;
-    let resting_hr_bpm = resting_rollup.get("resting_hr_bpm").and_then(serde_json::Value::as_f64);
+    let resting_hr_bpm = resting_rollup
+        .get("resting_hr_bpm")
+        .and_then(serde_json::Value::as_f64);
     reports.insert("resting_hr_rollup".to_string(), resting_rollup);
     reports.insert(
         "step_counter_rollup".to_string(),
@@ -4141,7 +4191,10 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         }
         value
     };
-    reports.insert("energy_rollup".to_string(), call("metrics.energy_daily_rollup", energy_daily_args())?);
+    reports.insert(
+        "energy_rollup".to_string(),
+        call("metrics.energy_daily_rollup", energy_daily_args())?,
+    );
     let mut energy_hourly = with_profile(json!({
         "database_path": db, "date_key": hourly.date_key, "timezone": hourly.timezone,
         "start": hourly.start_iso, "end": hourly.end_iso,
@@ -4151,8 +4204,17 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
     if let (Some(object), Some(rhr)) = (energy_hourly.as_object_mut(), resting_hr_bpm) {
         object.insert("resting_hr_bpm".to_string(), json!(rhr));
     }
-    reports.insert("energy_hourly_rollup".to_string(), call("metrics.energy_hourly_rollup", energy_hourly)?);
-    reports.insert("energy_unavailable_status".to_string(), call("metrics.energy_unavailable_daily_status", energy_daily_args())?);
+    reports.insert(
+        "energy_hourly_rollup".to_string(),
+        call("metrics.energy_hourly_rollup", energy_hourly)?,
+    );
+    reports.insert(
+        "energy_unavailable_status".to_string(),
+        call(
+            "metrics.energy_unavailable_daily_status",
+            energy_daily_args(),
+        )?,
+    );
     let recovery_daily_args = || {
         json!({
             "database_path": db, "date_key": daily.date_key, "timezone": daily.timezone,
@@ -4161,8 +4223,20 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
             "min_rr_intervals_to_compute": 2, "write_metric": true,
         })
     };
-    reports.insert("recovery_sensor_rollup".to_string(), call("metrics.recovery_sensor_daily_rollup", recovery_daily_args())?);
-    reports.insert("recovery_unavailable_status".to_string(), call("metrics.recovery_unavailable_daily_status", recovery_daily_args())?);
+    reports.insert(
+        "recovery_sensor_rollup".to_string(),
+        call(
+            "metrics.recovery_sensor_daily_rollup",
+            recovery_daily_args(),
+        )?,
+    );
+    reports.insert(
+        "recovery_unavailable_status".to_string(),
+        call(
+            "metrics.recovery_unavailable_daily_status",
+            recovery_daily_args(),
+        )?,
+    );
 
     // List/aggregation steps over a trailing history window.
     const DAY_MS: i64 = 86_400_000;
@@ -4491,9 +4565,7 @@ fn maybe_persist_calibration_report(
         .ok_or_else(|| BullError::message("database_path is required when persist is true"))?;
     let calibration_run_id = calibration_run_id
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            BullError::message("calibration_run_id is required when persist is true")
-        })?;
+        .ok_or_else(|| BullError::message("calibration_run_id is required when persist is true"))?;
     let store = open_bridge_store(database_path)?;
     register_built_in_definitions(&store)?;
     let record = calibration_run_record(calibration_run_id, report)?;
@@ -4919,9 +4991,8 @@ fn reference_compare_bridge(args: ReferenceCompareArgs) -> BullResult<serde_json
                     compare_sleep_v1_bull_to_reference(&input)?
                 }
             } else {
-                let input: SleepInput = serde_json::from_value(args.input).map_err(|error| {
-                    BullError::message(format!("invalid sleep input: {error}"))
-                })?;
+                let input: SleepInput = serde_json::from_value(args.input)
+                    .map_err(|error| BullError::message(format!("invalid sleep input: {error}")))?;
                 if let Some(reference_report) = args.reference_report {
                     compare_sleep_bull_to_external_reference_report(&input, &reference_report)?
                 } else {
@@ -5320,7 +5391,10 @@ fn export_curated_bridge(args: ExportCuratedArgs) -> BullResult<serde_json::Valu
 
 /// Pull each restore row's lossless local payload from its `raw` field.
 fn rows_with_raw(values: &[serde_json::Value]) -> impl Iterator<Item = &serde_json::Value> {
-    values.iter().filter_map(|v| v.get("raw")).filter(|raw| !raw.is_null())
+    values
+        .iter()
+        .filter_map(|v| v.get("raw"))
+        .filter(|raw| !raw.is_null())
 }
 
 fn import_curated_bridge(args: ImportCuratedArgs) -> BullResult<serde_json::Value> {
@@ -5578,7 +5652,9 @@ fn rr_hr_consistency_bridge(args: RrHrConsistencyArgs) -> BullResult<serde_json:
         min_rr_intervals_per_frame: args
             .min_rr_intervals_per_frame
             .unwrap_or(defaults.min_rr_intervals_per_frame),
-        min_eligible_frames: args.min_eligible_frames.unwrap_or(defaults.min_eligible_frames),
+        min_eligible_frames: args
+            .min_eligible_frames
+            .unwrap_or(defaults.min_eligible_frames),
         consistency_pass_ratio: args
             .consistency_pass_ratio
             .unwrap_or(defaults.consistency_pass_ratio),
@@ -6785,7 +6861,9 @@ fn persist_nightly_sleep_record(
         return Ok(false);
     }
     let date_key = window.start_time.get(0..10).unwrap_or(&window.start_time);
-    let output = value.get("score_result").and_then(|result| result.get("output"));
+    let output = value
+        .get("score_result")
+        .and_then(|result| result.get("output"));
     let read_f64 = |key: &str| {
         output
             .and_then(|object| object.get(key))
@@ -7494,9 +7572,7 @@ fn activity_apply_correction_bridge(
     match args.kind {
         ActivitySessionCorrectionKind::ChangeActivityType => {
             activity_type = args.activity_type.clone().ok_or_else(|| {
-                BullError::message(
-                    "activity_type is required for change_activity_type corrections",
-                )
+                BullError::message("activity_type is required for change_activity_type corrections")
             })?;
             if args.external_activity_type_code.is_some() {
                 external_activity_type_code = args.external_activity_type_code.clone();
@@ -7739,9 +7815,7 @@ fn activity_attach_interval_bridge(
     }))
 }
 
-fn activity_list_intervals_bridge(
-    args: ActivityIntervalListArgs,
-) -> BullResult<serde_json::Value> {
+fn activity_list_intervals_bridge(args: ActivityIntervalListArgs) -> BullResult<serde_json::Value> {
     let store = open_bridge_store(&args.database_path)?;
     let intervals = store.activity_intervals_for_session(&args.activity_session_id)?;
     Ok(json!({
@@ -9782,12 +9856,28 @@ mod tests {
         let reports = result["reports"].as_object().expect("reports object");
         // Every one of the 22 ordered steps must have produced a report.
         for key in [
-            "readiness", "motion", "step_discovery", "step_counter_ingest", "biometric_ingest",
-            "heart_rate", "vital_event", "hrv", "window", "resting_hr", "resting_hr_rollup",
-            "step_counter_rollup", "step_counter_hourly_rollup", "activity_unavailable_status",
-            "energy_rollup", "energy_hourly_rollup", "energy_unavailable_status",
-            "recovery_sensor_rollup", "recovery_unavailable_status", "daily_activity",
-            "hourly_activity", "daily_recovery",
+            "readiness",
+            "motion",
+            "step_discovery",
+            "step_counter_ingest",
+            "biometric_ingest",
+            "heart_rate",
+            "vital_event",
+            "hrv",
+            "window",
+            "resting_hr",
+            "resting_hr_rollup",
+            "step_counter_rollup",
+            "step_counter_hourly_rollup",
+            "activity_unavailable_status",
+            "energy_rollup",
+            "energy_hourly_rollup",
+            "energy_unavailable_status",
+            "recovery_sensor_rollup",
+            "recovery_unavailable_status",
+            "daily_activity",
+            "hourly_activity",
+            "daily_recovery",
         ] {
             assert!(reports.contains_key(key), "missing pipeline report: {key}");
         }
@@ -9801,7 +9891,10 @@ mod tests {
         let (_dir, db_path) = make_temp_db();
         {
             let store = BullStore::open(std::path::Path::new(&db_path)).unwrap();
-            for (id, at) in [("ev-1", "2026-05-28T00:00:00Z"), ("ev-2", "2026-05-28T01:00:00Z")] {
+            for (id, at) in [
+                ("ev-1", "2026-05-28T00:00:00Z"),
+                ("ev-2", "2026-05-28T01:00:00Z"),
+            ] {
                 store
                     .insert_raw_evidence(RawEvidenceInput {
                         evidence_id: id,
@@ -9855,7 +9948,9 @@ mod tests {
 
     #[test]
     fn biometric_ingest_from_decoded_surfaces_v24_and_reads_gravity2() {
-        use crate::protocol::{DeviceType, PACKET_TYPE_HISTORICAL_DATA, build_v5_payload_frame, parse_frame};
+        use crate::protocol::{
+            DeviceType, PACKET_TYPE_HISTORICAL_DATA, build_v5_payload_frame, parse_frame,
+        };
         use crate::store::{BullStore, DecodedFrameInput, RawEvidenceInput};
 
         let (_dir, db_path) = make_temp_db();
@@ -9970,7 +10065,11 @@ mod tests {
             }),
         };
         let update_resp = handle_bridge_request(update_req);
-        assert!(update_resp.ok, "update must succeed: {:?}", update_resp.error);
+        assert!(
+            update_resp.ok,
+            "update must succeed: {:?}",
+            update_resp.error
+        );
         let update_result = update_resp.result.expect("update result");
         assert_eq!(update_result["skipped"], false);
 
@@ -10095,8 +10194,8 @@ mod tests {
         assert_eq!(imported["skipped"]["sleep"], 0);
 
         // The destination store now holds the restored rows verbatim.
-        let dst = crate::store::BullStore::open(std::path::Path::new(&dst_path))
-            .expect("open dst store");
+        let dst =
+            crate::store::BullStore::open(std::path::Path::new(&dst_path)).expect("open dst store");
         let rec = dst
             .daily_recovery_metric("rec-2026-06-10")
             .expect("query recovery")
@@ -10121,7 +10220,9 @@ mod tests {
         });
         assert!(reimport.ok, "reimport must succeed");
         assert_eq!(
-            dst.list_daily_sleep_metrics(10).expect("list sleep again").len(),
+            dst.list_daily_sleep_metrics(10)
+                .expect("list sleep again")
+                .len(),
             1
         );
     }
@@ -10214,7 +10315,11 @@ mod tests {
             args: json!({ "daily_strain": [] }),
         };
         let response = handle_bridge_request(request);
-        assert!(response.ok, "empty input must succeed: {:?}", response.error);
+        assert!(
+            response.ok,
+            "empty input must succeed: {:?}",
+            response.error
+        );
         let result = response.result.expect("result");
         assert_eq!(result["insufficient_data"], serde_json::Value::Bool(true));
         assert_eq!(result["level"], "unknown");
@@ -10312,7 +10417,11 @@ mod tests {
             }),
         };
         let insert_resp = handle_bridge_request(insert);
-        assert!(insert_resp.ok, "insert must succeed: {:?}", insert_resp.error);
+        assert!(
+            insert_resp.ok,
+            "insert must succeed: {:?}",
+            insert_resp.error
+        );
         assert_eq!(insert_resp.result.expect("insert result")["inserted"], 2);
 
         let query = BridgeRequest {
