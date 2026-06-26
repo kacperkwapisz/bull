@@ -18,7 +18,7 @@
 import { z } from "zod"
 import { sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
-import { dailyRecovery, dailySleep, spo2Samples, uploadBundles } from "../db/schema.ts"
+import { dailyRecovery, dailySleep, spo2Samples, syncRuns, uploadBundles } from "../db/schema.ts"
 import { bundleObjectKey, type ObjectStore } from "../lib/object-store.ts"
 
 const dayString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -84,6 +84,10 @@ export interface IngestInput {
   readonly bytes: Uint8Array
   readonly contentType?: string
   readonly summary?: BundleSummary
+  readonly source?: string
+  readonly triggeredAt?: Date
+  readonly packetCount?: number
+  readonly retryCount?: number
 }
 
 export async function ingestBundle(
@@ -130,6 +134,8 @@ export async function ingestBundle(
   if (!row) throw new Error("failed to record upload bundle")
   const bundleId = row.id
 
+  await recordSyncRun(db, input, bundleId)
+
   if (!input.summary) {
     return { bundleId, checksum, status: "pending", deduped: false }
   }
@@ -141,6 +147,19 @@ export async function ingestBundle(
     .where(sql`${uploadBundles.id} = ${bundleId}`)
 
   return { bundleId, checksum, status: "parsed", deduped: false }
+}
+
+async function recordSyncRun(db: Db, input: IngestInput, bundleId: string): Promise<void> {
+  await db.insert(syncRuns).values({
+    userId: input.userId,
+    ...(input.deviceId !== undefined ? { deviceId: input.deviceId } : {}),
+    uploadBundleId: bundleId,
+    source: input.source ?? "upload_bundle",
+    triggerTimestamp: input.triggeredAt ?? new Date(),
+    totalPacketUpload: input.packetCount ?? 0,
+    uploadRetryCount: input.retryCount ?? 0,
+    status: "uploaded",
+  })
 }
 
 async function projectSummary(

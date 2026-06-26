@@ -55,6 +55,8 @@ final class BullAppModel: ObservableObject {
   @Published var overnightGuardExportManifestURL: URL?
   @Published var overnightGuardExportManifestError: String?
   @Published var overnightGuardCanExportLastSession = false
+  @Published var syncStatus: BullSyncStatus?
+  @Published var syncStatusSummary = "Sync status not loaded"
 
   let ble: BullBLEClient
   /// Combine subscriptions for local-notification triggers (battery level).

@@ -144,6 +144,29 @@ export const uploadBundles = pgTable(
   }),
 )
 
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    deviceId: text("device_id"),
+    uploadBundleId: uuid("upload_bundle_id").references(() => uploadBundles.id, {
+      onDelete: "set null",
+    }),
+    source: text("source").notNull().default("unknown"),
+    triggerTimestamp: timestamp("trigger_timestamp", { withTimezone: true }).notNull().defaultNow(),
+    resultTimestamp: timestamp("result_timestamp", { withTimezone: true }).notNull().defaultNow(),
+    totalPacketUpload: integer("total_packet_upload").notNull().default(0),
+    uploadRetryCount: integer("upload_retry_count").notNull().default(0),
+    status: text("status").notNull().default("uploaded"),
+  },
+  (t) => ({
+    userResultIdx: index("sync_runs_user_result_idx").on(t.userId, t.resultTimestamp),
+  }),
+)
+
 export const dailyRecovery = pgTable(
   "daily_recovery",
   {

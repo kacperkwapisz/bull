@@ -32,6 +32,10 @@ enum CoachAPIConfiguration {
     baseURL.appendingPathComponent("v1/data/uploads")
   }
 
+  static var dataSyncStatusURL: URL {
+    baseURL.appendingPathComponent("v1/data/sync-status")
+  }
+
   /// Profile + timezone upload so server-side compute can derive energy and
   /// bucket daily rollups on the user's local calendar day.
   static var dataProfileURL: URL {

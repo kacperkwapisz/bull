@@ -19,6 +19,8 @@
 		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
 		A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* DeviceBiometricsView.swift */; };
 		A10000000000000000000076 /* BullFrameDrainUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000076 /* BullFrameDrainUploader.swift */; };
+		A10000000000000000000077 /* BullSyncStatusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000077 /* BullSyncStatusClient.swift */; };
+		A10000000000000000000078 /* BullAppModel+SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000078 /* BullAppModel+SyncStatus.swift */; };
 		A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* BullNotificationScheduler.swift */; };
 		A10000000000000000000902 /* BullAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000902 /* BullAppDelegate.swift */; };
 		A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000903 /* BullPushTokenUploader.swift */; };
@@ -210,6 +212,8 @@
 		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
 		A20000000000000000000075 /* DeviceBiometricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBiometricsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000076 /* BullFrameDrainUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFrameDrainUploader.swift; sourceTree = "<group>"; };
+		A20000000000000000000077 /* BullSyncStatusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSyncStatusClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000078 /* BullAppModel+SyncStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BullAppModel+SyncStatus.swift"; sourceTree = "<group>"; };
 		A20000000000000000000901 /* BullNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullNotificationScheduler.swift; sourceTree = "<group>"; };
 		A20000000000000000000902 /* BullAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppDelegate.swift; sourceTree = "<group>"; };
 		A20000000000000000000903 /* BullPushTokenUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPushTokenUploader.swift; sourceTree = "<group>"; };
@@ -416,6 +420,7 @@
 				D20000000000000000000041 /* BullAppModel+NotificationPipeline.swift */,
 				D20000000000000000000042 /* BullAppModel+PacketPublishing.swift */,
 				D20000000000000000000043 /* BullAppModel+ActivityTimeline.swift */,
+				A20000000000000000000078 /* BullAppModel+SyncStatus.swift */,
 				D20000000000000000000017 /* NotificationFrameParsing.swift */,
 				D20000000000000000000018 /* CaptureFrameWriteQueue.swift */,
 				D20000000000000000000019 /* OvernightSQLiteMirrorQueue.swift */,
@@ -441,6 +446,7 @@
 				A20000000000000000000061 /* BiometricEnginePreview.swift */,
 				A20000000000000000000075 /* DeviceBiometricsView.swift */,
 				A20000000000000000000076 /* BullFrameDrainUploader.swift */,
+				A20000000000000000000077 /* BullSyncStatusClient.swift */,
 				A20000000000000000000901 /* BullNotificationScheduler.swift */,
 				A20000000000000000000902 /* BullAppDelegate.swift */,
 				A20000000000000000000903 /* BullPushTokenUploader.swift */,
@@ -743,6 +749,7 @@
 				D10000000000000000000041 /* BullAppModel+NotificationPipeline.swift in Sources */,
 				D10000000000000000000042 /* BullAppModel+PacketPublishing.swift in Sources */,
 				D10000000000000000000043 /* BullAppModel+ActivityTimeline.swift in Sources */,
+				A10000000000000000000078 /* BullAppModel+SyncStatus.swift in Sources */,
 				D10000000000000000000017 /* NotificationFrameParsing.swift in Sources */,
 				D10000000000000000000018 /* CaptureFrameWriteQueue.swift in Sources */,
 				D10000000000000000000019 /* OvernightSQLiteMirrorQueue.swift in Sources */,
@@ -769,6 +776,7 @@
 				A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */,
 				A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */,
 				A10000000000000000000076 /* BullFrameDrainUploader.swift in Sources */,
+				A10000000000000000000077 /* BullSyncStatusClient.swift in Sources */,
 				A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */,
 				A10000000000000000000902 /* BullAppDelegate.swift in Sources */,
 				A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */,

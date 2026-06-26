@@ -8,6 +8,7 @@ import { bundleSummarySchema, ingestBundle } from "../services/bundle-ingest.ts"
 import { parseBundle, parseAllPending } from "../services/parse-bundle.ts"
 import { profilePushSchema, upsertProfile } from "../services/profile.ts"
 import { pushTokenSchema, upsertPushToken } from "../services/push-tokens.ts"
+import { getSyncStatus } from "../services/sync-status.ts"
 import {
   computeJournalInsights,
   journalUpsertSchema,
@@ -98,6 +99,12 @@ export function dataRoutes(env: Env) {
       }
       const deviceField = form.get("device_id")
       const deviceId = typeof deviceField === "string" ? deviceField : undefined
+      const sourceField = form.get("source")
+      const source = typeof sourceField === "string" && sourceField.length > 0 ? sourceField : undefined
+      const packetCountField = form.get("packet_count")
+      const packetCount = typeof packetCountField === "string" ? Number(packetCountField) : undefined
+      const retryCountField = form.get("retry_count")
+      const retryCount = typeof retryCountField === "string" ? Number(retryCountField) : undefined
 
       const result = await ingestBundle(db, store, {
         userId,
@@ -105,6 +112,9 @@ export function dataRoutes(env: Env) {
         bytes,
         contentType,
         ...(summary !== undefined ? { summary } : {}),
+        ...(source !== undefined ? { source } : {}),
+        ...(typeof packetCount === "number" && Number.isFinite(packetCount) ? { packetCount } : {}),
+        ...(typeof retryCount === "number" && Number.isFinite(retryCount) ? { retryCount } : {}),
       })
 
       // Thin-client compute: drain pending bundles server-side without blocking
@@ -186,6 +196,17 @@ export function dataRoutes(env: Env) {
       const userId = userIdFrom(ctx)
       if (!userId) return json(403, { error: "user_scope_required" })
       return ok(await dataSummary(db, userId))
+    })
+
+  const syncStatus = route
+    .get("/v1/data/sync-status")
+    .use(jwt)
+    .handle(async ({ ctx }) => {
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+      const userId = userIdFrom(ctx)
+      if (!userId) return json(403, { error: "user_scope_required" })
+      return ok(await getSyncStatus(db, userId))
     })
 
   const recovery = route
@@ -492,6 +513,7 @@ export function dataRoutes(env: Env) {
     home,
     calendar,
     summary,
+    syncStatus,
     recovery,
     sleep,
     sleepRecalculate,

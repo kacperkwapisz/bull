@@ -89,16 +89,14 @@ extension BullAppModel {
     if phase == "active" {
       // Upload the cached APNs token now that the user may have signed in.
       BullPushTokenUploader.uploadCachedTokenIfNeeded()
+      refreshServerSyncStatus()
     }
     if phase == "background" || phase == "inactive" {
       // Re-arm the background battery check whenever we leave the foreground.
       BullBackgroundTasks.schedule()
       metricSyncCoordinator.pushProfile()
-      // Nudge the drain on background, but batched (force:false): upload only if
-      // a full batch has accumulated, so frequent fg/bg toggles don't emit tiny
-      // sliver bundles. Anything under the batch threshold is flushed on the
-      // next launch's forced drain, so nothing is stranded.
-      frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath())
+      // Flush any tail before iOS suspends us; capture-time drains stay batched.
+      frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
     }
 
     guard overnightGuardActive else {

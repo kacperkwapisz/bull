@@ -10,6 +10,7 @@ import { adminRoutes } from "./routes/admin.ts"
 import { ensureSchema, getDb, pingDb } from "./db/client.ts"
 import { getObjectStore } from "./lib/object-store.ts"
 import { runParseDrainLoop } from "./services/parse-bundle.ts"
+import { runStaleSyncPush } from "./services/stale-sync-push.ts"
 
 const env = loadEnv()
 
@@ -68,12 +69,13 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
   })
   console.log(`bull-api listening on http://${server.hostname}:${server.port}`)
 
+  const db = getDb(env)
+  const store = getObjectStore(env)
+
   // Background parse drain: clear any pending-bundle backlog without waiting for
   // an upload to trigger a per-user sweep (e.g. after a large historical sync).
   // No-op unless the sidecar + DB + object store are all configured.
   if (env.BULL_CORE_BIN && env.BULL_CORE_DATA_DIR) {
-    const db = getDb(env)
-    const store = getObjectStore(env)
     if (db && store) {
       const config = { binaryPath: env.BULL_CORE_BIN, dataDir: env.BULL_CORE_DATA_DIR }
       let draining = false
@@ -99,5 +101,22 @@ if (process.env.HYPER_SKIP_LISTEN !== "1") {
       // Don't let the drain timer keep the process alive on its own.
       timer.unref?.()
     }
+  }
+
+  if (db) {
+    let checkingStaleSync = false
+    const timer = setInterval(async () => {
+      if (checkingStaleSync) return
+      checkingStaleSync = true
+      try {
+        const sent = await runStaleSyncPush(db, env)
+        if (sent > 0) console.log(`[push] stale sync sent to ${sent} device(s)`)
+      } catch (error) {
+        console.error("[push] stale sync check failed", error)
+      } finally {
+        checkingStaleSync = false
+      }
+    }, 30 * 60_000)
+    timer.unref?.()
   }
 }

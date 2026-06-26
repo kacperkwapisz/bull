@@ -463,6 +463,10 @@ private struct DeviceAdvancedPanel: View {
         DeviceFactRow(systemName: ble.batteryIsCharging == true ? "bolt.fill" : "powerplug", label: "Charging", value: ble.batteryChargeDisplayStatus)
         DeviceFactRow(systemName: "bolt.batteryblock", label: "Battery pack", value: ble.batteryPackDisplaySummary)
         DeviceFactRow(systemName: "arrow.2.circlepath", label: "Last sync", value: relativeSummary(for: ble.lastSyncAt) ?? "Not synced")
+        DeviceFactRow(systemName: "icloud.and.arrow.up", label: "Server sync", value: model.syncStatusSummary)
+        if let watermark = model.syncStatus?.highWatermark {
+          DeviceFactRow(systemName: "checkmark.seal", label: "High watermark", value: relativeSummary(for: watermark) ?? "Unknown")
+        }
         DeviceFactRow(systemName: "clock.arrow.circlepath", label: "Strap clock", value: clockSummary)
       }
 
@@ -491,7 +495,10 @@ private struct DeviceAdvancedPanel: View {
       DiscoveredDeviceList(ble: ble)
       EventLogPreview(messages: Array(messageStore.messages.prefix(5)))
     }
-    .onAppear(perform: refreshClockIfPossible)
+    .onAppear {
+      refreshClockIfPossible()
+      model.refreshServerSyncStatus()
+    }
     .onChange(of: ble.connectionState) { _, _ in
       refreshClockIfPossible()
     }
@@ -641,10 +648,14 @@ private struct DeviceActionGrid: View {
       }
       .disabled(!ble.canReconnectRemembered)
 
-      DeviceActionButton(title: ble.isHistoricalSyncing ? "Syncing" : "Sync", systemName: "arrow.triangle.2.circlepath") {
-        ble.syncHistoricalPackets()
+      DeviceActionButton(title: ble.isHistoricalSyncing ? "Abort Sync" : "Sync", systemName: ble.isHistoricalSyncing ? "xmark.circle" : "arrow.triangle.2.circlepath") {
+        if ble.isHistoricalSyncing {
+          ble.abortHistoricalSync(reason: "device_view")
+        } else {
+          ble.syncHistoricalPackets()
+        }
       }
-      .disabled(!ble.canSyncHistorical)
+      .disabled(!ble.isHistoricalSyncing && !ble.canSyncHistorical)
 
       DeviceActionButton(title: ble.highFrequencyHistorySyncActive ? "Exit HF" : "High Freq", systemName: "bolt.horizontal") {
         if ble.highFrequencyHistorySyncActive {

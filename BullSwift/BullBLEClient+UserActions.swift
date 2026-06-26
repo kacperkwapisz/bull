@@ -226,6 +226,11 @@ extension BullBLEClient {
     )
   }
 
+  func abortHistoricalSync(reason: String = "manual") {
+    guard isHistoricalSyncing else { return }
+    failHistoricalSync("Historical sync aborted: \(reason)")
+  }
+
   func syncHistoricalPackets(rangeFirst: Bool = false) {
     record(source: "ui", title: "historical_sync.requested", body: "range_first=\(rangeFirst)")
     beginHistoricalSync(

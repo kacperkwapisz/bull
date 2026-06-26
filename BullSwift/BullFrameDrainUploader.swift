@@ -35,6 +35,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
 
   private let queue = DispatchQueue(label: "com.bull.swift.frame-drain", qos: .utility)
   private var isRunning = false
+  private var uploadRetryCount = 0
   private let log: @Sendable (String, String) -> Void
 
   init(log: @escaping @Sendable (String, String) -> Void = { _, _ in }) {
@@ -109,7 +110,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
       }
 
       do {
-        let bundleID = try await Self.upload(body: body, fileName: "frames-\(UUID().uuidString).jsonl.z", token: token)
+        let bundleID = try await Self.upload(body: body, fileName: "frames-\(UUID().uuidString).jsonl.z", token: token, packetCount: ids.count, retryCount: uploadRetryCount)
         // Only after a confirmed upload do we drop the local copies.
         _ = try? bridge.request(
           method: "store.mark_frames_synced",
@@ -117,10 +118,12 @@ final class BullFrameDrainUploader: @unchecked Sendable {
         )
         uploadedBundles += 1
         uploadedFrames += ids.count
+        uploadRetryCount = 0
         log("drain.bundle_uploaded", "frames=\(ids.count) bundle=\(bundleID)")
       } catch {
         // Keep frames; retry next pass. Server dedupes identical bytes.
-        log("drain.upload_failed", "frames=\(ids.count) error=\(String(describing: error))")
+        uploadRetryCount += 1
+        log("drain.upload_failed", "frames=\(ids.count) retry=\(uploadRetryCount) error=\(String(describing: error))")
         break
       }
     }
@@ -184,10 +187,13 @@ final class BullFrameDrainUploader: @unchecked Sendable {
 
   // MARK: - Upload (multipart, same surface as the spool archive uploader)
 
-  private static func upload(body bundleBytes: Data, fileName: String, token: String) async throws -> String {
+  private static func upload(body bundleBytes: Data, fileName: String, token: String, packetCount: Int, retryCount: Int) async throws -> String {
     let boundary = "bull-frames-\(UUID().uuidString)"
     var body = Data()
     body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"device_id\"\r\n\r\n\(UIDeviceIdentifier.coachDeviceID)\r\n".utf8))
+    body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"source\"\r\n\r\nframe_drain\r\n".utf8))
+    body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"packet_count\"\r\n\r\n\(packetCount)\r\n".utf8))
+    body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"retry_count\"\r\n\r\n\(retryCount)\r\n".utf8))
     body.append(Data(
       "--\(boundary)\r\nContent-Disposition: form-data; name=\"bundle\"; filename=\"\(fileName)\"\r\nContent-Type: application/zlib\r\n\r\n".utf8
     ))
