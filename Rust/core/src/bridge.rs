@@ -3929,6 +3929,13 @@ struct RunPipelineArgs {
     device_id: String,
     daily_window: RunPipelineWindow,
     hourly_window: RunPipelineWindow,
+    /// Inclusive start bound for feature-pass scans. Server callers set this to
+    /// their retained raw-evidence window so each pass only scans evidence that
+    /// is actually available in the hot compute store. If omitted (older
+    /// clients), fall back to the daily window start rather than a broad
+    /// historical scan; durable baseline rollups are stored separately.
+    #[serde(default)]
+    feature_window_start_iso: Option<String>,
     #[serde(default)]
     profile: RunPipelineProfile,
 }
@@ -3971,33 +3978,11 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
         }
     };
 
-    // Bound feature-pass scans to ~30 days before the daily window rather
-    // than the full store.  This keeps per-pipeline wall-clock time in check
-    // on large stores while still providing enough baseline context for HRV,
-    // resting HR, and sleep baselines.
-    let feature_start = {
-        // daily.start_iso is "2026-06-21T00:00:00Z" — subtract 30 days.
-        // ponytail: manual ISO date arithmetic, no chrono dep.
-        if daily.start_iso.len() >= 10 {
-            if let Ok(day) = daily.start_iso[8..10].parse::<u32>() {
-                let year: i32 = daily.start_iso[0..4].parse().unwrap_or(2026);
-                let month: u32 = daily.start_iso[5..7].parse().unwrap_or(1);
-                // Subtract 30 days by going back ~1 month
-                let (y, m, d) = if day > 30 {
-                    (year, month, day - 30)
-                } else if month > 1 {
-                    (year, month - 1, day)
-                } else {
-                    (year - 1, 12, day)
-                };
-                format!("{y:04}-{m:02}-{d:02}T00:00:00Z")
-            } else {
-                "0000".to_string()
-            }
-        } else {
-            "0000".to_string()
-        }
-    };
+    let feature_start = args
+        .feature_window_start_iso
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| daily.start_iso.clone());
     let base = || {
         json!({
             "database_path": db,

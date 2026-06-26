@@ -225,24 +225,32 @@ async function computeUserStore(
   config?: ParseBundleConfig,
   dataDays?: Set<string>,
 ): Promise<void> {
-  // Run the pipeline for each day that has imported data + today.
-  // Each run only does the rollup/write step for that day; the feature passes
-  // (HR, HRV, motion etc.) scan the full store regardless of the daily window.
+  // Run the pipeline for each day that has imported data + a recent catch-up
+  // window. The catch-up window is important after a compute outage: bundles may
+  // already be imported/parsed, so there are no pending rows to tell us which
+  // days still need projections. Re-running recent days is idempotent and keeps
+  // app-facing tables current without dropping any raw evidence.
   const today = new Date()
   const todayKey = today.toISOString().slice(0, 10)
   const dayKeys = new Set<string>([todayKey])
+  for (let i = 1; i <= STORE_RETENTION_DAYS; i += 1) {
+    dayKeys.add(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10))
+  }
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
-  // ponytail: with 3-day retention the store is small enough to scan.
-  // Run pipeline for every day that has data so rollups populate each day.
+
   const sortedDays = [...dayKeys].sort()
   console.log(`[compute] ${userId} running pipeline for days: ${sortedDays.join(", ")}`)
   for (const k of sortedDays) {
     const windows = pipelineWindows(new Date(k + "T00:00:00Z"))
+    const featureWindowStart = new Date(
+      windows.daily.start_time_unix_ms - STORE_RETENTION_DAYS * 86_400_000,
+    ).toISOString()
     await core.request("metrics.run_pipeline", {
       database_path: dbPath,
       device_id: LOCAL_BIOMETRIC_DEVICE_ID,
       daily_window: windows.daily,
       hourly_window: windows.hourly,
+      feature_window_start_iso: featureWindowStart,
     })
   }
 
