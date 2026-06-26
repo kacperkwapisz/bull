@@ -103,14 +103,16 @@ export class BullCore {
     stdin.write(payload)
     stdin.flush?.()
 
-    // run_pipeline does many sub-steps scanning the retained store. Production
-    // stores can legitimately exceed 5 minutes while backfilling after compute
-    // downtime, so keep this configurable and default to 15 minutes.
-    const runPipelineTimeoutMs = Math.max(
+    // run_pipeline and score_from_features do multiple scans over the retained
+    // store. Production stores can legitimately exceed 5 minutes while
+    // backfilling after compute downtime, so keep this configurable and default
+    // to 15 minutes for compute-heavy calls.
+    const computeTimeoutMs = Math.max(
       300_000,
       Number(process.env.BULL_RUN_PIPELINE_TIMEOUT_MS ?? "900000") || 900_000,
     )
-    const timeoutMs = method.includes("run_pipeline") ? runPipelineTimeoutMs : 120_000
+    const isComputeHeavy = method.includes("run_pipeline") || method.includes("score_from_features")
+    const timeoutMs = isComputeHeavy ? computeTimeoutMs : 120_000
     const line = await this.readLineWithTimeout(timeoutMs, method)
     const response = JSON.parse(line) as BullCoreResponse<T>
     if (!response.ok) {
