@@ -116,13 +116,29 @@ export class BullCore {
 
   private readLineWithTimeout(ms: number, method: string): Promise<string> {
     return new Promise((resolve, reject) => {
+      let settled = false
       const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
         this.close()
-        reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method}`))
+        this.exitDescription().then(
+          (why) => reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method} (${why})`)),
+          () => reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method}`)),
+        )
       }, ms)
       this.readLine().then(
-        (line) => { clearTimeout(timer); resolve(line) },
-        (err) => { clearTimeout(timer); reject(err) },
+        (line) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve(line)
+        },
+        (err) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          reject(err)
+        },
       )
     })
   }

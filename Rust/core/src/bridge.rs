@@ -3945,21 +3945,28 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
     let daily = &args.daily_window;
     let hourly = &args.hourly_window;
 
-    // Run a sub-step through the exact same dispatch the device uses.
+    // Run a sub-step through the exact same dispatch the device uses. Emit
+    // coarse timing to stderr so the server can identify which pipeline stage
+    // is hanging when the host-side sidecar timeout fires.
     let call = |method: &str, step_args: serde_json::Value| -> BullResult<serde_json::Value> {
+        let started = Instant::now();
+        eprintln!("metrics.run_pipeline: step_start method={method}");
         let response = handle_bridge_request(BridgeRequest {
             schema: BRIDGE_REQUEST_SCHEMA.to_string(),
             request_id: format!("pipeline:{method}"),
             method: method.to_string(),
             args: step_args,
         });
+        let elapsed_ms = started.elapsed().as_millis();
         if response.ok {
+            eprintln!("metrics.run_pipeline: step_ok method={method} elapsed_ms={elapsed_ms}");
             Ok(response.result.unwrap_or_else(|| json!({})))
         } else {
             let message = response
                 .error
                 .map(|error| error.message)
                 .unwrap_or_else(|| "unknown error".to_string());
+            eprintln!("metrics.run_pipeline: step_error method={method} elapsed_ms={elapsed_ms} error={message}");
             Err(BullError::message(format!("{method} failed: {message}")))
         }
     };

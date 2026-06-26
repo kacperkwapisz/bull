@@ -27,18 +27,17 @@ import type { ObjectStore } from "../lib/object-store.ts"
 
 const DEVICE_MODEL = "WHOOP 5.0 Bull"
 const LOCAL_BIOMETRIC_DEVICE_ID = "bull-local"
-// Rolling window of raw frames the per-user compute store keeps. Once a day's
-// results are folded into the durable Postgres tables, the workspace only needs
-// recent history to compute current scores/baselines — pruning older frames
-// keeps every compute cheap regardless of total history. Frames are pruned by
-// captured_at (receive time), which is how the score engine windows them.
+// Rolling window of raw frames the per-user compute store keeps *after a
+// successful projection*. The raw upload bundle remains the source of record,
+// but the local compute store must not prune newly imported evidence until the
+// affected days have been folded into durable Postgres projections. Otherwise a
+// repeated compute failure can erase unprojected frames from the hot store and
+// make the app-facing tables stale until a full object-storage rebuild.
 //
-// This MUST stay small: a WHOOP 5.0 streams per-second IMU/HR, so each retained
-// day is ~150-200 MB once the compute materialises it. The feature passes load
-// the whole retained window into memory, so retention is effectively the
-// compute's peak-memory knob. Long-term baselines (EWMA, daily rollups) persist
-// in their own tables and survive the prune, so a short raw-frame window does
-// not lose baseline history. Override per-deployment via BULL_STORE_RETENTION_DAYS.
+// Frames are pruned by captured_at (receive time), which is how the score engine
+// windows them. This still MUST stay small once compute succeeds: device streams
+// are dense, and feature passes load the retained window into memory. Override
+// per-deployment via BULL_STORE_RETENTION_DAYS.
 const STORE_RETENTION_DAYS = Math.max(
   1,
   Number(process.env.BULL_STORE_RETENTION_DAYS ?? "5") || 5,
@@ -226,17 +225,6 @@ async function computeUserStore(
   config?: ParseBundleConfig,
   dataDays?: Set<string>,
 ): Promise<void> {
-  // Prune BEFORE compute, not after. The feature passes materialise the whole
-  // retained window into memory, so an unbounded store OOM-kills run_pipeline
-  // (SIGKILL) before it can reach the old prune-at-the-end. Bounding the window
-  // up front caps peak memory at the retention window and breaks the vicious
-  // cycle where a crash left the store to grow forever.
-  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
-  await core.request("store.prune_raw_evidence_before", {
-    database_path: dbPath,
-    captured_before: cutoff,
-  })
-
   // Run the pipeline for each day that has imported data + today.
   // Each run only does the rollup/write step for that day; the feature passes
   // (HR, HRV, motion etc.) scan the full store regardless of the daily window.
@@ -444,8 +432,19 @@ async function computeUserStore(
       set: { raw: inputReportsMap, computedAt: new Date() },
     })
 
-  // (Raw-frame pruning now runs at the START of this function so the heavy
-  // feature passes never scan an unbounded window.)
+  // Only prune after every durable projection above has succeeded. Prune is a
+  // cache-maintenance step for the per-user SQLite workspace, not part of the
+  // source-of-record ingest path; failure to prune should not turn a successful
+  // projection into a compute failure.
+  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
+  try {
+    await core.request("store.prune_raw_evidence_before", {
+      database_path: dbPath,
+      captured_before: cutoff,
+    })
+  } catch (error) {
+    console.error(`[compute] ${userId} post-compute prune failed: ${errorMessage(error)}`)
+  }
 }
 
 // Serializes import+compute drains so only one runs at a time — prevents
