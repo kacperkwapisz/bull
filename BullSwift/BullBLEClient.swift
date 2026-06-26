@@ -978,15 +978,27 @@ final class BullBLEClient: NSObject, ObservableObject {
     return batteryPackPercent < 20
   }
 
-  var batteryPackDisplaySummary: String {
-    guard batteryPackPresent == true, let batteryPackPercent else {
+  var batteryPackStateSummary: String {
+    guard batteryPackPresent == true else {
       return batteryPackPresent == false ? "Not attached" : "Unknown"
     }
-    let typeName = batteryPackType.displayName
-    if typeName.isEmpty {
-      return "\(batteryPackPercent)%"
+    return batteryIsCharging == true ? "Charging device" : "Attached"
+  }
+
+  var batteryPackDisplaySummary: String {
+    guard batteryPackPresent == true else {
+      return batteryPackPresent == false ? "Not attached" : "Unknown"
     }
-    return "\(batteryPackPercent)% | \(typeName)"
+    var parts: [String] = []
+    if let batteryPackPercent {
+      parts.append("\(batteryPackPercent)%")
+    }
+    let typeName = batteryPackType.displayName
+    if !typeName.isEmpty {
+      parts.append(typeName)
+    }
+    parts.append(batteryPackStateSummary)
+    return parts.joined(separator: " | ")
   }
 
   var canReconnectRemembered: Bool {

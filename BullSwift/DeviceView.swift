@@ -359,18 +359,24 @@ private struct DeviceBatteryPackTile: View {
         Text("BATTERY PACK")
           .font(deviceLabelFont)
           .foregroundStyle(secondaryText)
-        if present, let percent = ble.batteryPackPercent {
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(percent)%")
-              .font(.system(size: 28, weight: .black, design: .default))
-              .foregroundStyle(ble.batteryPackIsLow ? disconnectedRed : devicePrimaryText)
-            PackBatteryLevel(percent: percent, isLow: ble.batteryPackIsLow, isCharging: strapIsCharging)
-            if strapIsCharging {
-              Image(systemName: "bolt.fill")
-                .font(.system(size: 14, weight: .black))
-                .foregroundStyle(batteryYellow)
-                .accessibilityHidden(true)
+        if present {
+          if let percent = ble.batteryPackPercent {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+              Text("\(percent)%")
+                .font(.system(size: 28, weight: .black, design: .default))
+                .foregroundStyle(ble.batteryPackIsLow ? disconnectedRed : devicePrimaryText)
+              PackBatteryLevel(percent: percent, isLow: ble.batteryPackIsLow, isCharging: strapIsCharging)
+              if strapIsCharging {
+                Image(systemName: "bolt.fill")
+                  .font(.system(size: 14, weight: .black))
+                  .foregroundStyle(batteryYellow)
+                  .accessibilityHidden(true)
+              }
             }
+          } else {
+            Text("Unknown charge")
+              .font(.system(size: 24, weight: .black, design: .default))
+              .foregroundStyle(devicePrimaryText)
           }
           Text(subtitle)
             .font(deviceBodyFont)
@@ -404,8 +410,9 @@ private struct DeviceBatteryPackTile: View {
     }
     if ble.batteryPackIsLow {
       parts.append("Low")
-    } else if strapIsCharging {
-      parts.append("Charging strap")
+    }
+    if strapIsCharging {
+      parts.append("Charging device")
     }
     if let updatedAt = ble.batteryPackUpdatedAt, Date().timeIntervalSince(updatedAt) > 3600 {
       parts.append("stale")
@@ -414,11 +421,12 @@ private struct DeviceBatteryPackTile: View {
   }
 
   private var accessibilitySummary: String {
-    guard present, let percent = ble.batteryPackPercent else {
+    guard present else {
       return "Battery pack not attached"
     }
-    let charging = strapIsCharging ? ", charging the strap" : ""
-    return "Battery pack \(percent) percent\(charging)"
+    let charge = ble.batteryPackPercent.map { "\($0) percent" } ?? "unknown charge"
+    let charging = strapIsCharging ? ", charging device" : ""
+    return "Battery pack \(charge)\(charging)"
   }
 }
 

@@ -177,17 +177,16 @@ extension BullBLEClient {
 
   // Parses the GET_BATTERY_PACK_INFO (command 151) response body. The response
   // body is the command-response payload with the 5-byte header removed.
-  // Layout (WHOOP APK parser th0.l): level@0, flag@1, mac@2..7, name@8..23,
-  // pack type@26, colorway@27.
+  // Layout: revision@0, flag@1, mac@2..7, name@8..23, pack type@26,
+  // colorway@27. Percent is not present here; event 109 carries charge.
   static func parseBatteryPackCommandResponseBody(_ body: [UInt8]) -> BatteryPackInfo? {
     guard body.count >= 28 else {
       return nil
     }
-    let percent = min(max(Int(body[0]), 0), 100)
     let type = BatteryPackInfo.PackType(byte: body[26])
     let colorway = batteryPackColorwayName(body[27])
     let name = batteryPackDeviceName(Array(body[8..<24]))
-    return BatteryPackInfo(percent: percent, type: type, colorway: colorway, deviceName: name)
+    return BatteryPackInfo(percent: nil, type: type, colorway: colorway, deviceName: name)
   }
 
   // Parses a BATTERY_PACK_INFO strap event body (event id 109). The event body
@@ -208,7 +207,9 @@ extension BullBLEClient {
   }
 
   func applyBatteryPackInfo(_ info: BatteryPackInfo, source: String, capturedAt: Date) {
-    batteryPackPercent = info.percent
+    if let percent = info.percent {
+      batteryPackPercent = percent
+    }
     batteryPackType = info.type
     batteryPackColorway = info.colorway
     batteryPackPresent = true
