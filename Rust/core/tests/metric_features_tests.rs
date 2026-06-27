@@ -1511,7 +1511,115 @@ fn sleep_feature_score_report_segments_to_most_recent_night() {
         window
             .quality_flags
             .iter()
-            .any(|flag| flag == "sleep_window_segmented_to_most_recent_night")
+            .any(|flag| flag == "sleep_window_segmented_to_best_candidate")
+    );
+}
+
+#[test]
+fn sleep_feature_score_report_rejects_daytime_desk_stillness_without_hr_dip() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Low wrist motion while sitting at a computer is not sleep. HR stays near
+    // the day baseline, so the candidate should be rejected instead of becoming
+    // an 11-hour daytime sleep.
+    for hour in 12..=23u32 {
+        import_motion_frame_at_value_and_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &format!("2026-06-25T{hour:02}:00:00Z"),
+            1000,
+            72,
+        );
+    }
+    for hour in 8..=23u32 {
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            72,
+            &format!("2026-06-25T{hour:02}:15:00Z"),
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-06-25T00:00:00Z",
+        "2026-06-26T00:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 480.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    assert!(report.sleep_window.is_none(), "{:#?}", report.sleep_window);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "sleep_window_missing")
+    );
+}
+
+#[test]
+fn sleep_feature_score_report_accepts_real_daytime_nap_with_hr_dip() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Daytime naps are legitimate. A short low-motion block survives when it
+    // has clear physiological support: HR during the nap dips below the user's
+    // daytime baseline.
+    for hour in 8..=18u32 {
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            72,
+            &format!("2026-06-25T{hour:02}:00:00Z"),
+        );
+    }
+    for minute in [0, 10, 20, 30, 40] {
+        import_motion_frame_at_value_and_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &format!("2026-06-25T14:{minute:02}:00Z"),
+            1000,
+            58,
+        );
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            58,
+            &format!("2026-06-25T14:{minute:02}:30Z"),
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-06-25T00:00:00Z",
+        "2026-06-26T00:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 480.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    let window = report.sleep_window.expect("nap window");
+    assert_eq!(window.start_time, "2026-06-25T14:00:00Z");
+    assert_eq!(window.end_time, "2026-06-25T14:40:00Z");
+    assert!(
+        window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "sleep_window_below_overnight_span")
     );
 }
 
@@ -1782,8 +1890,16 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
     );
     assert_eq!(window.stage_segments[0].start_time, "2026-05-27T22:00:00Z");
     // Total session duration should exceed 60 min (the window tiles the full span).
-    let total_dur: f64 = window.stage_segments.iter().map(|s| s.duration_minutes).sum();
-    assert!(total_dur > 60.0, "total stage duration should exceed 60m, got {}", total_dur);
+    let total_dur: f64 = window
+        .stage_segments
+        .iter()
+        .map(|s| s.duration_minutes)
+        .sum();
+    assert!(
+        total_dur > 60.0,
+        "total stage duration should exceed 60m, got {}",
+        total_dur
+    );
     assert_close(
         window.motion_coverage_fraction,
         180.0 / window.time_in_bed_minutes,

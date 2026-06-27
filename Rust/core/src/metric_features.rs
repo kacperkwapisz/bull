@@ -18,7 +18,7 @@ use crate::{
     protocol::{
         DataPacketBodySummary, I16SeriesSummary, ParsedPayload, decode_hex_with_whitespace,
     },
-    store::{DecodedFrameRow, BullStore},
+    store::{BullStore, DecodedFrameRow},
     validation_labels::{
         OFFICIAL_WHOOP_LABEL_POLICY, official_label_policy_issue_action,
         official_label_policy_issues,
@@ -1122,7 +1122,12 @@ pub fn run_motion_feature_report_for_store(
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
     store.for_each_decoded_frame_between(start, end, |row| {
-        push_motion_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)
+        push_motion_feature(
+            &row,
+            &trusted_frames,
+            &mut candidate_frame_count,
+            &mut features,
+        )
     })?;
     Ok(assemble_motion_report(
         features,
@@ -1202,7 +1207,12 @@ pub fn run_motion_feature_report(
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
     for row in decoded_rows {
-        push_motion_feature(row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+        push_motion_feature(
+            row,
+            &trusted_frames,
+            &mut candidate_frame_count,
+            &mut features,
+        )?;
     }
     Ok(assemble_motion_report(
         features,
@@ -1241,7 +1251,12 @@ pub fn run_heart_rate_feature_report_for_store(
     let mut r20_chunk_captured_at = String::new();
     let mut r20_frames_in_chunk = 0usize;
     store.for_each_decoded_frame_between(start, end, |row| {
-        push_heart_rate_feature(&row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+        push_heart_rate_feature(
+            &row,
+            &trusted_frames,
+            &mut candidate_frame_count,
+            &mut features,
+        )?;
         // Accumulate R20 optical PPG frames for chunked HR extraction.
         let parsed: Option<ParsedPayload> =
             serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
@@ -1262,16 +1277,11 @@ pub fn run_heart_rate_feature_report_for_store(
             r20_chunk.extend_from_slice(ppg);
             r20_frames_in_chunk += 1;
             if r20_frames_in_chunk >= r20_chunk_size {
-                if let Some(hr) =
-                    crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm
-                {
+                if let Some(hr) = crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm {
                     if (30.0..=220.0).contains(&hr) {
                         candidate_frame_count += 1;
                         features.push(HeartRateFeature {
-                            metric_input_id: format!(
-                                "{}.r20_ppg_hr",
-                                r20_chunk_frame_id
-                            ),
+                            metric_input_id: format!("{}.r20_ppg_hr", r20_chunk_frame_id),
                             frame_id: r20_chunk_frame_id.clone(),
                             evidence_id: r20_chunk_evidence_id.clone(),
                             captured_at: r20_chunk_captured_at.clone(),
@@ -1343,7 +1353,12 @@ pub fn run_heart_rate_feature_report_for_store(
 fn heart_rate_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap<String, bool> {
     trusted_frames_for_summary_kinds(
         correlation,
-        &["normal_history", "v18_history", "raw_motion_k10", "v24_history"],
+        &[
+            "normal_history",
+            "v18_history",
+            "raw_motion_k10",
+            "v24_history",
+        ],
     )
 }
 
@@ -1406,7 +1421,12 @@ pub fn run_heart_rate_feature_report(
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
     for row in decoded_rows {
-        push_heart_rate_feature(row, &trusted_frames, &mut candidate_frame_count, &mut features)?;
+        push_heart_rate_feature(
+            row,
+            &trusted_frames,
+            &mut candidate_frame_count,
+            &mut features,
+        )?;
     }
 
     // --- R20 optical PPG path: derive per-frame HR from green PPG ---
@@ -1420,12 +1440,17 @@ pub fn run_heart_rate_feature_report(
     let mut r20_chunk_captured_at = String::new();
     let mut r20_frames_in_chunk = 0usize;
     for row in decoded_rows {
-        let parsed: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
-            .unwrap_or(None);
+        let parsed: Option<ParsedPayload> =
+            serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
         if let Some(ParsedPayload::DataPacket {
-            body_summary: Some(DataPacketBodySummary::R20Optical { green_ppg_samples: ref ppg, .. }),
+            body_summary:
+                Some(DataPacketBodySummary::R20Optical {
+                    green_ppg_samples: ref ppg,
+                    ..
+                }),
             ..
-        }) = parsed {
+        }) = parsed
+        {
             if r20_frames_in_chunk == 0 {
                 r20_chunk_frame_id = row.frame_id.clone();
                 r20_chunk_evidence_id = row.evidence_id.clone();
@@ -2066,8 +2091,13 @@ pub fn run_hrv_feature_report(
         let mut chunk_captured_at = String::new();
         let mut total_r20 = 0usize;
 
-        let mut flush_chunk = |buf: &mut Vec<i32>, fc: &mut usize, fid: &str, eid: &str, cat: &str,
-                                features: &mut Vec<HrvFeature>, candidate_frame_count: &mut usize| {
+        let mut flush_chunk = |buf: &mut Vec<i32>,
+                               fc: &mut usize,
+                               fid: &str,
+                               eid: &str,
+                               cat: &str,
+                               features: &mut Vec<HrvFeature>,
+                               candidate_frame_count: &mut usize| {
             if *fc < 10 || buf.is_empty() {
                 buf.clear();
                 *fc = 0;
@@ -2107,12 +2137,17 @@ pub fn run_hrv_feature_report(
         };
 
         for row in decoded_rows {
-            let parsed: Option<ParsedPayload> = serde_json::from_str(&row.parsed_payload_json)
-                .unwrap_or(None);
+            let parsed: Option<ParsedPayload> =
+                serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
             if let Some(ParsedPayload::DataPacket {
-                body_summary: Some(DataPacketBodySummary::R20Optical { green_ppg_samples: ref ppg, .. }),
+                body_summary:
+                    Some(DataPacketBodySummary::R20Optical {
+                        green_ppg_samples: ref ppg,
+                        ..
+                    }),
                 ..
-            }) = parsed {
+            }) = parsed
+            {
                 if chunk_frame_count == 0 {
                     chunk_frame_id = row.frame_id.clone();
                     chunk_evidence_id = row.evidence_id.clone();
@@ -2122,16 +2157,28 @@ pub fn run_hrv_feature_report(
                 chunk_frame_count += 1;
                 total_r20 += 1;
                 if chunk_frame_count >= r20_chunk_target {
-                    flush_chunk(&mut chunk_buf, &mut chunk_frame_count,
-                        &chunk_frame_id.clone(), &chunk_evidence_id.clone(),
-                        &chunk_captured_at.clone(), &mut features, &mut candidate_frame_count);
+                    flush_chunk(
+                        &mut chunk_buf,
+                        &mut chunk_frame_count,
+                        &chunk_frame_id.clone(),
+                        &chunk_evidence_id.clone(),
+                        &chunk_captured_at.clone(),
+                        &mut features,
+                        &mut candidate_frame_count,
+                    );
                 }
             }
         }
         // Flush remaining
-        flush_chunk(&mut chunk_buf, &mut chunk_frame_count,
-            &chunk_frame_id.clone(), &chunk_evidence_id.clone(),
-            &chunk_captured_at.clone(), &mut features, &mut candidate_frame_count);
+        flush_chunk(
+            &mut chunk_buf,
+            &mut chunk_frame_count,
+            &chunk_frame_id.clone(),
+            &chunk_evidence_id.clone(),
+            &chunk_captured_at.clone(),
+            &mut features,
+            &mut candidate_frame_count,
+        );
         let _ = total_r20;
     }
 
@@ -2176,9 +2223,9 @@ pub fn run_hrv_feature_report(
             end_time: end.to_string(),
             rr_intervals_ms,
             input_ids,
-                    rr_timestamps_s: None,
+            rr_timestamps_s: None,
             stage_segments: None,
-})
+        })
     } else {
         None
     };
@@ -4403,12 +4450,7 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<MotionPlan>>
             warnings,
             ..
         } => v24_gravity_motion_source(
-            gravity_x,
-            gravity_y,
-            gravity_z,
-            gravity2_x,
-            gravity2_y,
-            gravity2_z,
+            gravity_x, gravity_y, gravity_z, gravity2_x, gravity2_y, gravity2_z,
         )
         .map(|source| MotionPlan {
             body_summary_kind: "v24_history",
@@ -4448,8 +4490,7 @@ fn v24_gravity_motion_source(
 
     match (primary, secondary) {
         (Some((x1, y1, z1)), Some((x2, y2, z2))) => {
-            let delta =
-                ((x2 - x1).powi(2) + (y2 - y1).powi(2) + (z2 - z1).powi(2)).sqrt();
+            let delta = ((x2 - x1).powi(2) + (y2 - y1).powi(2) + (z2 - z1).powi(2)).sqrt();
             Some(MotionPlanSource::GravityProxy {
                 source_signal: "v24_history_gravity_vector_delta",
                 scale_basis: "gravity_vector_delta_magnitude_g",
@@ -4520,8 +4561,7 @@ fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> BullResult<Option<HeartRat
             device_timestamp_subseconds: timestamp_subseconds,
         }),
         DataPacketBodySummary::V18History {
-            hr: Some(v18_hr),
-            ..
+            hr: Some(v18_hr), ..
         } => Some(HeartRatePlan {
             body_summary_kind: "v18_history",
             source_signal: "v18_history_hr",
@@ -4595,10 +4635,11 @@ fn skin_temperature_plan_from_payload(
         packet_k: Some(packet_k),
         timestamp_seconds,
         timestamp_subseconds,
-        body_summary: Some(
-            DataPacketBodySummary::NormalHistory { .. }
-            | DataPacketBodySummary::V18History { .. },
-        ),
+        body_summary:
+            Some(
+                DataPacketBodySummary::NormalHistory { .. }
+                | DataPacketBodySummary::V18History { .. },
+            ),
         ..
     }) = parsed_payload
     else {
@@ -4640,10 +4681,11 @@ fn respiratory_rate_plan_from_payload(
         packet_k: Some(packet_k),
         timestamp_seconds,
         timestamp_subseconds,
-        body_summary: Some(
-            DataPacketBodySummary::NormalHistory { .. }
-            | DataPacketBodySummary::V18History { .. },
-        ),
+        body_summary:
+            Some(
+                DataPacketBodySummary::NormalHistory { .. }
+                | DataPacketBodySummary::V18History { .. },
+            ),
         ..
     }) = parsed_payload
     else {
@@ -5360,22 +5402,19 @@ fn average_motion_intensity_0_to_1(motion_features: &[&MotionFeature]) -> Option
     )
 }
 
-/// Gap (in minutes) of missing motion samples that separates one night's
-/// cluster of readings from the next when segmenting multi-night history.
+/// Gap (in minutes) of missing motion samples that separates candidate blocks.
 const SLEEP_CLUSTER_GAP_MINUTES: i64 = 120;
-/// Minimum span (in minutes) for a motion cluster to qualify as a plausible
-/// overnight window rather than a short daytime capture.
+/// Minimum span (in minutes) for a candidate to qualify as an overnight window
+/// rather than a short daytime capture.
 const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
 /// Absolute floor (in minutes) below which a motion cluster can never become
-/// a sleep window. Brief still periods (band on a counter, a short rest) are
-/// not scoreable sleep; reporting them as sleep is dishonest. Windows between
-/// this floor and the overnight span are kept but flagged as short.
+/// a sleep window. Real naps may be short, but a few still minutes are not
+/// scoreable sleep; reporting them as sleep is dishonest.
 const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
-/// Maximum span (in minutes) for a sleep cluster. Continuous band wear can
-/// produce motion features all day with no 2-hour gap; capping prevents a
-/// 17-hour cluster from being scored as sleep. When a cluster exceeds this,
-/// it is trimmed from the start to keep the most recent (overnight) portion.
-const SLEEP_CLUSTER_MAX_SPAN_MINUTES: i64 = 840; // 14 hours
+/// Single sleep episodes longer than this are kept only when their evidence is
+/// strong. This is not used to truncate windows; it is a plausibility feature
+/// in candidate scoring so long recovery sleeps can still win with good data.
+const SLEEP_LONG_EPISODE_MINUTES: i64 = 12 * 60;
 /// A low-motion epoch may stage as sleep only when its heart rate sits at or
 /// below this fraction of the wake-reference HR (median HR across high-motion
 /// epochs of the same window). Quiet rest with wake-level HR is not sleep.
@@ -5385,23 +5424,44 @@ const SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION: f64 = 0.95;
 /// progress; reporting it live would count quiet evening rest as sleep.
 const SLEEP_WAKE_CONFIRMATION_MINUTES: i64 = 10;
 
+#[derive(Debug, Clone)]
 struct SleepClusterSelection {
     start_minute: i64,
     end_minute: i64,
-    /// True when the cluster exceeded `SLEEP_CLUSTER_MAX_SPAN_MINUTES` and was
-    /// trimmed from the start.
-    capped: bool,
+    score: f64,
+    quality_flags: Vec<String>,
+    provenance: serde_json::Value,
 }
 
-/// Pick the most recent overnight cluster from a sorted set of timed motion
-/// features. Clusters are split wherever consecutive motion samples are more
-/// than `SLEEP_CLUSTER_GAP_MINUTES` apart; the most recent cluster spanning at
-/// least `SLEEP_CLUSTER_MIN_SPAN_MINUTES` is preferred, otherwise the most
-/// recent cluster spanning at least `SLEEP_WINDOW_MIN_SPAN_MINUTES` is kept
-/// (flagged short by the caller). Clusters under the floor are never windows:
-/// a few still minutes are not sleep, and claiming otherwise is dishonest.
-fn select_most_recent_sleep_cluster(
+fn sleep_candidate_kind(start_minute: i64, end_minute: i64) -> &'static str {
+    if end_minute - start_minute >= SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+        "main_sleep_candidate"
+    } else {
+        "nap_candidate"
+    }
+}
+
+fn lowest_hr_for_minute_range(
+    start_minute: i64,
+    end_minute: i64,
+    timed_heart_rate_features: &[(i64, &HeartRateFeature)],
+) -> Option<f64> {
+    timed_heart_rate_features
+        .iter()
+        .filter(|(minute, _)| *minute >= start_minute && *minute <= end_minute)
+        .map(|(_, feature)| feature.heart_rate_bpm)
+        .reduce(f64::min)
+}
+
+/// Pick the best sleep candidate from a sorted set of timed motion features.
+/// This is deliberately candidate-scored rather than "most recent low-motion
+/// wins": sedentary computer time is low motion, so a window must also have
+/// physiologic support (HR dip) and/or plausible sleep timing. Daytime naps are
+/// allowed, but require stronger evidence than overnight sleep.
+fn select_sleep_cluster(
     timed_features: &[(i64, &MotionFeature)],
+    timed_heart_rate_features: &[(i64, &HeartRateFeature)],
+    target_midpoint_minutes_since_midnight: f64,
 ) -> Option<SleepClusterSelection> {
     let first_minute = timed_features.first().map(|(minute, _)| *minute)?;
 
@@ -5417,37 +5477,120 @@ fn select_most_recent_sleep_cluster(
     }
     clusters.push((cluster_start, previous));
 
-    // ponytail: cap cluster span — continuous wear can create 17h+ clusters.
-    // Trim from start so the most recent (overnight) portion is kept.
-    let cap = |start: i64, end: i64| -> SleepClusterSelection {
-        if end - start > SLEEP_CLUSTER_MAX_SPAN_MINUTES {
-            SleepClusterSelection {
-                start_minute: end - SLEEP_CLUSTER_MAX_SPAN_MINUTES,
-                end_minute: end,
-                capped: true,
-            }
-        } else {
-            SleepClusterSelection {
-                start_minute: start,
-                end_minute: end,
-                capped: false,
-            }
-        }
+    let hr_baseline = if timed_heart_rate_features.is_empty() {
+        None
+    } else {
+        Some(median(
+            timed_heart_rate_features
+                .iter()
+                .map(|(_, feature)| feature.heart_rate_bpm)
+                .collect::<Vec<_>>(),
+        ))
     };
 
-    if let Some((start, end)) = clusters
-        .iter()
-        .rev()
-        .find(|(start, end)| end - start >= SLEEP_CLUSTER_MIN_SPAN_MINUTES)
-    {
-        return Some(cap(*start, *end));
-    }
+    let mut best: Option<SleepClusterSelection> = None;
+    for (start, end) in clusters {
+        let span = end - start;
+        if span < SLEEP_WINDOW_MIN_SPAN_MINUTES {
+            continue;
+        }
+        let midpoint_minutes_since_midnight = (((start + end) / 2).rem_euclid(24 * 60)) as f64;
+        let midpoint_deviation = circular_minute_deviation(
+            midpoint_minutes_since_midnight,
+            target_midpoint_minutes_since_midnight,
+        );
+        let physiologic_hr_dip = match (
+            hr_baseline,
+            lowest_hr_for_minute_range(start, end, timed_heart_rate_features),
+        ) {
+            (Some(baseline), Some(lowest)) if baseline > 0.0 => {
+                Some((baseline - lowest) / baseline)
+            }
+            _ => None,
+        };
+        let motion_mean = timed_features
+            .iter()
+            .filter(|(minute, _)| *minute >= start && *minute <= end)
+            .map(|(_, feature)| feature.motion_intensity_0_to_1)
+            .sum::<f64>()
+            / timed_features
+                .iter()
+                .filter(|(minute, _)| *minute >= start && *minute <= end)
+                .count()
+                .max(1) as f64;
+        let low_motion_score = (1.0 - motion_mean).clamp(0.0, 1.0);
+        let timing_score = (1.0 - midpoint_deviation / (12.0 * 60.0)).clamp(0.0, 1.0);
+        let duration_score = if span >= SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+            (span as f64 / 420.0).clamp(0.0, 1.0)
+        } else {
+            (span as f64 / 45.0).clamp(0.0, 1.0)
+        };
+        let hr_score = physiologic_hr_dip
+            .map(|dip| (dip / 0.08).clamp(0.0, 1.0))
+            .unwrap_or(0.0);
+        let mut score =
+            0.30 * low_motion_score + 0.30 * hr_score + 0.25 * timing_score + 0.15 * duration_score;
 
-    clusters
-        .iter()
-        .rev()
-        .find(|(start, end)| end - start >= SLEEP_WINDOW_MIN_SPAN_MINUTES)
-        .map(|(start, end)| cap(*start, *end))
+        let mut flags = Vec::new();
+        if physiologic_hr_dip.is_none() {
+            flags.push("sleep_candidate_hr_dip_unavailable".to_string());
+        } else if physiologic_hr_dip.unwrap_or(0.0) < 0.03 {
+            flags.push("sleep_candidate_hr_dip_weak".to_string());
+            if timing_score < 0.5 {
+                score -= 0.15;
+            }
+        }
+        if span < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+            flags.push("sleep_candidate_nap_length".to_string());
+            // Short sleep episodes are legitimate. If they are far from the
+            // expected sleep midpoint, require a stronger HR dip so ordinary
+            // sedentary daytime stillness does not become a nap.
+            if timing_score < 0.6 && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
+                flags.push("sleep_candidate_nap_without_strong_hr_dip".to_string());
+                score -= 0.30;
+            }
+        }
+        if span > SLEEP_LONG_EPISODE_MINUTES && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
+            flags.push("sleep_candidate_long_without_strong_hr_dip".to_string());
+            score -= 0.30;
+        }
+        if midpoint_deviation > 8.0 * 60.0 && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
+            flags.push("sleep_candidate_timing_unusual_without_strong_hr_dip".to_string());
+            score -= 0.35;
+        }
+        if score < 0.45 {
+            flags.push("sleep_candidate_rejected_low_confidence".to_string());
+        }
+
+        let candidate = SleepClusterSelection {
+            start_minute: start,
+            end_minute: end,
+            score,
+            quality_flags: flags,
+            provenance: json!({
+                "selection_method": "scored_sleep_candidate_v1",
+                "candidate_kind": sleep_candidate_kind(start, end),
+                "span_minutes": span,
+                "low_motion_score": low_motion_score,
+                "hr_dip_fraction": physiologic_hr_dip,
+                "hr_score": hr_score,
+                "timing_score": timing_score,
+                "duration_score": duration_score,
+                "midpoint_deviation_minutes": midpoint_deviation,
+                "acceptance_threshold": 0.45,
+            }),
+        };
+        if candidate.score >= 0.45
+            && best.as_ref().is_none_or(|current| {
+                candidate.score > current.score
+                    || (candidate.score == current.score
+                        && candidate.start_minute > current.start_minute)
+            })
+        {
+            best = Some(candidate);
+        }
+    }
+    best
 }
 
 fn sleep_window_feature(
@@ -5492,13 +5635,17 @@ fn sleep_window_feature(
             .then_with(|| left.1.metric_input_id.cmp(&right.1.metric_input_id))
     });
 
-    // Count parsed motion samples before nightly segmentation so trimming the
+    // Count parsed motion samples before candidate selection so trimming the
     // window does not get misreported as dropped/unparseable timestamps.
     let parsed_motion_count = timed_features.len();
-    // Restrict the window to the most recent overnight cluster so multi-night
-    // history (for example several days pulled in a single sync) does not
-    // collapse into one window spanning every captured sample.
-    let segmentation = select_most_recent_sleep_cluster(&timed_features)?;
+    // Select the best sleep candidate from motion + physiology. Low motion by
+    // itself is not sleep: sedentary computer time must lose unless HR/timing
+    // evidence also supports a sleep or nap episode.
+    let segmentation = select_sleep_cluster(
+        &timed_features,
+        &timed_heart_rate_features,
+        options.target_midpoint_minutes_since_midnight,
+    )?;
     timed_features.retain(|(minute, _)| {
         *minute >= segmentation.start_minute && *minute <= segmentation.end_minute
     });
@@ -5511,13 +5658,13 @@ fn sleep_window_feature(
     quality_flags.insert("preliminary_sleep_from_motion_hr_heuristics".to_string());
     quality_flags.insert("stage_estimates_require_personal_calibration".to_string());
     if window_segmented {
-        quality_flags.insert("sleep_window_segmented_to_most_recent_night".to_string());
-    }
-    if segmentation.capped {
-        quality_flags.insert("sleep_cluster_capped_to_max_span".to_string());
+        quality_flags.insert("sleep_window_segmented_to_best_candidate".to_string());
     }
     if segmentation.end_minute - segmentation.start_minute < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
         quality_flags.insert("sleep_window_below_overnight_span".to_string());
+    }
+    for flag in &segmentation.quality_flags {
+        quality_flags.insert(flag.clone());
     }
     if parsed_motion_count < motion_features.len() {
         quality_flags.insert("unparseable_motion_timestamps_dropped".to_string());
@@ -5871,6 +6018,8 @@ fn sleep_window_feature(
                 "large_motion_gap_count": large_motion_gap_count,
                 "largest_motion_gap_minutes": largest_motion_gap_minutes,
             },
+            "candidate_selection": segmentation.provenance,
+            "candidate_score": segmentation.score,
             "promotion_policy": "requires_all_contributing_features_trusted",
         }),
     })
@@ -6271,7 +6420,6 @@ fn infer_sleep_stage(
     }
 }
 
-
 fn stage_probability_map(rows: [(SleepStageKind, f64); 4]) -> BTreeMap<String, f64> {
     rows.into_iter()
         .map(|(stage, probability)| (stage.as_str().to_string(), probability))
@@ -6625,9 +6773,9 @@ fn daily_hrv_features(
                 end_time: format!("{date}T23:59:59Z"),
                 rr_intervals_ms,
                 input_ids: input_ids.clone(),
-                            rr_timestamps_s: None,
+                rr_timestamps_s: None,
                 stage_segments: None,
-};
+            };
             let result = bull_hrv_v0(&input);
             let output = result.output?;
             Some(HrvDayFeature {
