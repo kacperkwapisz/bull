@@ -584,6 +584,7 @@ pub struct DailyRecoveryMetricRow {
 pub struct DailySleepMetricInput<'a> {
     pub nightly_sleep_id: &'a str,
     pub date_key: &'a str,
+    pub sleep_kind: &'a str,
     pub start_time: &'a str,
     pub end_time: &'a str,
     pub start_time_unix_ms: i64,
@@ -607,6 +608,8 @@ pub struct DailySleepMetricInput<'a> {
 pub struct DailySleepMetricRow {
     pub nightly_sleep_id: String,
     pub date_key: String,
+    #[serde(default = "default_sleep_kind")]
+    pub sleep_kind: String,
     pub start_time: String,
     pub end_time: String,
     pub start_time_unix_ms: i64,
@@ -1400,6 +1403,7 @@ impl BullStore {
             CREATE TABLE IF NOT EXISTS daily_sleep_metrics (
                 nightly_sleep_id TEXT PRIMARY KEY,
                 date_key TEXT NOT NULL,
+                sleep_kind TEXT NOT NULL DEFAULT 'main',
                 start_time TEXT NOT NULL,
                 end_time TEXT NOT NULL,
                 start_time_unix_ms INTEGER NOT NULL,
@@ -1799,6 +1803,7 @@ impl BullStore {
         self.ensure_daily_activity_metric_multi_row_source_kind()?;
         self.ensure_daily_recovery_metric_multi_row_source_kind()?;
         self.ensure_step_counter_sample_columns()?;
+        self.ensure_daily_sleep_metric_columns()?;
         self.ensure_capture_hot_path_indexes()?;
         Ok(())
     }
@@ -3995,6 +4000,7 @@ impl BullStore {
     pub fn upsert_daily_sleep_metric(&self, input: DailySleepMetricInput<'_>) -> BullResult<bool> {
         validate_required("nightly_sleep_id", input.nightly_sleep_id)?;
         validate_required("date_key", input.date_key)?;
+        validate_required("sleep_kind", input.sleep_kind)?;
         validate_required("start_time", input.start_time)?;
         validate_required("end_time", input.end_time)?;
         validate_required("algorithm_id", input.algorithm_id)?;
@@ -4008,6 +4014,7 @@ impl BullStore {
             INSERT INTO daily_sleep_metrics (
                 nightly_sleep_id,
                 date_key,
+                sleep_kind,
                 start_time,
                 end_time,
                 start_time_unix_ms,
@@ -4026,10 +4033,11 @@ impl BullStore {
                 quality_flags_json,
                 provenance_json
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
             )
             ON CONFLICT(nightly_sleep_id) DO UPDATE SET
                 date_key = excluded.date_key,
+                sleep_kind = excluded.sleep_kind,
                 start_time = excluded.start_time,
                 end_time = excluded.end_time,
                 start_time_unix_ms = excluded.start_time_unix_ms,
@@ -4052,6 +4060,7 @@ impl BullStore {
             params![
                 input.nightly_sleep_id,
                 input.date_key,
+                input.sleep_kind,
                 input.start_time,
                 input.end_time,
                 input.start_time_unix_ms,
@@ -4076,6 +4085,15 @@ impl BullStore {
 
     /// Return the most recent nightly sleep records, newest first, capped at
     /// `limit` rows.
+    ///
+    /// Dedupe invariant (I1): at most one `main` row is surfaced per `date_key`.
+    /// When competing rows exist for the same night (e.g. a legacy
+    /// start-keyed row left over from an older algorithm alongside a freshly
+    /// recomputed one), the winner is chosen by: non-stale algorithm first,
+    /// then highest confidence, then most recently updated. Naps are keyed by
+    /// their own `nightly_sleep_id` so multiple legitimate naps per day all
+    /// surface. This is a read-side guard; persistence also keys the main
+    /// window by day so recomputes replace in place rather than accumulate.
     pub fn list_daily_sleep_metrics(&self, limit: i64) -> BullResult<Vec<DailySleepMetricRow>> {
         let bounded = limit.clamp(1, 3650);
         let mut statement = self.conn.prepare(
@@ -4101,8 +4119,22 @@ impl BullStore {
                 quality_flags_json,
                 provenance_json,
                 created_at,
-                updated_at
-            FROM daily_sleep_metrics
+                updated_at,
+                sleep_kind
+            FROM daily_sleep_metrics t
+            WHERE t.sleep_kind <> 'main'
+               OR t.nightly_sleep_id = (
+                    SELECT m.nightly_sleep_id
+                    FROM daily_sleep_metrics m
+                    WHERE m.date_key = t.date_key AND m.sleep_kind = 'main'
+                    ORDER BY
+                        (instr(m.quality_flags_json, 'segmented_to_most_recent_night') > 0) ASC,
+                        m.confidence DESC,
+                        m.updated_at DESC,
+                        m.start_time_unix_ms DESC,
+                        m.nightly_sleep_id DESC
+                    LIMIT 1
+               )
             ORDER BY start_time_unix_ms DESC, nightly_sleep_id DESC
             LIMIT ?1
             "#,
@@ -4117,6 +4149,39 @@ impl BullStore {
         let deleted = self
             .conn
             .execute("DELETE FROM daily_sleep_metrics", [])?;
+        Ok(deleted)
+    }
+
+    /// Targeted clear (Phase 3a): delete cached sleep rows only for the given
+    /// `date_key`s. Used before recomputing a bounded set of days so a recompute
+    /// rebuilds those nights without disturbing untouched history. Returns the
+    /// count deleted.
+    pub fn clear_daily_sleep_metrics_for_days(&self, date_keys: &[String]) -> BullResult<usize> {
+        if date_keys.is_empty() {
+            return Ok(0);
+        }
+        let mut deleted = 0usize;
+        for date_key in date_keys {
+            deleted += self.conn.execute(
+                "DELETE FROM daily_sleep_metrics WHERE date_key = ?1",
+                params![date_key],
+            )?;
+        }
+        Ok(deleted)
+    }
+
+    /// Targeted clear (Phase 3a): delete cached sleep rows whose `algorithm_id`
+    /// is lexically below `min_algorithm_id` (e.g. everything before
+    /// `bull.sleep.v2`). Used to purge stale old-algorithm rows during backfill
+    /// without touching current-algorithm output. Returns the count deleted.
+    pub fn clear_daily_sleep_metrics_with_algorithm_below(
+        &self,
+        min_algorithm_id: &str,
+    ) -> BullResult<usize> {
+        let deleted = self.conn.execute(
+            "DELETE FROM daily_sleep_metrics WHERE algorithm_id < ?1",
+            params![min_algorithm_id],
+        )?;
         Ok(deleted)
     }
 
@@ -7799,6 +7864,20 @@ impl BullStore {
         Ok(false)
     }
 
+    /// Additive migration for existing stores: `sleep_kind` distinguishes the
+    /// main overnight window from naps so dedupe can key the main winner by day
+    /// without collapsing legitimate naps.
+    fn ensure_daily_sleep_metric_columns(&self) -> BullResult<()> {
+        let columns = self.table_columns_unchecked("daily_sleep_metrics")?;
+        if !columns.contains("sleep_kind") {
+            self.conn.execute(
+                "ALTER TABLE daily_sleep_metrics ADD COLUMN sleep_kind TEXT NOT NULL DEFAULT 'main'",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
     fn ensure_step_counter_sample_columns(&self) -> BullResult<()> {
         let columns = self.table_columns_unchecked("step_counter_samples")?;
         for (column, ddl) in [
@@ -8915,10 +8994,15 @@ fn daily_recovery_metric_from_row(
     })
 }
 
+fn default_sleep_kind() -> String {
+    "main".to_string()
+}
+
 fn daily_sleep_metric_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailySleepMetricRow> {
     Ok(DailySleepMetricRow {
         nightly_sleep_id: row.get(0)?,
         date_key: row.get(1)?,
+        sleep_kind: row.get(21)?,
         start_time: row.get(2)?,
         end_time: row.get(3)?,
         start_time_unix_ms: row.get(4)?,

@@ -48,6 +48,7 @@ fn sample_nightly_sleep_input<'a>(
     DailySleepMetricInput {
         nightly_sleep_id,
         date_key,
+        sleep_kind: "main",
         start_time,
         end_time,
         start_time_unix_ms,
@@ -125,6 +126,168 @@ fn daily_sleep_metrics_upsert_is_idempotent_and_lists_newest_first() {
     let limited = store.list_daily_sleep_metrics(1).unwrap();
     assert_eq!(limited.len(), 1);
     assert_eq!(limited[0].nightly_sleep_id, "nightly-sleep.2");
+}
+
+// Full-control input builder for dedupe/clear tests (varies kind, algorithm,
+// confidence, and quality flags that the fixed sample helper holds constant).
+#[allow(clippy::too_many_arguments)]
+fn sleep_input_full<'a>(
+    nightly_sleep_id: &'a str,
+    date_key: &'a str,
+    sleep_kind: &'a str,
+    start_time: &'a str,
+    end_time: &'a str,
+    start_time_unix_ms: i64,
+    end_time_unix_ms: i64,
+    algorithm_id: &'a str,
+    confidence: f64,
+    quality_flags_json: &'a str,
+) -> DailySleepMetricInput<'a> {
+    DailySleepMetricInput {
+        nightly_sleep_id,
+        date_key,
+        sleep_kind,
+        start_time,
+        end_time,
+        start_time_unix_ms,
+        end_time_unix_ms,
+        score_0_to_100: Some(80.0),
+        sleep_duration_minutes: Some(420.0),
+        time_in_bed_minutes: Some(450.0),
+        sleep_performance_fraction: Some(0.88),
+        heart_rate_dip_percent: Some(12.0),
+        disturbance_count: Some(3),
+        algorithm_id,
+        algorithm_version: "1.0.0",
+        source_kind: "packet_derived_local",
+        confidence,
+        stage_minutes_json: "{}",
+        quality_flags_json,
+        provenance_json: "{}",
+    }
+}
+
+#[test]
+fn main_sleep_dedupes_to_best_per_day_and_demotes_stale_algorithm() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Stale old-algorithm row for the night, high confidence.
+    store
+        .upsert_daily_sleep_metric(sleep_input_full(
+            "nightly-sleep.legacy-start",
+            "2026-06-25",
+            "main",
+            "2026-06-25T18:00:00Z",
+            "2026-06-26T05:00:00Z",
+            1_782_410_400_000,
+            1_782_450_000_000,
+            "bull.sleep.v1",
+            0.95,
+            "[\"sleep_window_segmented_to_most_recent_night\"]",
+        ))
+        .unwrap();
+    // Fresh, day-keyed row, lower confidence but not stale.
+    store
+        .upsert_daily_sleep_metric(sleep_input_full(
+            "nightly-sleep.2026-06-25",
+            "2026-06-25",
+            "main",
+            "2026-06-26T00:30:00Z",
+            "2026-06-26T07:45:00Z",
+            1_782_433_800_000,
+            1_782_459_900_000,
+            "bull.sleep.v2",
+            0.70,
+            "[\"preliminary_sleep_from_motion_hr_heuristics\"]",
+        ))
+        .unwrap();
+
+    let nights = store.list_daily_sleep_metrics(30).unwrap();
+    // I1: one surfaced main row for the day, and the stale one is demoted.
+    assert_eq!(nights.len(), 1);
+    assert_eq!(nights[0].nightly_sleep_id, "nightly-sleep.2026-06-25");
+    assert_eq!(nights[0].algorithm_id, "bull.sleep.v2");
+}
+
+#[test]
+fn naps_are_not_collapsed_with_main_window() {
+    let store = BullStore::open_in_memory().unwrap();
+    store
+        .upsert_daily_sleep_metric(sleep_input_full(
+            "nightly-sleep.2026-06-25",
+            "2026-06-25",
+            "main",
+            "2026-06-25T00:30:00Z",
+            "2026-06-25T07:45:00Z",
+            1_782_347_400_000,
+            1_782_373_500_000,
+            "bull.sleep.v2",
+            0.80,
+            "[]",
+        ))
+        .unwrap();
+    for (id, start, end) in [
+        ("nap.2026-06-25.1", "2026-06-25T13:00:00Z", "2026-06-25T13:35:00Z"),
+        ("nap.2026-06-25.2", "2026-06-25T17:00:00Z", "2026-06-25T17:40:00Z"),
+    ] {
+        store
+            .upsert_daily_sleep_metric(sleep_input_full(
+                id,
+                "2026-06-25",
+                "nap",
+                start,
+                end,
+                1_782_390_000_000,
+                1_782_392_400_000,
+                "bull.sleep.v2",
+                0.75,
+                "[]",
+            ))
+            .unwrap();
+    }
+    let nights = store.list_daily_sleep_metrics(30).unwrap();
+    // Main + two distinct naps all surface (naps keyed by their own id).
+    assert_eq!(nights.len(), 3);
+    let naps = nights.iter().filter(|n| n.sleep_kind == "nap").count();
+    assert_eq!(naps, 2);
+}
+
+#[test]
+fn targeted_sleep_clears_remove_only_requested_rows() {
+    let store = BullStore::open_in_memory().unwrap();
+    for (id, day, algo) in [
+        ("nightly-sleep.2026-06-24", "2026-06-24", "bull.sleep.v1"),
+        ("nightly-sleep.2026-06-25", "2026-06-25", "bull.sleep.v1"),
+        ("nightly-sleep.2026-06-26", "2026-06-26", "bull.sleep.v2"),
+    ] {
+        store
+            .upsert_daily_sleep_metric(sleep_input_full(
+                id,
+                day,
+                "main",
+                &format!("{day}T00:30:00Z"),
+                &format!("{day}T07:30:00Z"),
+                1_782_000_000_000,
+                1_782_025_200_000,
+                algo,
+                0.8,
+                "[]",
+            ))
+            .unwrap();
+    }
+    // Clear a single day.
+    let removed = store
+        .clear_daily_sleep_metrics_for_days(&["2026-06-24".to_string()])
+        .unwrap();
+    assert_eq!(removed, 1);
+    assert_eq!(store.list_daily_sleep_metrics(30).unwrap().len(), 2);
+    // Clear everything below the v2 algorithm id (removes the remaining v1 row).
+    let removed_old = store
+        .clear_daily_sleep_metrics_with_algorithm_below("bull.sleep.v2")
+        .unwrap();
+    assert_eq!(removed_old, 1);
+    let remaining = store.list_daily_sleep_metrics(30).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].algorithm_id, "bull.sleep.v2");
 }
 
 fn seed_legacy_capture_metric_database(db_path: &Path) {

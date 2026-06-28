@@ -5436,6 +5436,7 @@ fn import_curated_bridge(args: ImportCuratedArgs) -> BullResult<serde_json::Valu
                 store.upsert_daily_sleep_metric(DailySleepMetricInput {
                     nightly_sleep_id: &row.nightly_sleep_id,
                     date_key: &row.date_key,
+                    sleep_kind: &row.sleep_kind,
                     start_time: &row.start_time,
                     end_time: &row.end_time,
                     start_time_unix_ms: row.start_time_unix_ms,
@@ -6876,7 +6877,10 @@ fn persist_nightly_sleep_record(
     let confidence = read_f64("sleep_window_confidence_0_to_1")
         .or_else(|| read_f64("confidence_0_to_1"))
         .unwrap_or(0.0);
-    let nightly_sleep_id = format!("nightly-sleep.{start_unix}");
+    // Key the main overnight window by resolved day (I2): recomputing the same
+    // night replaces the row in place instead of accumulating a competitor at a
+    // new start timestamp. Naps (Phase 2) carry a distinct id namespace.
+    let nightly_sleep_id = format!("nightly-sleep.{date_key}");
     let provenance = json!({
         "method": "metrics.sleep_score_from_features",
         "algorithm_id": algorithm_id,
@@ -6889,6 +6893,7 @@ fn persist_nightly_sleep_record(
     store.upsert_daily_sleep_metric(DailySleepMetricInput {
         nightly_sleep_id: &nightly_sleep_id,
         date_key,
+        sleep_kind: "main",
         start_time: &window.start_time,
         end_time: &window.end_time,
         start_time_unix_ms: start_unix,
@@ -10138,6 +10143,7 @@ mod tests {
                 .upsert_daily_sleep_metric(DailySleepMetricInput {
                     nightly_sleep_id: "nightly-sleep.1780000000000",
                     date_key: "2026-06-10",
+                    sleep_kind: "main",
                     start_time: "2026-06-10T00:00:00.000Z",
                     end_time: "2026-06-10T08:00:00.000Z",
                     start_time_unix_ms: 1_780_000_000_000,

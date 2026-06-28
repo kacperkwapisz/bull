@@ -146,7 +146,23 @@ export async function ingestMetrics(
       })
   }
 
+  // I1 defense-in-depth: the curated export already surfaces one sleep row per
+  // day, but if competing rows ever arrive in the same push, keep a single
+  // deterministic winner per day (highest confidence, then later occurrence)
+  // rather than letting array order decide the last-write-wins upsert.
+  type SleepPushRow = NonNullable<MetricsPush["sleep"]>[number]
+  const confidenceOf = (row: SleepPushRow): number => {
+    const raw = row.raw as { confidence?: unknown } | null | undefined
+    return raw && typeof raw.confidence === "number" ? raw.confidence : -1
+  }
+  const sleepByDay = new Map<string, SleepPushRow>()
   for (const s of push.sleep ?? []) {
+    const existing = sleepByDay.get(s.day)
+    if (!existing || confidenceOf(s) >= confidenceOf(existing)) {
+      sleepByDay.set(s.day, s)
+    }
+  }
+  for (const s of sleepByDay.values()) {
     await db
       .insert(dailySleep)
       .values({
