@@ -1,7 +1,16 @@
 # Sleep end-to-end fix — implementation plan
 
-Status: PLAN ONLY (no code yet). Grounded in current code as of prod revision
-`90354e9`.
+Status: Phases 1, 2, 4 + 3a IMPLEMENTED & TESTED locally (commits `c774070`,
+`8c64928`, `c1892bb`). Phase 3b/3c/3d (server recompute wiring + prod
+execution) PENDING — gated on user approval before any prod mutation.
+Grounded in current code as of prod revision `90354e9`.
+
+Algorithm is grounded in NoopApp/noop's canonical iOS `SleepStager.swift`:
+day-median HR baseline; overnight kept when resting HR ≤ baseline×1.05; daytime
+must dip ≤ baseline×0.95 (morning re-onset ≤0.90); off-wrist drop ≥50% gated
+by HR density. No hard max-cluster cap (per user). Short physiologically-
+supported naps remain detectable (we keep a 30-min floor with a dip, rather
+than NOOP's 90-min daytime floor).
 
 ## 0. Ground truth from the code (why sleep is broken)
 
