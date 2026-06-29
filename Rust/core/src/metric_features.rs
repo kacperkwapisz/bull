@@ -5411,10 +5411,6 @@ const SLEEP_CLUSTER_MIN_SPAN_MINUTES: i64 = 120;
 /// a sleep window. Real naps may be short, but a few still minutes are not
 /// scoreable sleep; reporting them as sleep is dishonest.
 const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
-/// Single sleep episodes longer than this are kept only when their evidence is
-/// strong. This is not used to truncate windows; it is a plausibility feature
-/// in candidate scoring so long recovery sleeps can still win with good data.
-const SLEEP_LONG_EPISODE_MINUTES: i64 = 12 * 60;
 /// A low-motion epoch may stage as sleep only when its heart rate sits at or
 /// below this fraction of the wake-reference HR (median HR across high-motion
 /// epochs of the same window). Quiet rest with wake-level HR is not sleep.
@@ -5423,6 +5419,44 @@ const SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION: f64 = 0.95;
 /// before a window is reported. Until then the candidate sleep is still in
 /// progress; reporting it live would count quiet evening rest as sleep.
 const SLEEP_WAKE_CONFIRMATION_MINUTES: i64 = 10;
+
+// ── Personal-HR-baseline detection gates (bull.sleep heuristic v2) ──────────
+//
+// A still window is sleep only when heart rate confirms it against the day's
+// own median HR. The discriminator that separates real sleep/naps from quiet
+// sedentary stillness (desk, sofa) is the day-median baseline: sleep dips at or
+// below it, sedentary rest sits near it. Constants are fixed a-priori from
+// sleep physiology (not fit to labels).
+
+/// Overnight HR confirmation: a night-timed window is kept only when its mean
+/// HR is at or below the day-median baseline times this. Nights naturally sit
+/// at/below the waking median, so the bar is lenient.
+const SLEEP_OVERNIGHT_HR_MAX_FRACTION: f64 = 1.05;
+/// Daytime/nap confirmation: a day-timed window must DIP below the day median —
+/// its lowest rolling HR at or below baseline times this. Sedentary daytime
+/// stillness keeps a near-median HR and fails; a real nap dips below it.
+const SLEEP_DAYTIME_RESTING_HR_MAX_FRACTION: f64 = 0.95;
+/// Stronger dip required of a daytime block beginning shortly after an overnight
+/// wake (residual morning stillness masquerading as a nap must dip clearly).
+const SLEEP_MORNING_REONSET_HR_MAX_FRACTION: f64 = 0.90;
+/// Circular distance (minutes) of a window's midpoint from the personal sleep
+/// midpoint beyond which the window is treated as daytime (and faces the
+/// stricter dip bar). Self-calibrates to the user's schedule instead of a fixed
+/// clock band, so no timezone offset is needed.
+const SLEEP_DAYTIME_MIDPOINT_DEVIATION_MINUTES: f64 = 360.0;
+/// A daytime block whose onset falls within this window after an accepted
+/// overnight wake is suspected residual morning stillness and held to the
+/// stronger re-onset bar.
+const SLEEP_MORNING_STILLNESS_WINDOW_MINUTES: i64 = 180;
+/// Rolling-window length (minutes) for a candidate's resting HR (the lowest
+/// rolling mean over the window — the sleep-depth proxy).
+const SLEEP_RESTING_HR_WINDOW_MINUTES: i64 = 5;
+/// A candidate is dropped when this fraction or more of its span is off-wrist
+/// (a long HR-coverage gap), since a removed strap streams gravity but no HR
+/// and would otherwise read as still sleep.
+const SLEEP_OFF_WRIST_MAX_FRACTION: f64 = 0.5;
+/// HR-coverage gap (minutes) long enough to count as off-wrist.
+const SLEEP_OFF_WRIST_GAP_MINUTES: i64 = 20;
 
 #[derive(Debug, Clone)]
 struct SleepClusterSelection {
@@ -5441,23 +5475,112 @@ fn sleep_candidate_kind(start_minute: i64, end_minute: i64) -> &'static str {
     }
 }
 
-fn lowest_hr_for_minute_range(
+/// Resting HR proxy for a candidate window: the lowest rolling mean over
+/// `window_minutes`-long blocks within [start, end]. Mirrors the sleep-depth
+/// proxy used to confirm a real cardiac dip (a brief low reading is not enough;
+/// a true sleep/nap holds a low HR for minutes). Falls back to the window mean
+/// when no full block has samples.
+fn lowest_rolling_mean_hr(
     start_minute: i64,
     end_minute: i64,
     timed_heart_rate_features: &[(i64, &HeartRateFeature)],
+    window_minutes: i64,
 ) -> Option<f64> {
-    timed_heart_rate_features
-        .iter()
-        .filter(|(minute, _)| *minute >= start_minute && *minute <= end_minute)
-        .map(|(_, feature)| feature.heart_rate_bpm)
-        .reduce(f64::min)
+    if end_minute <= start_minute {
+        return None;
+    }
+    let mut lowest: Option<f64> = None;
+    let mut block_start = start_minute;
+    while block_start < end_minute {
+        let block_end = (block_start + window_minutes).min(end_minute);
+        if let Some(mean) =
+            average_heart_rate_for_minute_range(block_start, block_end, timed_heart_rate_features)
+        {
+            lowest = Some(lowest.map_or(mean, |current| current.min(mean)));
+        }
+        block_start = block_end;
+    }
+    lowest.or_else(|| {
+        average_heart_rate_for_minute_range(start_minute, end_minute, timed_heart_rate_features)
+    })
 }
 
-/// Pick the best sleep candidate from a sorted set of timed motion features.
-/// This is deliberately candidate-scored rather than "most recent low-motion
-/// wins": sedentary computer time is low motion, so a window must also have
-/// physiologic support (HR dip) and/or plausible sleep timing. Daytime naps are
-/// allowed, but require stronger evidence than overnight sleep.
+/// Fraction of a candidate window's span that has no HR coverage for at least
+/// `gap_minutes` at a stretch (including leading/trailing edges). A removed
+/// strap streams gravity but no HR, so a large HR hole is a strong off-wrist
+/// proxy; a window mostly off-wrist is not scoreable sleep. Returns 0.0 when
+/// there is no HR at all (the no-HR case is handled by the HR-confirmation
+/// gates, not here).
+fn off_wrist_gap_fraction(
+    start_minute: i64,
+    end_minute: i64,
+    timed_heart_rate_features: &[(i64, &HeartRateFeature)],
+    gap_minutes: i64,
+) -> f64 {
+    let span = end_minute - start_minute;
+    if span <= 0 {
+        return 0.0;
+    }
+    let mut covered_minutes: Vec<i64> = timed_heart_rate_features
+        .iter()
+        .filter(|(minute, _)| *minute >= start_minute && *minute <= end_minute)
+        .map(|(minute, _)| *minute)
+        .collect();
+    if covered_minutes.is_empty() {
+        return 0.0;
+    }
+    covered_minutes.sort_unstable();
+    covered_minutes.dedup();
+    // Density gate: a sparsely-sampled HR stream (e.g. a few readings an hour)
+    // is not off-wrist evidence — its sampling holes are not strap removals. A
+    // worn strap streams dense HR (~1/min), so only trust the HR-gap proxy when
+    // coverage is dense enough that a real worn stretch would show no long
+    // hole. Below ~one sample per 4 minutes, return 0.0 and let the
+    // HR-confirmation gates, not this proxy, decide.
+    let min_dense_samples = (span / 4).max(1);
+    if (covered_minutes.len() as i64) < min_dense_samples {
+        return 0.0;
+    }
+    let mut gap_total = 0i64;
+    // Leading edge.
+    let lead = covered_minutes[0] - start_minute;
+    if lead >= gap_minutes {
+        gap_total += lead;
+    }
+    // Interior gaps.
+    for pair in covered_minutes.windows(2) {
+        let gap = pair[1] - pair[0];
+        if gap >= gap_minutes {
+            gap_total += gap;
+        }
+    }
+    // Trailing edge.
+    let trail = end_minute - covered_minutes[covered_minutes.len() - 1];
+    if trail >= gap_minutes {
+        gap_total += trail;
+    }
+    (gap_total as f64 / span as f64).clamp(0.0, 1.0)
+}
+
+/// A scored candidate window after the physiological gates have run.
+struct SleepCandidateEval {
+    start_minute: i64,
+    end_minute: i64,
+    span: i64,
+    is_daytime: bool,
+    accepted: bool,
+    rank: f64,
+    confidence: f64,
+    flags: Vec<String>,
+    provenance: serde_json::Value,
+}
+
+/// Pick the best sleep candidate using personal-HR-baseline detection gates
+/// (bull.sleep heuristic v2). Low motion alone is never sleep: each still
+/// window is confirmed against the day's own median HR. Night-timed windows are
+/// kept when their mean HR sits at/below the median (sleep rides at/below the
+/// waking median); day-timed windows must DIP below it (a real nap dips, a desk
+/// sit does not). A window mostly off-wrist (long HR hole) is dropped.
 fn select_sleep_cluster(
     timed_features: &[(i64, &MotionFeature)],
     timed_heart_rate_features: &[(i64, &HeartRateFeature)],
@@ -5477,6 +5600,8 @@ fn select_sleep_cluster(
     }
     clusters.push((cluster_start, previous));
 
+    // Day-median HR baseline: the waking reference every window is judged
+    // against. Sleep dips at/below it; sedentary daytime rest sits near it.
     let hr_baseline = if timed_heart_rate_features.is_empty() {
         None
     } else {
@@ -5488,7 +5613,20 @@ fn select_sleep_cluster(
         ))
     };
 
-    let mut best: Option<SleepClusterSelection> = None;
+    // First pass: geometry + physiology per cluster (no morning-stillness yet).
+    struct ClusterFacts {
+        start: i64,
+        end: i64,
+        span: i64,
+        is_daytime: bool,
+        midpoint_deviation: f64,
+        motion_mean: f64,
+        resting_hr: Option<f64>,
+        mean_hr: Option<f64>,
+        dip_fraction: Option<f64>,
+        off_wrist_fraction: f64,
+    }
+    let mut facts: Vec<ClusterFacts> = Vec::new();
     for (start, end) in clusters {
         let span = end - start;
         if span < SLEEP_WINDOW_MIN_SPAN_MINUTES {
@@ -5499,98 +5637,215 @@ fn select_sleep_cluster(
             midpoint_minutes_since_midnight,
             target_midpoint_minutes_since_midnight,
         );
-        let physiologic_hr_dip = match (
-            hr_baseline,
-            lowest_hr_for_minute_range(start, end, timed_heart_rate_features),
-        ) {
-            (Some(baseline), Some(lowest)) if baseline > 0.0 => {
-                Some((baseline - lowest) / baseline)
-            }
+        let is_daytime = midpoint_deviation > SLEEP_DAYTIME_MIDPOINT_DEVIATION_MINUTES;
+        let in_window = || timed_features.iter().filter(move |(m, _)| *m >= start && *m <= end);
+        let count = in_window().count().max(1);
+        let motion_mean =
+            in_window().map(|(_, f)| f.motion_intensity_0_to_1).sum::<f64>() / count as f64;
+        let resting_hr = lowest_rolling_mean_hr(
+            start,
+            end,
+            timed_heart_rate_features,
+            SLEEP_RESTING_HR_WINDOW_MINUTES,
+        );
+        let mean_hr = average_heart_rate_for_minute_range(start, end, timed_heart_rate_features);
+        let dip_fraction = match (hr_baseline, resting_hr) {
+            (Some(baseline), Some(resting)) if baseline > 0.0 => Some((baseline - resting) / baseline),
             _ => None,
         };
-        let motion_mean = timed_features
-            .iter()
-            .filter(|(minute, _)| *minute >= start && *minute <= end)
-            .map(|(_, feature)| feature.motion_intensity_0_to_1)
-            .sum::<f64>()
-            / timed_features
-                .iter()
-                .filter(|(minute, _)| *minute >= start && *minute <= end)
-                .count()
-                .max(1) as f64;
-        let low_motion_score = (1.0 - motion_mean).clamp(0.0, 1.0);
-        let timing_score = (1.0 - midpoint_deviation / (12.0 * 60.0)).clamp(0.0, 1.0);
-        let duration_score = if span >= SLEEP_CLUSTER_MIN_SPAN_MINUTES {
-            (span as f64 / 420.0).clamp(0.0, 1.0)
-        } else {
-            (span as f64 / 45.0).clamp(0.0, 1.0)
-        };
-        let hr_score = physiologic_hr_dip
-            .map(|dip| (dip / 0.08).clamp(0.0, 1.0))
-            .unwrap_or(0.0);
-        let mut score =
-            0.30 * low_motion_score + 0.30 * hr_score + 0.25 * timing_score + 0.15 * duration_score;
-
-        let mut flags = Vec::new();
-        if physiologic_hr_dip.is_none() {
-            flags.push("sleep_candidate_hr_dip_unavailable".to_string());
-        } else if physiologic_hr_dip.unwrap_or(0.0) < 0.03 {
-            flags.push("sleep_candidate_hr_dip_weak".to_string());
-            if timing_score < 0.5 {
-                score -= 0.15;
-            }
-        }
-        if span < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
-            flags.push("sleep_candidate_nap_length".to_string());
-            // Short sleep episodes are legitimate. If they are far from the
-            // expected sleep midpoint, require a stronger HR dip so ordinary
-            // sedentary daytime stillness does not become a nap.
-            if timing_score < 0.6 && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
-                flags.push("sleep_candidate_nap_without_strong_hr_dip".to_string());
-                score -= 0.30;
-            }
-        }
-        if span > SLEEP_LONG_EPISODE_MINUTES && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
-            flags.push("sleep_candidate_long_without_strong_hr_dip".to_string());
-            score -= 0.30;
-        }
-        if midpoint_deviation > 8.0 * 60.0 && physiologic_hr_dip.unwrap_or(0.0) < 0.06 {
-            flags.push("sleep_candidate_timing_unusual_without_strong_hr_dip".to_string());
-            score -= 0.35;
-        }
-        if score < 0.45 {
-            flags.push("sleep_candidate_rejected_low_confidence".to_string());
-        }
-
-        let candidate = SleepClusterSelection {
-            start_minute: start,
-            end_minute: end,
-            score,
-            quality_flags: flags,
-            provenance: json!({
-                "selection_method": "scored_sleep_candidate_v1",
-                "candidate_kind": sleep_candidate_kind(start, end),
-                "span_minutes": span,
-                "low_motion_score": low_motion_score,
-                "hr_dip_fraction": physiologic_hr_dip,
-                "hr_score": hr_score,
-                "timing_score": timing_score,
-                "duration_score": duration_score,
-                "midpoint_deviation_minutes": midpoint_deviation,
-                "acceptance_threshold": 0.45,
-            }),
-        };
-        if candidate.score >= 0.45
-            && best.as_ref().is_none_or(|current| {
-                candidate.score > current.score
-                    || (candidate.score == current.score
-                        && candidate.start_minute > current.start_minute)
-            })
-        {
-            best = Some(candidate);
-        }
+        let off_wrist_fraction = off_wrist_gap_fraction(
+            start,
+            end,
+            timed_heart_rate_features,
+            SLEEP_OFF_WRIST_GAP_MINUTES,
+        );
+        facts.push(ClusterFacts {
+            start,
+            end,
+            span,
+            is_daytime,
+            midpoint_deviation,
+            motion_mean,
+            resting_hr,
+            mean_hr,
+            dip_fraction,
+            off_wrist_fraction,
+        });
     }
-    best
+
+    // Wake anchor for the morning-stillness guard: the end of the latest
+    // overnight window whose HR confirms sleep. A daytime block beginning just
+    // after it is suspected residual stillness and held to a stronger dip.
+    let overnight_wake_end = facts
+        .iter()
+        .filter(|f| {
+            !f.is_daytime
+                && f.off_wrist_fraction < SLEEP_OFF_WRIST_MAX_FRACTION
+                && match (hr_baseline, f.resting_hr) {
+                    (Some(baseline), Some(resting)) => {
+                        resting <= baseline * SLEEP_OVERNIGHT_HR_MAX_FRACTION
+                    }
+                    _ => f.span >= SLEEP_CLUSTER_MIN_SPAN_MINUTES,
+                }
+        })
+        .map(|f| f.end)
+        .max();
+
+    let mut evals: Vec<SleepCandidateEval> = Vec::new();
+    for f in &facts {
+        let mut flags = Vec::new();
+        let low_motion_score = (1.0 - f.motion_mean).clamp(0.0, 1.0);
+        let timing_score = (1.0 - f.midpoint_deviation / (12.0 * 60.0)).clamp(0.0, 1.0);
+        let duration_score = (f.span as f64 / 420.0).clamp(0.0, 1.0);
+        let dip_score = f.dip_fraction.map(|d| (d / 0.10).clamp(0.0, 1.0)).unwrap_or(0.0);
+
+        // Off-wrist backstop: a window mostly without HR is not scoreable sleep.
+        let off_wrist = f.off_wrist_fraction >= SLEEP_OFF_WRIST_MAX_FRACTION;
+        if off_wrist {
+            flags.push("sleep_candidate_off_wrist".to_string());
+        }
+
+        // Personal-HR-baseline confirmation gate.
+        let accepted;
+        let acceptance_reason;
+        if off_wrist {
+            accepted = false;
+            acceptance_reason = "off_wrist";
+        } else if f.is_daytime {
+            // Daytime/nap: must dip below the day median. Stronger bar when the
+            // block begins just after an overnight wake (residual stillness).
+            let morning_stillness = overnight_wake_end.is_some_and(|wake_end| {
+                f.start >= wake_end
+                    && (f.start - wake_end) <= SLEEP_MORNING_STILLNESS_WINDOW_MINUTES
+            });
+            let max_fraction = if morning_stillness {
+                flags.push("sleep_candidate_morning_stillness_suspected".to_string());
+                SLEEP_MORNING_REONSET_HR_MAX_FRACTION
+            } else {
+                SLEEP_DAYTIME_RESTING_HR_MAX_FRACTION
+            };
+            match (hr_baseline, f.resting_hr) {
+                (Some(baseline), Some(resting)) if resting <= baseline * max_fraction => {
+                    accepted = true;
+                    acceptance_reason = if morning_stillness {
+                        "daytime_morning_reonset_hr_dip"
+                    } else {
+                        "daytime_hr_dip"
+                    };
+                }
+                (Some(_), Some(_)) => {
+                    accepted = false;
+                    acceptance_reason = "daytime_no_hr_dip";
+                    flags.push("sleep_candidate_daytime_without_hr_dip".to_string());
+                }
+                _ => {
+                    accepted = false;
+                    acceptance_reason = "daytime_hr_unavailable";
+                    flags.push("sleep_candidate_daytime_hr_unavailable".to_string());
+                }
+            }
+        } else {
+            // Overnight: keep when the still portion's resting HR rides at/below
+            // the waking median (its lowest rolling mean excludes brief in-night
+            // wake spikes that would otherwise inflate a raw window mean).
+            match (hr_baseline, f.resting_hr) {
+                (Some(baseline), Some(resting))
+                    if resting <= baseline * SLEEP_OVERNIGHT_HR_MAX_FRACTION =>
+                {
+                    accepted = true;
+                    acceptance_reason = "overnight_hr_confirmed";
+                }
+                (Some(_), Some(_)) => {
+                    accepted = false;
+                    acceptance_reason = "overnight_hr_above_baseline";
+                    flags.push("sleep_candidate_overnight_hr_above_baseline".to_string());
+                }
+                _ => {
+                    // No HR: accept only a long overnight still stretch, with
+                    // low confidence — honest but unverified.
+                    if f.span >= SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+                        accepted = true;
+                        acceptance_reason = "overnight_motion_only_unconfirmed";
+                        flags.push("sleep_candidate_hr_unavailable".to_string());
+                    } else {
+                        accepted = false;
+                        acceptance_reason = "overnight_short_hr_unavailable";
+                        flags.push("sleep_candidate_hr_unavailable".to_string());
+                    }
+                }
+            }
+        }
+
+        if f.span < SLEEP_CLUSTER_MIN_SPAN_MINUTES {
+            flags.push("sleep_candidate_nap_length".to_string());
+        }
+
+        // Ranking (orders accepted candidates): a real overnight main sleep
+        // should beat a short nap; longer + better-timed + stronger dip wins.
+        let overnight_bonus = if f.is_daytime { 0.0 } else { 0.5 };
+        let rank =
+            duration_score + 0.6 * dip_score + 0.4 * timing_score + overnight_bonus;
+
+        // Output confidence: HR-confirmed windows are trustworthy; motion-only
+        // overnight windows are honestly low.
+        let confidence = if acceptance_reason == "overnight_motion_only_unconfirmed" {
+            (0.25 + 0.15 * low_motion_score).clamp(0.0, 0.45)
+        } else {
+            (0.45 + 0.35 * dip_score + 0.1 * low_motion_score + 0.1 * timing_score).clamp(0.0, 1.0)
+        };
+
+        evals.push(SleepCandidateEval {
+            start_minute: f.start,
+            end_minute: f.end,
+            span: f.span,
+            is_daytime: f.is_daytime,
+            accepted,
+            rank,
+            confidence,
+            flags,
+            provenance: json!({
+                "selection_method": "personal_hr_baseline_gates_v2",
+                "candidate_kind": sleep_candidate_kind(f.start, f.end),
+                "span_minutes": f.span,
+                "is_daytime": f.is_daytime,
+                "acceptance_reason": acceptance_reason,
+                "hr_baseline_bpm": hr_baseline,
+                "resting_hr_bpm": f.resting_hr,
+                "mean_hr_bpm": f.mean_hr,
+                "hr_dip_fraction": f.dip_fraction,
+                "off_wrist_fraction": f.off_wrist_fraction,
+                "midpoint_deviation_minutes": f.midpoint_deviation,
+                "motion_mean_0_to_1": f.motion_mean,
+                "confidence_0_to_1": confidence,
+            }),
+        });
+    }
+
+    evals
+        .into_iter()
+        .filter(|e| e.accepted)
+        .reduce(|best, candidate| {
+            if candidate.rank > best.rank
+                || (candidate.rank == best.rank && candidate.start_minute > best.start_minute)
+            {
+                candidate
+            } else {
+                best
+            }
+        })
+        .map(|e| {
+            let mut flags = e.flags;
+            if e.span < SLEEP_CLUSTER_MIN_SPAN_MINUTES && e.is_daytime {
+                flags.push("sleep_candidate_supported_nap".to_string());
+            }
+            SleepClusterSelection {
+                start_minute: e.start_minute,
+                end_minute: e.end_minute,
+                score: e.rank,
+                quality_flags: flags,
+                provenance: e.provenance,
+            }
+        })
 }
 
 fn sleep_window_feature(

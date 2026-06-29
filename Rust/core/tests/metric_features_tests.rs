@@ -1624,6 +1624,115 @@ fn sleep_feature_score_report_accepts_real_daytime_nap_with_hr_dip() {
 }
 
 #[test]
+fn sleep_feature_score_report_rejects_off_wrist_window() {
+    let store = BullStore::open_in_memory().unwrap();
+    // A dense, low-HR sleep stretch that then loses HR coverage for most of the
+    // window is a removed strap (gravity keeps streaming, HR flatlines). It must
+    // be dropped, not reported as one long still sleep.
+    // Minute offset from 2026-05-27T22:00:00Z → RFC3339 with date rollover.
+    let at = |minute: u32| -> String {
+        let total = 22 * 60 + minute;
+        let day = 27 + total / 1440;
+        format!(
+            "2026-05-{:02}T{:02}:{:02}:00Z",
+            day,
+            (total % 1440) / 60,
+            total % 60
+        )
+    };
+    for minute in 0..100u32 {
+        import_motion_frame_at_value_and_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &at(minute),
+            1000,
+            50,
+        );
+    }
+    // Motion keeps streaming (one cluster) but no HR for the rest — off wrist.
+    for minute in [130u32, 160, 190, 220] {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &at(minute),
+            1000,
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T22:00:00Z",
+        "2026-05-28T02:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 480.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 1440.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    assert!(report.sleep_window.is_none(), "{:#?}", report.sleep_window);
+}
+
+#[test]
+fn sleep_feature_score_report_keeps_motion_only_overnight_with_low_confidence() {
+    let store = BullStore::open_in_memory().unwrap();
+    // A long overnight still stretch with NO heart rate at all cannot be
+    // physiologically confirmed. It is reported honestly — as a low-confidence,
+    // HR-unavailable window — rather than dropped or dressed up as a real score.
+    let at = |minute: u32| -> String {
+        let total = 22 * 60 + minute;
+        let day = 27 + total / 1440;
+        format!(
+            "2026-05-{:02}T{:02}:{:02}:00Z",
+            day,
+            (total % 1440) / 60,
+            total % 60
+        )
+    };
+    for minute in (0..480u32).step_by(30) {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &at(minute),
+            1000,
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T22:00:00Z",
+        "2026-05-28T06:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 480.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 240.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    let window = report.sleep_window.expect("motion-only overnight window");
+    assert!(
+        window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "sleep_candidate_hr_unavailable"),
+        "{:?}",
+        window.quality_flags
+    );
+}
+
+#[test]
 fn sleep_feature_score_report_rejects_sub_sleep_length_clusters() {
     let store = BullStore::open_in_memory().unwrap();
     // A lone ~9 minute still cluster (e.g. the band resting on a counter
