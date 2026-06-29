@@ -2602,19 +2602,20 @@ fn normalized_sensor_sample_time(
     if let Some(seconds) = timestamp_seconds
         && plausible_unix_timestamp_seconds(seconds)
     {
-        if let Some(subseconds) = timestamp_subseconds
-            && subseconds > 999
-        {
-            push_quality_flag_once(quality_flags, "device_timestamp_subseconds_out_of_range");
-            push_quality_flag_once(quality_flags, "sample_time_from_capture_time");
-            return NormalizedSensorSampleTime {
-                time: row.captured_at.clone(),
-                unix_ms: parse_rfc3339_utc_unix_ms(&row.captured_at),
-                source: "captured_at".to_string(),
-            };
-        }
+        // The whole-second device timestamp is authoritative. The sub-second
+        // field is a firmware fraction whose unit is not milliseconds, so when
+        // it is out of the 0..=999 range we drop only the fraction and keep the
+        // valid device second instead of discarding the device time for the
+        // upload time (which mis-placed buffered overnight samples).
+        let millis = match timestamp_subseconds {
+            Some(subseconds) if subseconds > 999 => {
+                push_quality_flag_once(quality_flags, "device_timestamp_subseconds_out_of_range");
+                0
+            }
+            Some(subseconds) => i64::from(subseconds),
+            None => 0,
+        };
         push_quality_flag_once(quality_flags, "sample_time_from_device_timestamp");
-        let millis = timestamp_subseconds.map_or(0, i64::from);
         let unix_ms = i64::from(seconds) * 1_000 + millis;
         return NormalizedSensorSampleTime {
             time: unix_ms_to_rfc3339_utc(unix_ms),

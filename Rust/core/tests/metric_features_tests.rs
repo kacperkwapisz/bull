@@ -1341,8 +1341,12 @@ fn motion_feature_extraction_normalizes_historical_k21_sample_time() {
 }
 
 #[test]
-fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
+fn motion_feature_extraction_keeps_device_seconds_when_subseconds_out_of_range() {
     let store = BullStore::open_in_memory().unwrap();
+    // captured_at (upload time) is 2h after the device's recorded second. The
+    // sub-second field (1500) is not milliseconds, but the whole-second device
+    // timestamp is valid and must win — otherwise buffered overnight data gets
+    // mis-stamped at its morning upload time.
     import_motion_frame_at_value_with_device_timestamp_subseconds(
         &store,
         "user-owned-live-notification",
@@ -1356,7 +1360,7 @@ fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
         &store,
         "test-db",
         "2026-01-01T19:00:00Z",
-        "2026-01-01T21:00:00Z",
+        "2026-01-01T23:00:00Z",
         MotionFeatureOptions {
             min_owned_captures_per_summary: 1,
             require_trusted_evidence: true,
@@ -1367,9 +1371,10 @@ fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(report.feature_count, 1);
     let feature = &report.features[0];
-    assert_eq!(feature.sample_time, "2026-01-01T20:00:00Z");
-    assert_eq!(feature.sample_time_source, "captured_at");
-    assert_eq!(feature.sample_time_unix_ms, Some(1_767_297_600_000));
+    // Device second wins; the out-of-range fraction is dropped (millis = 0).
+    assert_eq!(feature.sample_time, "2026-01-01T22:00:00Z");
+    assert_eq!(feature.sample_time_source, "device_timestamp");
+    assert_eq!(feature.sample_time_unix_ms, Some(1_767_304_800_000));
     assert_eq!(feature.device_timestamp_seconds, Some(1_767_304_800));
     assert_eq!(feature.device_timestamp_subseconds, Some(1_500));
     assert!(
@@ -1379,7 +1384,7 @@ fn motion_feature_extraction_rejects_invalid_device_timestamp_subseconds() {
             .any(|flag| flag == "device_timestamp_subseconds_out_of_range")
     );
     assert!(
-        !feature
+        feature
             .quality_flags
             .iter()
             .any(|flag| flag == "sample_time_from_device_timestamp")
