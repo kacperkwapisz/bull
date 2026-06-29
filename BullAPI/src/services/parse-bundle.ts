@@ -261,27 +261,10 @@ async function computeUserStore(
     await runPipelineDay(k, true)
   }
 
-  // Persist nightly sleep per day. The previous single 14-day-scan call only
-  // wrote the most-recent night's window, so historical days kept whatever the
-  // algorithm produced when they were first computed. Scoring each day in its
-  // own night-scoped window rebuilds the full retention window with the current
-  // gates; each call replaces that day's row in place (date-keyed persistence),
-  // so this is idempotent and does not accumulate duplicates. Per-day windows
-  // are small, so this avoids the sidecar timeouts that full-range scans cause.
-  let sleepPersistedDays = 0
-  for (const day of sortedDays) {
-    // A night "belongs to" the morning it ends on: scan from the prior midday
-    // through this day's midday so the day's primary window is that night.
-    const dayMs = new Date(day + "T00:00:00Z").getTime()
-    const sleepStart = new Date(dayMs - 12 * 3_600_000).toISOString()
-    const sleepEnd = new Date(dayMs + 12 * 3_600_000).toISOString()
-    const report = await core.request<{ nightly_sleep_persisted?: boolean }>(
-      "metrics.sleep_score_from_features",
-      { database_path: dbPath, ...sleepScoreArgs(), start: sleepStart, end: sleepEnd },
-    )
-    if (report?.nightly_sleep_persisted) sleepPersistedDays += 1
-  }
-  console.log(`[compute] ${userId} nightly sleep persisted for ${sleepPersistedDays}/${sortedDays.length} days`)
+  const sleepReport = await core.request<Record<string, unknown>>(
+    "metrics.sleep_score_from_features",
+    { database_path: dbPath, ...sleepScoreArgs() },
+  )
   const exported = await core.request<{ body?: Record<string, unknown> }>(
     "metrics.export_curated",
     { database_path: dbPath, source: "server_parse" },
@@ -413,7 +396,7 @@ async function computeUserStore(
       .where(and(eq(dailySleep.userId, userId), isNotNull(dailySleep.sleepScore)))
       .orderBy(desc(dailySleep.day))
       .limit(14)
-    const sleepRaw: Record<string, unknown> = {}
+    const sleepRaw = (sleepReport as Record<string, unknown>) ?? {}
     sleepRaw.daily = scoredSleep.map((r) => ({
       day: r.day,
       score_0_to_100: r.score,
