@@ -167,6 +167,10 @@ struct NightlySleepRecord: Identifiable {
   let timeInBedMinutes: Double?
   let heartRateDipPercent: Double?
   let confidence: Double
+  let algorithmId: String?
+  // True when the server's confidence is too low to present a number as fact —
+  // the UI shows an honest "needs review / not enough data" state instead.
+  let needsReview: Bool
 }
 
 struct CardioLoadDay: Identifiable {

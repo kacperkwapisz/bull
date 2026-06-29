@@ -51,16 +51,22 @@ extension HealthDataStore {
     }
   }
 
+  /// Confidence below which a nightly record is shown as "needs review" rather
+  /// than as a settled score. Mirrors the server's low-confidence,
+  /// motion-only/unconfirmed acceptance band.
+  static let nightlySleepNeedsReviewConfidence: Double = 0.45
+
   static func nightlySleepRecords(from report: [String: Any]?) -> [NightlySleepRecord] {
     guard let report else {
       return []
     }
-    return array(report["nights"]).compactMap { row in
+    let parsed: [NightlySleepRecord] = array(report["nights"]).compactMap { row in
       guard let id = row["nightly_sleep_id"] as? String,
             let dateKey = row["date_key"] as? String else {
         return nil
       }
       let startMs = (doubleValue(row["start_time_unix_ms"]) ?? 0)
+      let confidence = doubleValue(row["confidence"]) ?? 0
       return NightlySleepRecord(
         id: id,
         dateKey: dateKey,
@@ -69,9 +75,51 @@ extension HealthDataStore {
         sleepDurationMinutes: doubleValue(row["sleep_duration_minutes"]),
         timeInBedMinutes: doubleValue(row["time_in_bed_minutes"]),
         heartRateDipPercent: doubleValue(row["heart_rate_dip_percent"]),
-        confidence: doubleValue(row["confidence"]) ?? 0
+        confidence: confidence,
+        algorithmId: row["algorithm_id"] as? String,
+        needsReview: confidence < nightlySleepNeedsReviewConfidence
       )
     }
+    return dedupeNightlySleepRecords(parsed, rows: array(report["nights"]))
+  }
+
+  /// Render-only safety net (the server already surfaces one main window per
+  /// day): keep a single best record per `date_key`, dropping stale
+  /// old-algorithm rows when a current one exists for the same day. "Best" =
+  /// not stale, then highest confidence, then most recent start. Records whose
+  /// `date_key` differs (distinct days) and naps all survive.
+  static func dedupeNightlySleepRecords(
+    _ records: [NightlySleepRecord],
+    rows: [[String: Any]]
+  ) -> [NightlySleepRecord] {
+    // Map id → stale flag from the raw rows' quality flags.
+    var staleById: [String: Bool] = [:]
+    for row in rows {
+      guard let id = row["nightly_sleep_id"] as? String else { continue }
+      let flags = (row["quality_flags_json"] as? String) ?? ""
+      staleById[id] = flags.contains("segmented_to_most_recent_night")
+    }
+    let isStale = { (r: NightlySleepRecord) -> Bool in staleById[r.id] ?? false }
+
+    var bestByDay: [String: NightlySleepRecord] = [:]
+    for r in records {
+      guard let current = bestByDay[r.dateKey] else {
+        bestByDay[r.dateKey] = r
+        continue
+      }
+      let preferNew: Bool
+      if isStale(current) != isStale(r) {
+        preferNew = !isStale(r)
+      } else if r.confidence != current.confidence {
+        preferNew = r.confidence > current.confidence
+      } else {
+        preferNew = r.startTimeUnixMs > current.startTimeUnixMs
+      }
+      if preferNew {
+        bestByDay[r.dateKey] = r
+      }
+    }
+    return bestByDay.values.sorted { $0.startTimeUnixMs > $1.startTimeUnixMs }
   }
 
   static func primarySleepDetail(fromSleepReport report: [String: Any]?) -> PrimarySleepDetail? {
