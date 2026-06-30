@@ -13,7 +13,7 @@
  */
 
 import { inflateRawSync } from "node:zlib"
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, isNotNull, lte, lt, or, sql } from "drizzle-orm"
 import type { Db } from "../db/client.ts"
 import { dailyRecovery, dailySleep, dailyStrain, inputReports, uploadBundles } from "../db/schema.ts"
 import { getBundleForUser } from "./data-read.ts"
@@ -42,6 +42,13 @@ const STORE_RETENTION_DAYS = Math.max(
   1,
   Number(process.env.BULL_STORE_RETENTION_DAYS ?? "5") || 5,
 )
+
+// Plausible main-sleep duration band, mirroring the Rust nightly gate
+// (`MIN/MAX_MAIN_SLEEP_MINUTES` in bridge.rs). Used to purge physiologically
+// impossible sleep rows from the durable projection. No real night is shorter
+// than 3h or longer than 14h, so this is timezone-independent.
+const MIN_MAIN_SLEEP_MINUTES = 180
+const MAX_MAIN_SLEEP_MINUTES = 840
 
 // Nightly sleep-score tuning. Mirrors the device's read-time score call
 // (HealthDataStore+Utilities.swift `sleepScoreReport`); kept here so the server
@@ -453,6 +460,63 @@ async function computeUserStore(
   const sleepDays = (exported.body?.sleep as Array<{ day?: unknown }> | undefined)
     ?.map((row) => row.day)
     .filter((value): value is string => typeof value === "string") ?? []
+
+  // Make the nightly-sleep projection AUTHORITATIVE rather than upsert-only.
+  // Two cleanups keep Postgres honest (no fabricated/ghost sleep lingering):
+  //   (a) Window reconciliation — within the day range this compute actually
+  //       re-evaluated, delete any row whose day no longer has a valid gated
+  //       window. This removes daytime/over-long spans that the local-time
+  //       night gate now rejects.
+  //   (b) Impossible-duration purge — delete any row (at any date, including
+  //       history beyond the recompute window whose raw frames are pruned and
+  //       can no longer be rescored) whose recorded sleep is physiologically
+  //       impossible for a main sleep: under 3h or over 14h. No real night
+  //       falls outside that band, so this is timezone-independent and safe.
+  {
+    const keep = new Set(sleepDays)
+    const windowStart = sortedDays[0]
+    const windowEnd = sortedDays[sortedDays.length - 1]
+    if (windowStart && windowEnd) {
+      const inWindow = await db
+        .select({ day: dailySleep.day })
+        .from(dailySleep)
+        .where(
+          and(
+            eq(dailySleep.userId, userId),
+            gte(dailySleep.day, windowStart),
+            lte(dailySleep.day, windowEnd),
+          ),
+        )
+      const staleDays = inWindow.map((r) => r.day).filter((d) => !keep.has(d))
+      if (staleDays.length > 0) {
+        await db
+          .delete(dailySleep)
+          .where(and(eq(dailySleep.userId, userId), inArray(dailySleep.day, staleDays)))
+        console.log(
+          `[compute] ${userId} reconciled sleep window ${windowStart}..${windowEnd}: removed ${staleDays.length} stale day(s): ${staleDays.join(", ")}`,
+        )
+      }
+    }
+    // Impossible-duration purge (any date), never touching a row that is both a
+    // currently-valid gated day AND plausible.
+    const impossible = await db
+      .delete(dailySleep)
+      .where(
+        and(
+          eq(dailySleep.userId, userId),
+          or(
+            lt(dailySleep.totalSleepMinutes, MIN_MAIN_SLEEP_MINUTES),
+            gte(dailySleep.totalSleepMinutes, MAX_MAIN_SLEEP_MINUTES + 1),
+          ),
+        ),
+      )
+      .returning({ day: dailySleep.day })
+    if (impossible.length > 0) {
+      console.log(
+        `[compute] ${userId} purged ${impossible.length} physiologically-impossible sleep row(s): ${impossible.map((r) => r.day).join(", ")}`,
+      )
+    }
+  }
   const latestSleepDay = sleepDays.length > 0 ? sleepDays.sort().at(-1)! : latestDay ?? new Date().toISOString().slice(0, 10)
   {
     const scoredSleep = await db
