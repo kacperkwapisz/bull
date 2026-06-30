@@ -1280,6 +1280,13 @@ struct SleepFeatureScoreArgs {
     /// guard (a candidate sleep is withheld until wake is confirmed).
     #[serde(default)]
     as_of_unix_ms: Option<i64>,
+    /// User's UTC offset in minutes (derived from their uploaded IANA timezone)
+    /// for the night under evaluation. When present, nightly persistence gates
+    /// the window in the user's LOCAL time: a candidate is only persisted when
+    /// its local midpoint falls in the biological-night band and its duration is
+    /// physiologically plausible. Absent → tz-independent duration gate only.
+    #[serde(default)]
+    night_gate_utc_offset_minutes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -6832,6 +6839,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
             &value,
             requested_algorithm_id,
             requested_algorithm_version,
+            args.night_gate_utc_offset_minutes,
         )?;
         value["nightly_sleep_persisted"] = serde_json::Value::Bool(persisted);
     }
@@ -6842,12 +6850,55 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
 /// record is keyed by the night's start time so recomputing the same night
 /// updates the existing row instead of duplicating it. Returns whether a row
 /// was written (false when there is no usable sleep window).
+/// Lower bound on a credible main-sleep window. Spans shorter than this are
+/// naps or fragments, not a night, and are not persisted as the nightly record.
+const MIN_MAIN_SLEEP_MINUTES: f64 = 180.0;
+/// Upper bound on a credible main-sleep window. Spans longer than this indicate
+/// the detector merged daytime/evening low-motion wear into the night, so the
+/// window is rejected rather than recorded as an implausibly long sleep.
+const MAX_MAIN_SLEEP_MINUTES: f64 = 840.0;
+/// Local-clock night band, expressed as the inclusive-exclusive window of the
+/// sleep MIDPOINT in the user's local time. A genuine night's midpoint sits
+/// deep in the night or early morning; a midpoint inside the daytime band
+/// [11:00, 21:00) means the detector latched onto awake, sedentary wear.
+const NIGHT_BAND_LOCAL_START_MIN: i64 = 21 * 60; // 21:00 local
+const NIGHT_BAND_LOCAL_END_MIN: i64 = 11 * 60; // 11:00 local (next day)
+
+/// True when a sleep window is a plausible main-sleep night. Duration is gated
+/// unconditionally; the local-night-band check runs only when the user's UTC
+/// offset is known (derived from their uploaded IANA timezone) — without it we
+/// cannot place "local midnight," so we fall back to the duration gate alone
+/// rather than guessing a timezone.
+fn nightly_window_is_plausible(
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+    duration_minutes: f64,
+    utc_offset_minutes: Option<i64>,
+) -> bool {
+    if !(MIN_MAIN_SLEEP_MINUTES..=MAX_MAIN_SLEEP_MINUTES).contains(&duration_minutes) {
+        return false;
+    }
+    let Some(offset_minutes) = utc_offset_minutes else {
+        return true;
+    };
+    let midpoint_unix_ms = start_unix_ms + (end_unix_ms - start_unix_ms) / 2;
+    let local_minutes_of_day = {
+        let local_ms = midpoint_unix_ms + offset_minutes * 60_000;
+        let mod_ms = local_ms.rem_euclid(86_400_000);
+        mod_ms / 60_000
+    };
+    // Night band wraps midnight: [21:00, 24:00) ∪ [00:00, 11:00).
+    local_minutes_of_day >= NIGHT_BAND_LOCAL_START_MIN
+        || local_minutes_of_day < NIGHT_BAND_LOCAL_END_MIN
+}
+
 fn persist_nightly_sleep_record(
     store: &BullStore,
     report: &crate::metric_features::SleepFeatureScoreReport,
     value: &serde_json::Value,
     algorithm_id: &str,
     algorithm_version: &str,
+    night_gate_utc_offset_minutes: Option<i64>,
 ) -> BullResult<bool> {
     let Some(window) = report.sleep_window.as_ref() else {
         return Ok(false);
@@ -6859,6 +6910,18 @@ fn persist_nightly_sleep_record(
         return Ok(false);
     };
     if end_unix <= start_unix {
+        return Ok(false);
+    }
+    // Honest-unavailable gate: only persist windows that look like a real night
+    // in the user's local time. Daytime/evening sedentary wear and merged
+    // multi-day spans are dropped (no fabricated nightly record) rather than
+    // surfaced as guessed sleep.
+    if !nightly_window_is_plausible(
+        start_unix,
+        end_unix,
+        window.sleep_duration_minutes,
+        night_gate_utc_offset_minutes,
+    ) {
         return Ok(false);
     }
     let date_key = window.start_time.get(0..10).unwrap_or(&window.start_time);
@@ -9680,6 +9743,64 @@ fn escape_json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nightly_gate_keeps_real_nights_and_drops_daytime_and_merged_spans() {
+        // Offset for UTC+2 (e.g. Europe/Warsaw in summer).
+        let tz = Some(120_i64);
+        let at = |s: &str| parse_rfc3339_utc_unix_ms(s).unwrap();
+
+        // Real night: 00:32–11:52Z (local midpoint ~08:12), 680 min → keep.
+        assert!(nightly_window_is_plausible(
+            at("2026-06-22T00:32:00Z"),
+            at("2026-06-22T11:52:00Z"),
+            680.0,
+            tz,
+        ));
+        // Real night that ends late morning: 04:56–11:59Z (local mid ~10:27),
+        // 422 min → keep.
+        assert!(nightly_window_is_plausible(
+            at("2026-06-24T04:56:00Z"),
+            at("2026-06-24T11:59:00Z"),
+            422.0,
+            tz,
+        ));
+        // Daytime sedentary wear: 11:54–21:01Z (local midpoint ~18:27) → drop.
+        assert!(!nightly_window_is_plausible(
+            at("2026-06-18T11:54:00Z"),
+            at("2026-06-18T21:01:00Z"),
+            513.0,
+            tz,
+        ));
+        // Merged multi-day span: 962 min (> 14h cap) → drop regardless of band.
+        assert!(!nightly_window_is_plausible(
+            at("2026-06-22T19:54:00Z"),
+            at("2026-06-23T11:57:00Z"),
+            962.0,
+            tz,
+        ));
+        // Fragment: 71 min (< 3h) → drop.
+        assert!(!nightly_window_is_plausible(
+            at("2026-06-19T21:43:00Z"),
+            at("2026-06-19T22:54:00Z"),
+            71.0,
+            tz,
+        ));
+        // Without a known offset, the band check is skipped but duration still
+        // gates: a plausible duration is kept, an implausible one dropped.
+        assert!(nightly_window_is_plausible(
+            at("2026-06-22T00:32:00Z"),
+            at("2026-06-22T11:52:00Z"),
+            680.0,
+            None,
+        ));
+        assert!(!nightly_window_is_plausible(
+            at("2026-06-22T19:54:00Z"),
+            at("2026-06-23T11:57:00Z"),
+            962.0,
+            None,
+        ));
+    }
 
     /// Guard against drift between [`BRIDGE_METHODS`] and the dispatcher.
     ///

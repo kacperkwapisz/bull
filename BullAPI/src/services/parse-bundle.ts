@@ -153,6 +153,41 @@ export interface ParseBundleResult {
   error?: string
 }
 
+/** The user's UTC offset in minutes for a given instant, derived from their
+ * uploaded IANA timezone (e.g. "Europe/Warsaw"). DST-correct because it asks
+ * Intl for the offset at that specific instant. Returns null when the timezone
+ * is absent or unrecognized — callers must then skip local-time gating rather
+ * than assume a zone. */
+function utcOffsetMinutesForInstant(timezone: string | null, atUtcMs: number): number | null {
+  if (!timezone) return null
+  try {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+    const parts = dtf.formatToParts(new Date(atUtcMs))
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value)
+    const asUtc = Date.UTC(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      get("hour") === 24 ? 0 : get("hour"),
+      get("minute"),
+      get("second"),
+    )
+    if (!Number.isFinite(asUtc)) return null
+    return Math.round((asUtc - atUtcMs) / 60_000)
+  } catch {
+    return null
+  }
+}
+
 /** UTC day/hour windows for the run_pipeline call, derived from server "now". */
 function pipelineWindows(now: Date) {
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -269,6 +304,11 @@ async function computeUserStore(
   // accumulate duplicates. Per-day windows are small, avoiding sidecar timeouts.
   // This relies on frames carrying real device timestamps (not upload time) so
   // each night's samples land in the correct noon-to-noon bucket.
+  // The user's uploaded IANA timezone drives local-time night gating below
+  // (no hardcoded offset). Absent timezone → the gate falls back to a
+  // tz-independent duration check inside the scorer.
+  const profile = await getUserProfile(db, userId)
+  const userTimezone = profile?.timezone ?? null
   let sleepPersistedDays = 0
   for (const day of sortedDays) {
     // A night "belongs to" the morning it ends on: scan from the prior midday
@@ -276,9 +316,16 @@ async function computeUserStore(
     const dayMs = new Date(day + "T00:00:00Z").getTime()
     const sleepStart = new Date(dayMs - 12 * 3_600_000).toISOString()
     const sleepEnd = new Date(dayMs + 12 * 3_600_000).toISOString()
+    const offsetMinutes = utcOffsetMinutesForInstant(userTimezone, dayMs)
     const report = await core.request<{ nightly_sleep_persisted?: boolean }>(
       "metrics.sleep_score_from_features",
-      { database_path: dbPath, ...sleepScoreArgs(), start: sleepStart, end: sleepEnd },
+      {
+        database_path: dbPath,
+        ...sleepScoreArgs(),
+        start: sleepStart,
+        end: sleepEnd,
+        ...(offsetMinutes != null ? { night_gate_utc_offset_minutes: offsetMinutes } : {}),
+      },
     )
     if (report?.nightly_sleep_persisted) sleepPersistedDays += 1
   }
@@ -455,7 +502,6 @@ async function computeUserStore(
   // events, daily/hourly rollups) — the map the app reads to render dashboards.
   // One latest row per user, computed over the whole store. The user's profile
   // (weight/age/sex/timezone) drives energy estimates + local-day bucketing.
-  const profile = await getUserProfile(db, userId)
   const inputReportsMap = await computeInputReports(core, dbPath, { profile })
   await db
     .insert(inputReports)
