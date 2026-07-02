@@ -29,3 +29,4 @@ BullAPI/_*.mjs
 BullAPI/_*.ts
 docs/reference-algos/*.swift
 !docs/reference-algos/PLAN.md
+.pi-subagents/
