@@ -3960,6 +3960,11 @@ struct RunPipelineArgs {
     /// days catch up without rescanning the same raw evidence N times.
     #[serde(default)]
     skip_feature_passes: bool,
+    /// When true, omit the step-packet discovery pass. Discovery materializes the
+    /// full decoded frame window for field scanning and is not required for
+    /// nightly scoring; server compute sets this to keep the hot store bounded.
+    #[serde(default)]
+    skip_step_discovery: bool,
     #[serde(default)]
     profile: RunPipelineProfile,
 }
@@ -4064,13 +4069,17 @@ fn run_pipeline_bridge(args: RunPipelineArgs) -> BullResult<serde_json::Value> {
             "motion".to_string(),
             call("metrics.motion_features", base())?,
         );
-        reports.insert(
-            "step_discovery".to_string(),
-            call(
-                "metrics.step_packet_discovery",
-                merge(base(), json!({ "max_candidate_fields": 100 })),
-            )?,
-        );
+        if !args.skip_step_discovery {
+            reports.insert(
+                "step_discovery".to_string(),
+                call(
+                    "metrics.step_packet_discovery",
+                    merge(base(), json!({ "max_candidate_fields": 100 })),
+                )?,
+            );
+        } else {
+            reports.insert("step_discovery_skipped".to_string(), json!(true));
+        }
         reports.insert(
             "step_counter_ingest".to_string(),
             call(
@@ -10008,6 +10017,37 @@ mod tests {
             assert!(reports.contains_key(key), "missing pipeline report: {key}");
         }
         assert_eq!(reports.len(), 23, "expected exactly 23 pipeline steps");
+    }
+
+    #[test]
+    fn run_pipeline_skip_step_discovery_omits_discovery_report() {
+        let (_dir, db_path) = make_temp_db();
+        let response = handle_bridge_request(BridgeRequest {
+            schema: BRIDGE_REQUEST_SCHEMA.to_string(),
+            request_id: "pipeline-skip-discovery".to_string(),
+            method: "metrics.run_pipeline".to_string(),
+            args: json!({
+                "database_path": db_path,
+                "device_id": "bull-local",
+                "skip_step_discovery": true,
+                "daily_window": {
+                    "date_key": "2026-06-16", "timezone": "UTC",
+                    "start_iso": "2026-06-16T00:00:00Z", "end_iso": "2026-06-17T00:00:00Z",
+                    "start_time_unix_ms": 1781481600000_i64, "end_time_unix_ms": 1781568000000_i64
+                },
+                "hourly_window": {
+                    "date_key": "2026-06-16", "timezone": "UTC",
+                    "start_iso": "2026-06-16T12:00:00Z", "end_iso": "2026-06-16T13:00:00Z",
+                    "start_time_unix_ms": 1781524800000_i64, "end_time_unix_ms": 1781528400000_i64
+                },
+            }),
+        });
+        assert!(response.ok, "{:?}", response.error);
+        let result = response.result.unwrap();
+        let reports = result["reports"].as_object().expect("reports object");
+        assert!(!reports.contains_key("step_discovery"));
+        assert_eq!(reports.get("step_discovery_skipped"), Some(&json!(true)));
+        assert!(reports.contains_key("step_counter_ingest"));
     }
 
     #[test]
