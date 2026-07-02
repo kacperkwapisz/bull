@@ -356,6 +356,16 @@ async function computeUserStore(
   // tz-independent duration check inside the scorer.
   const profile = await getUserProfile(db, userId)
   const userTimezone = profile?.timezone ?? null
+  type NightlySleepScoreReport = {
+    nightly_sleep_persisted?: boolean
+    nightly_sleep_persist_reason?: string
+    nightly_sleep_window?: {
+      start?: string
+      end?: string
+      sleep_duration_minutes?: number
+    }
+  }
+
   let sleepPersistedDays = 0
   for (const day of sortedDays) {
     // A night "belongs to" the morning it ends on: scan from the prior midday
@@ -364,7 +374,7 @@ async function computeUserStore(
     const sleepStart = new Date(dayMs - 12 * 3_600_000).toISOString()
     const sleepEnd = new Date(dayMs + 12 * 3_600_000).toISOString()
     const offsetMinutes = utcOffsetMinutesForInstant(userTimezone, dayMs)
-    const report = await core.request<{ nightly_sleep_persisted?: boolean }>(
+    const report = await core.request<NightlySleepScoreReport>(
       "metrics.sleep_score_from_features",
       {
         database_path: dbPath,
@@ -374,7 +384,17 @@ async function computeUserStore(
         ...(offsetMinutes != null ? { night_gate_utc_offset_minutes: offsetMinutes } : {}),
       },
     )
-    if (report?.nightly_sleep_persisted) sleepPersistedDays += 1
+    const reason = report?.nightly_sleep_persist_reason ?? "unknown"
+    const persisted = report?.nightly_sleep_persisted === true
+    if (persisted) sleepPersistedDays += 1
+    const win = report?.nightly_sleep_window
+    const windowPart =
+      win?.start != null && win?.end != null
+        ? ` window=${win.start}..${win.end}${typeof win.sleep_duration_minutes === "number" ? ` dur=${win.sleep_duration_minutes}m` : ""}`
+        : ""
+    console.log(
+      `[compute] ${userId} nightly sleep ${day}: ${persisted ? "persisted" : reason}${windowPart}`,
+    )
   }
   console.log(`[compute] ${userId} nightly sleep persisted for ${sleepPersistedDays}/${sortedDays.length} days`)
   const exported = await core.request<{ body?: Record<string, unknown> }>(

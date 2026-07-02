@@ -6842,7 +6842,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
         )?;
     }
     if args.persist_nightly {
-        let persisted = persist_nightly_sleep_record(
+        let outcome = persist_nightly_sleep_record(
             &store,
             &report,
             &value,
@@ -6850,7 +6850,21 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
             requested_algorithm_version,
             args.night_gate_utc_offset_minutes,
         )?;
-        value["nightly_sleep_persisted"] = serde_json::Value::Bool(persisted);
+        value["nightly_sleep_persisted"] = serde_json::Value::Bool(outcome.persisted());
+        value["nightly_sleep_persist_reason"] =
+            serde_json::Value::String(outcome.snake_case().to_string());
+        if let Some(window) = report.sleep_window.as_ref() {
+            let mut window_json = nightly_sleep_window_snapshot(window);
+            if let NightlySleepPersistReason::ImplausibleMidpointOutsideNightBand {
+                local_midpoint_minutes_of_day,
+                ..
+            } = &outcome
+            {
+                window_json["local_midpoint_minutes_of_day"] =
+                    serde_json::Value::Number((*local_midpoint_minutes_of_day).into());
+            }
+            value["nightly_sleep_window"] = window_json;
+        }
     }
     Ok(value)
 }
@@ -6873,6 +6887,98 @@ const MAX_MAIN_SLEEP_MINUTES: f64 = 840.0;
 const NIGHT_BAND_LOCAL_START_MIN: i64 = 21 * 60; // 21:00 local
 const NIGHT_BAND_LOCAL_END_MIN: i64 = 11 * 60; // 11:00 local (next day)
 
+/// Why a computed sleep window was not written to `daily_sleep_metrics`.
+/// Observability only — gating rules are unchanged from the prior bool returns.
+#[derive(Debug, Clone, PartialEq)]
+enum NightlySleepPersistReason {
+    Persisted,
+    NoSleepWindow,
+    InvalidWindowTimestamps,
+    WindowEndNotAfterStart,
+    ImplausibleDurationTooShort {
+        sleep_duration_minutes: f64,
+    },
+    ImplausibleDurationTooLong {
+        sleep_duration_minutes: f64,
+    },
+    ImplausibleMidpointOutsideNightBand {
+        local_midpoint_minutes_of_day: i64,
+        sleep_duration_minutes: f64,
+        window_start_rfc3339: String,
+        window_end_rfc3339: String,
+    },
+}
+
+impl NightlySleepPersistReason {
+    fn persisted(&self) -> bool {
+        matches!(self, Self::Persisted)
+    }
+
+    fn snake_case(&self) -> &'static str {
+        match self {
+            Self::Persisted => "persisted",
+            Self::NoSleepWindow => "no_sleep_window",
+            Self::InvalidWindowTimestamps => "invalid_window_timestamps",
+            Self::WindowEndNotAfterStart => "window_end_not_after_start",
+            Self::ImplausibleDurationTooShort { .. } => "implausible_window_duration_too_short",
+            Self::ImplausibleDurationTooLong { .. } => "implausible_window_duration_too_long",
+            Self::ImplausibleMidpointOutsideNightBand { .. } => {
+                "implausible_window_midpoint_outside_night_band"
+            }
+        }
+    }
+}
+
+fn local_midpoint_minutes_of_day(
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+    utc_offset_minutes: i64,
+) -> i64 {
+    let midpoint_unix_ms = start_unix_ms + (end_unix_ms - start_unix_ms) / 2;
+    let local_ms = midpoint_unix_ms + utc_offset_minutes * 60_000;
+    let mod_ms = local_ms.rem_euclid(86_400_000);
+    mod_ms / 60_000
+}
+
+/// Same gates as [`nightly_window_is_plausible`], but reports which check failed
+/// so server compute can log honest rejections instead of silent drops.
+fn nightly_window_plausibility_reason(
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+    duration_minutes: f64,
+    utc_offset_minutes: Option<i64>,
+    window_start_rfc3339: &str,
+    window_end_rfc3339: &str,
+) -> Result<(), NightlySleepPersistReason> {
+    if duration_minutes < MIN_MAIN_SLEEP_MINUTES {
+        return Err(NightlySleepPersistReason::ImplausibleDurationTooShort {
+            sleep_duration_minutes: duration_minutes,
+        });
+    }
+    if duration_minutes > MAX_MAIN_SLEEP_MINUTES {
+        return Err(NightlySleepPersistReason::ImplausibleDurationTooLong {
+            sleep_duration_minutes: duration_minutes,
+        });
+    }
+    let Some(offset_minutes) = utc_offset_minutes else {
+        return Ok(());
+    };
+    let local_minutes_of_day =
+        local_midpoint_minutes_of_day(start_unix_ms, end_unix_ms, offset_minutes);
+    // Night band wraps midnight: [21:00, 24:00) ∪ [00:00, 11:00).
+    if local_minutes_of_day >= NIGHT_BAND_LOCAL_START_MIN
+        || local_minutes_of_day < NIGHT_BAND_LOCAL_END_MIN
+    {
+        return Ok(());
+    }
+    Err(NightlySleepPersistReason::ImplausibleMidpointOutsideNightBand {
+        local_midpoint_minutes_of_day: local_minutes_of_day,
+        sleep_duration_minutes: duration_minutes,
+        window_start_rfc3339: window_start_rfc3339.to_string(),
+        window_end_rfc3339: window_end_rfc3339.to_string(),
+    })
+}
+
 /// True when a sleep window is a plausible main-sleep night. Duration is gated
 /// unconditionally; the local-night-band check runs only when the user's UTC
 /// offset is known (derived from their uploaded IANA timezone) — without it we
@@ -6884,21 +6990,25 @@ fn nightly_window_is_plausible(
     duration_minutes: f64,
     utc_offset_minutes: Option<i64>,
 ) -> bool {
-    if !(MIN_MAIN_SLEEP_MINUTES..=MAX_MAIN_SLEEP_MINUTES).contains(&duration_minutes) {
-        return false;
-    }
-    let Some(offset_minutes) = utc_offset_minutes else {
-        return true;
-    };
-    let midpoint_unix_ms = start_unix_ms + (end_unix_ms - start_unix_ms) / 2;
-    let local_minutes_of_day = {
-        let local_ms = midpoint_unix_ms + offset_minutes * 60_000;
-        let mod_ms = local_ms.rem_euclid(86_400_000);
-        mod_ms / 60_000
-    };
-    // Night band wraps midnight: [21:00, 24:00) ∪ [00:00, 11:00).
-    local_minutes_of_day >= NIGHT_BAND_LOCAL_START_MIN
-        || local_minutes_of_day < NIGHT_BAND_LOCAL_END_MIN
+    nightly_window_plausibility_reason(
+        start_unix_ms,
+        end_unix_ms,
+        duration_minutes,
+        utc_offset_minutes,
+        "",
+        "",
+    )
+    .is_ok()
+}
+
+fn nightly_sleep_window_snapshot(
+    window: &crate::metric_features::SleepWindowFeature,
+) -> serde_json::Value {
+    json!({
+        "start": window.start_time,
+        "end": window.end_time,
+        "sleep_duration_minutes": window.sleep_duration_minutes,
+    })
 }
 
 fn persist_nightly_sleep_record(
@@ -6908,30 +7018,32 @@ fn persist_nightly_sleep_record(
     algorithm_id: &str,
     algorithm_version: &str,
     night_gate_utc_offset_minutes: Option<i64>,
-) -> BullResult<bool> {
+) -> BullResult<NightlySleepPersistReason> {
     let Some(window) = report.sleep_window.as_ref() else {
-        return Ok(false);
+        return Ok(NightlySleepPersistReason::NoSleepWindow);
     };
     let (Some(start_unix), Some(end_unix)) = (
         parse_rfc3339_utc_unix_ms(&window.start_time),
         parse_rfc3339_utc_unix_ms(&window.end_time),
     ) else {
-        return Ok(false);
+        return Ok(NightlySleepPersistReason::InvalidWindowTimestamps);
     };
     if end_unix <= start_unix {
-        return Ok(false);
+        return Ok(NightlySleepPersistReason::WindowEndNotAfterStart);
     }
     // Honest-unavailable gate: only persist windows that look like a real night
     // in the user's local time. Daytime/evening sedentary wear and merged
     // multi-day spans are dropped (no fabricated nightly record) rather than
     // surfaced as guessed sleep.
-    if !nightly_window_is_plausible(
+    if let Err(reason) = nightly_window_plausibility_reason(
         start_unix,
         end_unix,
         window.sleep_duration_minutes,
         night_gate_utc_offset_minutes,
+        &window.start_time,
+        &window.end_time,
     ) {
-        return Ok(false);
+        return Ok(reason);
     }
     let date_key = window.start_time.get(0..10).unwrap_or(&window.start_time);
     let output = value
@@ -6984,7 +7096,7 @@ fn persist_nightly_sleep_record(
         quality_flags_json: &quality_flags_json,
         provenance_json: &provenance,
     })?;
-    Ok(true)
+    Ok(NightlySleepPersistReason::Persisted)
 }
 
 fn sleep_list_nightly_bridge(args: SleepListNightlyArgs) -> BullResult<serde_json::Value> {
@@ -9752,6 +9864,49 @@ fn escape_json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nightly_plausibility_reason_reports_gate_failures() {
+        let tz = Some(120_i64);
+        let at = |s: &str| parse_rfc3339_utc_unix_ms(s).unwrap();
+        let start = "2026-06-19T21:43:00Z";
+        let end = "2026-06-19T22:54:00Z";
+        assert_eq!(
+            nightly_window_plausibility_reason(
+                at(start),
+                at(end),
+                71.0,
+                tz,
+                start,
+                end,
+            ),
+            Err(NightlySleepPersistReason::ImplausibleDurationTooShort {
+                sleep_duration_minutes: 71.0,
+            })
+        );
+        let day_start = "2026-06-18T11:54:00Z";
+        let day_end = "2026-06-18T21:01:00Z";
+        assert_eq!(
+            nightly_window_plausibility_reason(
+                at(day_start),
+                at(day_end),
+                513.0,
+                tz,
+                day_start,
+                day_end,
+            ),
+            Err(NightlySleepPersistReason::ImplausibleMidpointOutsideNightBand {
+                local_midpoint_minutes_of_day: local_midpoint_minutes_of_day(
+                    at(day_start),
+                    at(day_end),
+                    120,
+                ),
+                sleep_duration_minutes: 513.0,
+                window_start_rfc3339: day_start.to_string(),
+                window_end_rfc3339: day_end.to_string(),
+            })
+        );
+    }
 
     #[test]
     fn nightly_gate_keeps_real_nights_and_drops_daytime_and_merged_spans() {
