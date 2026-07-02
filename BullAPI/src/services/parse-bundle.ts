@@ -326,12 +326,16 @@ async function computeUserStore(
     })
   }
 
-  console.log(`[compute] ${userId} running pipeline feature pass for ${todayKey}; backfill days: ${sortedDays.join(", ")}`)
+  console.log(`[compute] ${userId} running pipeline rollups for ${todayKey}; backfill days: ${sortedDays.join(", ")}`)
   try {
-    await runPipelineDay(todayKey, false)
+    // The dense feature-pass block still has full-window reports that can exceed
+    // the 2 GB production budget on retained multi-day stores. Nightly sleep is
+    // computed below in scoped noon-to-noon windows, and the rollup path remains
+    // safe, so server parse skips feature passes here until all reports stream.
+    await runPipelineDay(todayKey, true)
   } catch (error) {
     console.error(
-      `[compute] ${userId} pipeline failed for ${todayKey}: ${errorMessage(error)}`,
+      `[compute] ${userId} pipeline rollups failed for ${todayKey}: ${errorMessage(error)}`,
     )
   }
   for (const k of sortedDays) {
@@ -339,7 +343,7 @@ async function computeUserStore(
     try {
       await runPipelineDay(k, true)
     } catch (error) {
-      console.error(`[compute] ${userId} pipeline failed for ${k}: ${errorMessage(error)}`)
+      console.error(`[compute] ${userId} pipeline rollups failed for ${k}: ${errorMessage(error)}`)
     }
   }
 
