@@ -373,7 +373,7 @@ struct SleepV2BevelTrendChart: View {
   @Binding var selection: SleepV2BevelTrendSelection?
 
   private var values: [Double] {
-    expandedValues
+    snapshot.trend.points.map(\.value)
   }
 
   var body: some View {
@@ -575,32 +575,6 @@ struct SleepV2BevelTrendChart: View {
     }
   }
 
-  private var expandedValues: [Double] {
-    let base = snapshot.trend.points.map(\.value)
-    guard !base.isEmpty else { return [] }
-    if selectedRange == "1D" {
-      return base
-    }
-    let count: Int
-    switch selectedRange {
-    case "30D": count = 18
-    case "3M": count = 24
-    case "1Y": count = 40
-    default: count = 32
-    }
-    guard base.count < count else { return base }
-    let span = max((base.max() ?? 1) - (base.min() ?? 0), 1)
-    return (0..<count).map { index in
-      let position = Double(index) * Double(base.count - 1) / Double(max(count - 1, 1))
-      let lowerIndex = min(Int(position.rounded(.down)), base.count - 1)
-      let upperIndex = min(lowerIndex + 1, base.count - 1)
-      let blend = position - Double(lowerIndex)
-      let interpolated = base[lowerIndex] + (base[upperIndex] - base[lowerIndex]) * blend
-      let movement = sin(Double(index) * 1.37) * span * 0.045
-      return interpolated + movement
-    }
-  }
-
   private var averageValue: Double {
     values.reduce(0, +) / Double(max(values.count, 1))
   }
@@ -624,11 +598,13 @@ struct SleepV2BevelTrendChart: View {
       guard !snapshot.trend.points.isEmpty else {
         return []
       }
+      let lastIndex = snapshot.trend.points.count - 1
       func hourlyLabel(_ index: Int) -> (Int, String) {
-        let boundedIndex = min(max(index, 0), snapshot.trend.points.count - 1)
-        return (index, snapshot.trend.points[boundedIndex].label)
+        let boundedIndex = min(max(index, 0), lastIndex)
+        return (boundedIndex, snapshot.trend.points[boundedIndex].label)
       }
-      return Array(Set([0, count / 2, count])).sorted().map(hourlyLabel)
+      let tickIndices = Array(Set([0, count / 2, count].map { min($0, lastIndex) })).sorted()
+      return tickIndices.map(hourlyLabel)
     }
     let formatter = DateFormatter()
     formatter.dateFormat = selectedRange == "1Y" ? "MMM" : "d MMM"

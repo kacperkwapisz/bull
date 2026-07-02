@@ -5,6 +5,7 @@ import UIKit
 
 struct SleepV2SleepWindowCard: View {
   let palette: SleepV2Palette
+  let schedule: HealthDataStore.SleepScheduleDisplay
   let onWakeTap: () -> Void
   let onSleepNeeded: () -> Void
 
@@ -27,29 +28,35 @@ struct SleepV2SleepWindowCard: View {
           .background(palette.accent.opacity(0.12), in: Circle())
       }
 
+      if let caption = schedule.awaitingCaption, !schedule.hasTimelineData {
+        Text(caption)
+          .font(.caption.weight(.medium))
+          .foregroundStyle(palette.secondaryText)
+      }
+
       HStack(spacing: 10) {
         SleepV2ScheduleTimeTile(
           palette: palette,
           systemImage: "wind",
           title: "Wind down",
-          value: "21:20"
+          value: schedule.windDownLabel
         )
         SleepV2ScheduleTimeTile(
           palette: palette,
           systemImage: "bed.double.fill",
           title: "Target bedtime",
-          value: "21:50"
+          value: schedule.bedtimeLabel
         )
       }
 
-      SleepV2ScheduleTimeline(palette: palette)
+      SleepV2ScheduleTimeline(palette: palette, schedule: schedule)
 
       VStack(spacing: 0) {
         SleepV2ScheduleActionRow(
           palette: palette,
           systemImage: "moon.stars.fill",
           title: "Tonight's sleep needed",
-          value: "7h 39m",
+          value: schedule.sleepNeededLabel,
           action: onSleepNeeded
         )
 
@@ -61,7 +68,7 @@ struct SleepV2SleepWindowCard: View {
           palette: palette,
           systemImage: "alarm.fill",
           title: "Wake up at",
-          value: "05:30",
+          value: schedule.wakeLabel,
           action: onWakeTap
         )
       }
@@ -279,15 +286,16 @@ struct SleepV2ScheduleTimeTile: View {
 
 struct SleepV2ScheduleTimeline: View {
   let palette: SleepV2Palette
+  let schedule: HealthDataStore.SleepScheduleDisplay
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("21:20")
+        Text(schedule.windDownLabel)
         Spacer()
-        Text("21:50")
+        Text(schedule.bedtimeLabel)
         Spacer()
-        Text("05:30")
+        Text(schedule.wakeLabel)
       }
       .font(.caption.weight(.semibold))
       .fontDesign(.rounded)
@@ -299,17 +307,19 @@ struct SleepV2ScheduleTimeline: View {
           Capsule()
             .fill(palette.separator.opacity(0.8))
             .frame(height: 5)
-          Capsule()
-            .fill(palette.accent.opacity(0.30))
-            .frame(width: width * 0.18, height: 5)
-            .offset(x: width * 0.10)
-          Capsule()
-            .fill(palette.accent)
-            .frame(width: width * 0.58, height: 5)
-            .offset(x: width * 0.28)
-          scheduleDot(x: width * 0.10, filled: false)
-          scheduleDot(x: width * 0.28, filled: true)
-          scheduleDot(x: width * 0.86, filled: true)
+          if schedule.hasTimelineData {
+            Capsule()
+              .fill(palette.accent.opacity(0.30))
+              .frame(width: width * 0.18, height: 5)
+              .offset(x: width * 0.10)
+            Capsule()
+              .fill(palette.accent)
+              .frame(width: width * 0.58, height: 5)
+              .offset(x: width * 0.28)
+            scheduleDot(x: width * 0.10, filled: false)
+            scheduleDot(x: width * 0.28, filled: true)
+            scheduleDot(x: width * 0.86, filled: true)
+          }
         }
       }
       .frame(height: 18)
@@ -375,6 +385,8 @@ struct SleepV2ScheduleActionRow: View {
 
 struct SleepV2ClockDial: View {
   let palette: SleepV2Palette
+  var sleepNeededLabel: String = "--"
+  var hasSleepNeedData: Bool = false
 
   var body: some View {
     GeometryReader { proxy in
@@ -386,40 +398,45 @@ struct SleepV2ClockDial: View {
         Circle()
           .stroke(palette.separator.opacity(0.75), lineWidth: ringWidth)
           .padding(ringWidth)
-        Circle()
-          .trim(from: 0.58, to: 0.64)
-          .stroke(
-            palette.accent.opacity(0.38),
-            style: StrokeStyle(lineWidth: ringWidth, lineCap: .round)
-          )
-          .rotationEffect(.degrees(-90))
-          .padding(ringWidth)
-        Circle()
-          .trim(from: 0.65, to: 0.92)
-          .stroke(
-            palette.accent,
-            style: StrokeStyle(lineWidth: ringWidth, lineCap: .round)
-          )
-          .rotationEffect(.degrees(-90))
-          .padding(ringWidth)
+        if hasSleepNeedData {
+          Circle()
+            .trim(from: 0.58, to: 0.64)
+            .stroke(
+              palette.accent.opacity(0.38),
+              style: StrokeStyle(lineWidth: ringWidth, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-90))
+            .padding(ringWidth)
+          Circle()
+            .trim(from: 0.65, to: 0.92)
+            .stroke(
+              palette.accent,
+              style: StrokeStyle(lineWidth: ringWidth, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-90))
+            .padding(ringWidth)
+        }
 
         VStack(spacing: 6) {
           Image(systemName: "moon.stars.fill")
             .font(.title3.weight(.semibold))
             .foregroundStyle(palette.accent)
-          Text("7h 39m")
+          Text(sleepNeededLabel)
             .font(.title2.weight(.semibold))
             .fontDesign(.rounded)
             .foregroundStyle(palette.text)
-          Text("sleep needed")
+          Text(hasSleepNeedData ? "sleep needed" : "Awaiting sleep data")
             .font(.caption.weight(.semibold))
             .foregroundStyle(palette.secondaryText)
+            .multilineTextAlignment(.center)
         }
 
-        SleepV2ClockBubble(palette: palette, systemImage: "bed.double.fill", active: true)
-          .position(x: side * 0.28, y: side * 0.72)
-        SleepV2ClockBubble(palette: palette, systemImage: "alarm.fill", active: true)
-          .position(x: side * 0.74, y: side * 0.36)
+        if hasSleepNeedData {
+          SleepV2ClockBubble(palette: palette, systemImage: "bed.double.fill", active: true)
+            .position(x: side * 0.28, y: side * 0.72)
+          SleepV2ClockBubble(palette: palette, systemImage: "alarm.fill", active: true)
+            .position(x: side * 0.74, y: side * 0.36)
+        }
       }
       .frame(width: side, height: side)
       .frame(maxWidth: .infinity, maxHeight: .infinity)

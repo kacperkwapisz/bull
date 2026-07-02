@@ -94,6 +94,7 @@ struct SleepV2OverviewPage: View {
 
 	              SleepV2SleepWindowCard(
                 palette: palette,
+                schedule: store.sleepScheduleDisplay(),
                 onWakeTap: { showingAlarmSheet = true },
                 onSleepNeeded: { showingSleepNeededSheet = true }
               )

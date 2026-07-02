@@ -200,6 +200,53 @@ extension HealthDataStore {
     }
   }
 
+  /// Display-only schedule fields from the latest primary sleep window and sleep score output.
+  /// Wind-down is not modeled in the app; it stays unavailable until a real source exists.
+  struct SleepScheduleDisplay {
+    let windDownLabel: String
+    let bedtimeLabel: String
+    let wakeLabel: String
+    let sleepNeededLabel: String
+    let hasTimelineData: Bool
+    let awaitingCaption: String?
+
+    static let unavailable = SleepScheduleDisplay(
+      windDownLabel: "--:--",
+      bedtimeLabel: "--:--",
+      wakeLabel: "--:--",
+      sleepNeededLabel: "--",
+      hasTimelineData: false,
+      awaitingCaption: "Awaiting sleep data"
+    )
+  }
+
+  func sleepScheduleDisplay() -> SleepScheduleDisplay {
+    guard let sleep = primarySleep() else {
+      return .unavailable
+    }
+    let bedtime = sleep.startLabel == "--" ? "--:--" : sleep.startLabel
+    let wake = sleep.endLabel == "--" ? "--:--" : sleep.endLabel
+    let hasBedWake = bedtime != "--:--" && wake != "--:--"
+    let sleepNeeded = Self.sleepNeededLabel(fromSleepReport: packetScoreReports["sleep"])
+    return SleepScheduleDisplay(
+      windDownLabel: "--:--",
+      bedtimeLabel: bedtime,
+      wakeLabel: wake,
+      sleepNeededLabel: sleepNeeded ?? "--",
+      hasTimelineData: hasBedWake,
+      awaitingCaption: hasBedWake ? nil : "Awaiting sleep data"
+    )
+  }
+
+  static func sleepNeededLabel(fromSleepReport report: [String: Any]?) -> String? {
+    guard let output = Self.map(report, "score_result", "output"),
+          let minutes = Self.doubleValue(output["sleep_need_minutes"]),
+          minutes > 0 else {
+      return nil
+    }
+    return Self.minutesText(minutes)
+  }
+
   static func sleepQualityLabel(score: Double?) -> String {
     guard let score else {
       return "No score"
