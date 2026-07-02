@@ -195,6 +195,31 @@ function utcOffsetMinutesForInstant(timezone: string | null, atUtcMs: number): n
   }
 }
 
+/** Retention cutoff for hot-store prune (same watermark as post-compute prune). */
+function storeRetentionCutoffIso(): string {
+  return new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
+}
+
+/** Trim the per-user SQLite hot store before compute. Raw upload bundles remain
+ * the source of record in object storage; pruning here prevents unbounded growth
+ * when compute fails and post-success prune never runs. */
+async function pruneHotStoreRetentionWindow(
+  core: BullCore,
+  userId: string,
+  dbPath: string,
+): Promise<void> {
+  const cutoff = storeRetentionCutoffIso()
+  try {
+    await core.request("store.prune_raw_evidence_before", {
+      database_path: dbPath,
+      captured_before: cutoff,
+    })
+    console.log(`[compute] ${userId} pre-compute prune before ${cutoff}`)
+  } catch (error) {
+    console.error(`[compute] ${userId} pre-compute prune failed: ${errorMessage(error)}`)
+  }
+}
+
 /** UTC day/hour windows for the run_pipeline call, derived from server "now". */
 function pipelineWindows(now: Date) {
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -281,6 +306,9 @@ async function computeUserStore(
   if (dataDays) for (const d of dataDays) dayKeys.add(d)
 
   const sortedDays = [...dayKeys].sort()
+
+  await pruneHotStoreRetentionWindow(core, userId, dbPath)
+
   const runPipelineDay = async (day: string, skipFeaturePasses: boolean) => {
     const windows = pipelineWindows(new Date(day + "T00:00:00Z"))
     const featureWindowStart = new Date(
@@ -293,14 +321,26 @@ async function computeUserStore(
       hourly_window: windows.hourly,
       feature_window_start_iso: featureWindowStart,
       skip_feature_passes: skipFeaturePasses,
+      // Discovery pass is validation-only and loads the full decoded window.
+      skip_step_discovery: true,
     })
   }
 
   console.log(`[compute] ${userId} running pipeline feature pass for ${todayKey}; backfill days: ${sortedDays.join(", ")}`)
-  await runPipelineDay(todayKey, false)
+  try {
+    await runPipelineDay(todayKey, false)
+  } catch (error) {
+    console.error(
+      `[compute] ${userId} pipeline failed for ${todayKey}: ${errorMessage(error)}`,
+    )
+  }
   for (const k of sortedDays) {
     if (k === todayKey) continue
-    await runPipelineDay(k, true)
+    try {
+      await runPipelineDay(k, true)
+    } catch (error) {
+      console.error(`[compute] ${userId} pipeline failed for ${k}: ${errorMessage(error)}`)
+    }
   }
 
   // Persist nightly sleep per day. A single full-range scan only writes one
@@ -550,7 +590,7 @@ async function computeUserStore(
   // cache-maintenance step for the per-user SQLite workspace, not part of the
   // source-of-record ingest path; failure to prune should not turn a successful
   // projection into a compute failure.
-  const cutoff = new Date(Date.now() - STORE_RETENTION_DAYS * 86_400_000).toISOString()
+  const cutoff = storeRetentionCutoffIso()
   try {
     await core.request("store.prune_raw_evidence_before", {
       database_path: dbPath,

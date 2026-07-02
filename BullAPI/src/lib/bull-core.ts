@@ -30,17 +30,31 @@ export class BullCoreError extends Error {
 // memory; a backtrace easily fits and we keep the most recent bytes.
 const MAX_STDERR_BYTES = 16_384
 
+// A sidecar that dies mid-operation (panic, OOM kill) is respawned so the
+// remaining requests in the operation — nightly sleep persistence, curated
+// export — still run. Bounded so a request that deterministically kills the
+// process cannot respawn-loop forever.
+const MAX_RESPAWNS_PER_OPERATION = 3
+
 export class BullCore {
-  private readonly proc: ReturnType<typeof Bun.spawn>
-  private readonly reader: ReadableStreamDefaultReader<Uint8Array>
+  private proc!: ReturnType<typeof Bun.spawn>
+  private reader!: ReadableStreamDefaultReader<Uint8Array>
   private readonly decoder = new TextDecoder()
+  private readonly binaryPath: string
   private buffer = ""
   private requestId = 0
+  private disposed = false
+  private respawns = 0
   /** Most-recent stderr from the sidecar (RUST_BACKTRACE + panic/abort text). */
   private stderr = ""
 
   constructor(binaryPath: string) {
-    this.proc = Bun.spawn([binaryPath], {
+    this.binaryPath = binaryPath
+    this.spawn()
+  }
+
+  private spawn(): void {
+    this.proc = Bun.spawn([this.binaryPath], {
       stdin: "pipe",
       stdout: "pipe",
       // Capture stderr instead of inheriting it: a hard crash (panic, abort,
@@ -52,7 +66,33 @@ export class BullCore {
       env: { ...process.env, RUST_BACKTRACE: process.env.RUST_BACKTRACE ?? "1" },
     })
     this.reader = (this.proc.stdout as ReadableStream<Uint8Array>).getReader()
+    this.buffer = ""
+    this.stderr = ""
     this.drainStderr()
+  }
+
+  /** True when the current sidecar process has exited (or was killed). */
+  private processDead(): boolean {
+    const proc = this.proc as { exitCode?: number | null; signalCode?: string | null; killed?: boolean }
+    return proc.exitCode != null || proc.signalCode != null || proc.killed === true
+  }
+
+  /** Respawn a fresh sidecar when the previous one died, so later requests in
+   * the same operation can still succeed. Never retries the request that
+   * killed the process. */
+  private ensureAlive(): void {
+    if (this.disposed) {
+      throw new Error("bull-core client is closed")
+    }
+    if (!this.processDead()) return
+    if (this.respawns >= MAX_RESPAWNS_PER_OPERATION) {
+      throw new Error(
+        `bull-core sidecar died ${this.respawns + 1} times in one operation; not respawning again`,
+      )
+    }
+    this.respawns += 1
+    console.error(`[bull-core] sidecar dead; respawning (attempt ${this.respawns}/${MAX_RESPAWNS_PER_OPERATION})`)
+    this.spawn()
   }
 
   /** Continuously accumulate the sidecar's stderr (bounded) so it is available
@@ -96,6 +136,7 @@ export class BullCore {
   /** Call a bridge method; throws BullCoreError if the sidecar reports !ok.
    * Includes a 120s timeout per request to prevent hangs from dead sidecars. */
   async request<T = unknown>(method: string, args: unknown): Promise<T> {
+    this.ensureAlive()
     const id = String(++this.requestId)
     const payload =
       JSON.stringify({ schema: BRIDGE_REQUEST_SCHEMA, request_id: id, method, args }) + "\n"
@@ -128,7 +169,9 @@ export class BullCore {
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
-        this.close()
+        // Kill the wedged process but keep the client usable: the next request
+        // respawns a fresh sidecar via ensureAlive().
+        this.terminate()
         this.exitDescription().then(
           (why) => reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method} (${why})`)),
           () => reject(new Error(`bull-core sidecar timed out after ${ms}ms on ${method}`)),
@@ -166,7 +209,7 @@ export class BullCore {
     return line
   }
 
-  close(): void {
+  private terminate(): void {
     try {
       ;(this.proc.stdin as { end?(): void }).end?.()
     } catch {
@@ -177,5 +220,10 @@ export class BullCore {
     } catch {
       // ignore
     }
+  }
+
+  close(): void {
+    this.disposed = true
+    this.terminate()
   }
 }
