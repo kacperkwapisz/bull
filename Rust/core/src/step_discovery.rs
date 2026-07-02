@@ -175,6 +175,189 @@ struct FieldMatch {
     reason: &'static str,
 }
 
+type CounterGroupKey = (String, String, String);
+
+/// Bounded accumulator for one hidden numeric counter path. Peak memory stays at
+/// `max_candidate_fields` retained rows per path instead of cloning every
+/// observation across dense history windows.
+struct CounterGroup {
+    retained: Vec<StepPacketDiscoveryCandidate>,
+    overflowed: bool,
+    total: usize,
+    first_frame_id: Option<String>,
+    first_captured_at: Option<String>,
+    first_value: Option<i64>,
+    last_frame_id: Option<String>,
+    last_captured_at: Option<String>,
+    last_value: Option<i64>,
+    previous_value: Option<i64>,
+    has_distinct_observation: bool,
+    monotonic_non_decreasing: bool,
+}
+
+impl CounterGroup {
+    fn new() -> Self {
+        Self {
+            retained: Vec::new(),
+            overflowed: false,
+            total: 0,
+            first_frame_id: None,
+            first_captured_at: None,
+            first_value: None,
+            last_frame_id: None,
+            last_captured_at: None,
+            last_value: None,
+            previous_value: None,
+            has_distinct_observation: false,
+            monotonic_non_decreasing: true,
+        }
+    }
+
+    fn record(
+        &mut self,
+        candidate: StepPacketDiscoveryCandidate,
+        numeric_value: i64,
+        per_group_cap: usize,
+    ) {
+        self.total += 1;
+        if let (Some(first_frame_id), Some(first_captured_at)) =
+            (&self.first_frame_id, &self.first_captured_at)
+        {
+            if candidate.frame_id != *first_frame_id
+                || candidate.captured_at != *first_captured_at
+            {
+                self.has_distinct_observation = true;
+            }
+        } else {
+            self.first_frame_id = Some(candidate.frame_id.clone());
+            self.first_captured_at = Some(candidate.captured_at.clone());
+            self.first_value = Some(numeric_value);
+        }
+        if let Some(previous) = self.previous_value {
+            if numeric_value < previous {
+                self.monotonic_non_decreasing = false;
+            }
+        }
+        self.previous_value = Some(numeric_value);
+        self.last_frame_id = Some(candidate.frame_id.clone());
+        self.last_captured_at = Some(candidate.captured_at.clone());
+        self.last_value = Some(numeric_value);
+
+        if self.overflowed {
+            return;
+        }
+        if self.retained.len() < per_group_cap {
+            self.retained.push(candidate);
+        } else {
+            self.overflowed = true;
+        }
+    }
+}
+
+/// Streaming step-discovery scan: one decoded row in memory at a time when used
+/// with `for_each_decoded_frame_between`, with bounded hidden-counter groups.
+struct StepDiscoveryScan {
+    options: StepPacketDiscoveryOptions,
+    packet_family_counts: BTreeMap<String, usize>,
+    inspected_packet_family_counts: BTreeMap<String, usize>,
+    decoded_frame_count: usize,
+    inspected_frame_count: usize,
+    candidate_field_count: usize,
+    candidate_fields: Vec<StepPacketDiscoveryCandidate>,
+    counter_groups: BTreeMap<CounterGroupKey, CounterGroup>,
+}
+
+impl StepDiscoveryScan {
+    fn new(options: StepPacketDiscoveryOptions) -> Self {
+        Self {
+            options,
+            packet_family_counts: BTreeMap::new(),
+            inspected_packet_family_counts: BTreeMap::new(),
+            decoded_frame_count: 0,
+            inspected_frame_count: 0,
+            candidate_field_count: 0,
+            candidate_fields: Vec::new(),
+            counter_groups: BTreeMap::new(),
+        }
+    }
+
+    fn ingest(&mut self, row: &DecodedFrameRow) -> BullResult<()> {
+        self.decoded_frame_count += 1;
+        let parsed_payload = parsed_payload_json(row)?;
+        let context = frame_context(row, &parsed_payload);
+        increment_count(&mut self.packet_family_counts, &context.packet_family);
+
+        if !is_step_discovery_frame(row, &parsed_payload, &context) {
+            return Ok(());
+        }
+
+        self.inspected_frame_count += 1;
+        increment_count(
+            &mut self.inspected_packet_family_counts,
+            &context.packet_family,
+        );
+        scan_step_fields(
+            &parsed_payload,
+            "$",
+            &context,
+            &mut self.candidate_field_count,
+            &mut self.candidate_fields,
+            &mut self.counter_groups,
+            self.options.max_candidate_fields,
+        );
+        Ok(())
+    }
+
+    fn finish(
+        self,
+        database_path: &str,
+        start: &str,
+        end: &str,
+    ) -> BullResult<StepPacketDiscoveryReport> {
+        let StepDiscoveryScan {
+            options,
+            packet_family_counts,
+            inspected_packet_family_counts,
+            decoded_frame_count,
+            inspected_frame_count,
+            mut candidate_field_count,
+            mut candidate_fields,
+            counter_groups,
+        } = self;
+
+        let (monotonic_counter_candidate_count, monotonic_counter_samples) =
+            monotonic_counter_candidate_samples_from_groups(
+                &counter_groups,
+                options.max_candidate_fields,
+                &mut candidate_field_count,
+            );
+        let emitted_monotonic_counter_sample_count = monotonic_counter_samples.len().min(
+            options
+                .max_candidate_fields
+                .saturating_sub(candidate_fields.len()),
+        );
+        for candidate in monotonic_counter_samples {
+            if candidate_fields.len() < options.max_candidate_fields {
+                candidate_fields.push(candidate);
+            }
+        }
+
+        build_step_packet_discovery_report(
+            database_path,
+            start,
+            end,
+            decoded_frame_count,
+            inspected_frame_count,
+            candidate_field_count,
+            candidate_fields,
+            monotonic_counter_candidate_count,
+            emitted_monotonic_counter_sample_count,
+            packet_family_counts,
+            inspected_packet_family_counts,
+        )
+    }
+}
+
 pub fn run_step_packet_discovery_for_store(
     store: &BullStore,
     database_path: &str,
@@ -182,8 +365,9 @@ pub fn run_step_packet_discovery_for_store(
     end: &str,
     options: StepPacketDiscoveryOptions,
 ) -> BullResult<StepPacketDiscoveryReport> {
-    let decoded_rows = store.decoded_frames_between(start, end)?;
-    run_step_packet_discovery(&decoded_rows, database_path, start, end, options)
+    let mut scan = StepDiscoveryScan::new(options);
+    store.for_each_decoded_frame_between(start, end, |row| scan.ingest(&row))?;
+    scan.finish(database_path, start, end)
 }
 
 pub fn run_step_packet_discovery(
@@ -193,104 +377,11 @@ pub fn run_step_packet_discovery(
     end: &str,
     options: StepPacketDiscoveryOptions,
 ) -> BullResult<StepPacketDiscoveryReport> {
-    let mut packet_family_counts = BTreeMap::new();
-    let mut inspected_packet_family_counts = BTreeMap::new();
-    let mut inspected_frame_count = 0;
-    let mut candidate_field_count = 0;
-    let mut candidate_fields = Vec::new();
-    let mut numeric_counter_observations = Vec::new();
-
+    let mut scan = StepDiscoveryScan::new(options);
     for row in decoded_rows {
-        let parsed_payload = parsed_payload_json(row)?;
-        let context = frame_context(row, &parsed_payload);
-        increment_count(&mut packet_family_counts, &context.packet_family);
-
-        if !is_step_discovery_frame(row, &parsed_payload, &context) {
-            continue;
-        }
-
-        inspected_frame_count += 1;
-        increment_count(&mut inspected_packet_family_counts, &context.packet_family);
-        scan_step_fields(
-            &parsed_payload,
-            "$",
-            &context,
-            &mut candidate_field_count,
-            &mut candidate_fields,
-            &mut numeric_counter_observations,
-            options.max_candidate_fields,
-        );
+        scan.ingest(row)?;
     }
-
-    let (monotonic_counter_candidate_count, monotonic_counter_samples) =
-        monotonic_counter_candidate_samples(&numeric_counter_observations);
-    let emitted_monotonic_counter_sample_count = monotonic_counter_samples.len().min(
-        options
-            .max_candidate_fields
-            .saturating_sub(candidate_fields.len()),
-    );
-    candidate_field_count += monotonic_counter_samples.len();
-    for candidate in monotonic_counter_samples {
-        if candidate_fields.len() < options.max_candidate_fields {
-            candidate_fields.push(candidate);
-        }
-    }
-
-    let explicit_step_counter_found = candidate_fields
-        .iter()
-        .any(|candidate| candidate.match_kind == "step_count");
-    let counter_deltas = step_counter_deltas(&candidate_fields, None, None, 0);
-    let selected_counter_delta = selected_counter_delta(&counter_deltas).cloned();
-    let monotonic_counter_delta_candidate_count = counter_deltas
-        .iter()
-        .filter(|candidate| candidate.match_kind == "monotonic_counter_candidate")
-        .count();
-    let mut issues = Vec::new();
-    if inspected_frame_count == 0 {
-        issues.push("no_step_discovery_frames".to_string());
-    }
-    if candidate_field_count == 0 {
-        issues.push("no_step_or_pedometer_fields_in_decoded_frames".to_string());
-    }
-    if !explicit_step_counter_found {
-        issues.push("no_explicit_step_counter_field_found".to_string());
-    }
-    if monotonic_counter_candidate_count > 0 && !explicit_step_counter_found {
-        issues.push("unnamed_monotonic_counter_candidates_found".to_string());
-    }
-    if candidate_field_count > candidate_fields.len() {
-        issues.push("candidate_field_output_truncated".to_string());
-    }
-    let next_actions = step_discovery_next_actions(&issues, selected_counter_delta.as_ref());
-
-    Ok(StepPacketDiscoveryReport {
-        schema: STEP_PACKET_DISCOVERY_REPORT_SCHEMA.to_string(),
-        generated_by: "bull-step-packet-discovery".to_string(),
-        pass: explicit_step_counter_found
-            && !issues
-                .iter()
-                .any(|issue| issue != "candidate_field_output_truncated"),
-        database_path: database_path.to_string(),
-        start: start.to_string(),
-        end: end.to_string(),
-        decoded_frame_count: decoded_rows.len(),
-        inspected_frame_count,
-        skipped_frame_count: decoded_rows.len().saturating_sub(inspected_frame_count),
-        candidate_field_count,
-        emitted_candidate_field_count: candidate_fields.len(),
-        explicit_step_counter_found,
-        monotonic_counter_candidate_count,
-        emitted_monotonic_counter_sample_count,
-        counter_delta_candidate_count: counter_deltas.len(),
-        monotonic_counter_delta_candidate_count,
-        selected_counter_delta,
-        counter_deltas,
-        packet_family_counts,
-        inspected_packet_family_counts,
-        candidate_fields,
-        next_actions,
-        issues,
-    })
+    scan.finish(database_path, start, end)
 }
 
 pub fn run_step_capture_validation_for_store(
@@ -300,8 +391,13 @@ pub fn run_step_capture_validation_for_store(
     end: &str,
     options: StepCaptureValidationOptions,
 ) -> BullResult<StepCaptureValidationReport> {
-    let decoded_rows = store.decoded_frames_between(start, end)?;
-    run_step_capture_validation(&decoded_rows, database_path, start, end, options)
+    let discovery_options = StepPacketDiscoveryOptions {
+        max_candidate_fields: options.max_candidate_fields,
+    };
+    let mut scan = StepDiscoveryScan::new(discovery_options);
+    store.for_each_decoded_frame_between(start, end, |row| scan.ingest(&row))?;
+    let discovery = scan.finish(database_path, start, end)?;
+    finish_step_capture_validation_report(discovery, database_path, start, end, options)
 }
 
 pub fn run_step_capture_validation(
@@ -320,6 +416,16 @@ pub fn run_step_capture_validation(
             max_candidate_fields: options.max_candidate_fields,
         },
     )?;
+    finish_step_capture_validation_report(discovery, database_path, start, end, options)
+}
+
+fn finish_step_capture_validation_report(
+    discovery: StepPacketDiscoveryReport,
+    database_path: &str,
+    start: &str,
+    end: &str,
+    options: StepCaptureValidationOptions,
+) -> BullResult<StepCaptureValidationReport> {
     let counter_deltas = step_counter_deltas(
         &discovery.candidate_fields,
         options.manual_step_delta,
@@ -399,6 +505,76 @@ pub fn run_step_capture_validation(
         next_actions,
         issues,
         discovery,
+    })
+}
+
+fn build_step_packet_discovery_report(
+    database_path: &str,
+    start: &str,
+    end: &str,
+    decoded_frame_count: usize,
+    inspected_frame_count: usize,
+    candidate_field_count: usize,
+    candidate_fields: Vec<StepPacketDiscoveryCandidate>,
+    monotonic_counter_candidate_count: usize,
+    emitted_monotonic_counter_sample_count: usize,
+    packet_family_counts: BTreeMap<String, usize>,
+    inspected_packet_family_counts: BTreeMap<String, usize>,
+) -> BullResult<StepPacketDiscoveryReport> {
+    let explicit_step_counter_found = candidate_fields
+        .iter()
+        .any(|candidate| candidate.match_kind == "step_count");
+    let counter_deltas = step_counter_deltas(&candidate_fields, None, None, 0);
+    let selected_counter_delta = selected_counter_delta(&counter_deltas).cloned();
+    let monotonic_counter_delta_candidate_count = counter_deltas
+        .iter()
+        .filter(|candidate| candidate.match_kind == "monotonic_counter_candidate")
+        .count();
+    let mut issues = Vec::new();
+    if inspected_frame_count == 0 {
+        issues.push("no_step_discovery_frames".to_string());
+    }
+    if candidate_field_count == 0 {
+        issues.push("no_step_or_pedometer_fields_in_decoded_frames".to_string());
+    }
+    if !explicit_step_counter_found {
+        issues.push("no_explicit_step_counter_field_found".to_string());
+    }
+    if monotonic_counter_candidate_count > 0 && !explicit_step_counter_found {
+        issues.push("unnamed_monotonic_counter_candidates_found".to_string());
+    }
+    if candidate_field_count > candidate_fields.len() {
+        issues.push("candidate_field_output_truncated".to_string());
+    }
+    let next_actions = step_discovery_next_actions(&issues, selected_counter_delta.as_ref());
+
+    Ok(StepPacketDiscoveryReport {
+        schema: STEP_PACKET_DISCOVERY_REPORT_SCHEMA.to_string(),
+        generated_by: "bull-step-packet-discovery".to_string(),
+        pass: explicit_step_counter_found
+            && !issues
+                .iter()
+                .any(|issue| issue != "candidate_field_output_truncated"),
+        database_path: database_path.to_string(),
+        start: start.to_string(),
+        end: end.to_string(),
+        decoded_frame_count,
+        inspected_frame_count,
+        skipped_frame_count: decoded_frame_count.saturating_sub(inspected_frame_count),
+        candidate_field_count,
+        emitted_candidate_field_count: candidate_fields.len(),
+        explicit_step_counter_found,
+        monotonic_counter_candidate_count,
+        emitted_monotonic_counter_sample_count,
+        counter_delta_candidate_count: counter_deltas.len(),
+        monotonic_counter_delta_candidate_count,
+        selected_counter_delta,
+        counter_deltas,
+        packet_family_counts,
+        inspected_packet_family_counts,
+        candidate_fields,
+        next_actions,
+        issues,
     })
 }
 
@@ -495,7 +671,7 @@ fn scan_step_fields(
     context: &FrameContext<'_>,
     candidate_field_count: &mut usize,
     candidate_fields: &mut Vec<StepPacketDiscoveryCandidate>,
-    numeric_counter_observations: &mut Vec<StepPacketDiscoveryCandidate>,
+    counter_groups: &mut BTreeMap<CounterGroupKey, CounterGroup>,
     max_candidate_fields: usize,
 ) {
     match value {
@@ -515,7 +691,19 @@ fn scan_step_fields(
                         ));
                     }
                 } else if is_hidden_counter_candidate_field(key, &child_path, child) {
-                    numeric_counter_observations.push(candidate_from_match(
+                    let Some(numeric_value) = numeric_i64(child) else {
+                        scan_step_fields(
+                            child,
+                            &child_path,
+                            context,
+                            candidate_field_count,
+                            candidate_fields,
+                            counter_groups,
+                            max_candidate_fields,
+                        );
+                        continue;
+                    };
+                    let candidate = candidate_from_match(
                         context,
                         key,
                         &child_path,
@@ -525,7 +713,16 @@ fn scan_step_fields(
                             source_kind_inference: "device_counter_candidate",
                             reason: "decoded numeric field is monotonic non-decreasing with positive delta across the capture window",
                         },
-                    ));
+                    );
+                    let group_key = (
+                        candidate.packet_family.clone(),
+                        normalized_counter_json_path(&candidate.json_path),
+                        candidate.field_name.clone(),
+                    );
+                    counter_groups
+                        .entry(group_key)
+                        .or_insert_with(CounterGroup::new)
+                        .record(candidate, numeric_value, max_candidate_fields);
                 }
                 scan_step_fields(
                     child,
@@ -533,7 +730,7 @@ fn scan_step_fields(
                     context,
                     candidate_field_count,
                     candidate_fields,
-                    numeric_counter_observations,
+                    counter_groups,
                     max_candidate_fields,
                 );
             }
@@ -547,7 +744,7 @@ fn scan_step_fields(
                     context,
                     candidate_field_count,
                     candidate_fields,
-                    numeric_counter_observations,
+                    counter_groups,
                     max_candidate_fields,
                 );
             }
@@ -679,6 +876,74 @@ fn value_is_scalar(value: &Value) -> bool {
 
 fn increment_count(counts: &mut BTreeMap<String, usize>, key: &str) {
     *counts.entry(key.to_string()).or_insert(0) += 1;
+}
+
+fn monotonic_counter_candidate_samples_from_groups(
+    counter_groups: &BTreeMap<CounterGroupKey, CounterGroup>,
+    max_candidate_fields: usize,
+    candidate_field_count: &mut usize,
+) -> (usize, Vec<StepPacketDiscoveryCandidate>) {
+    let mut candidate_group_count = 0;
+    let mut candidate_samples = Vec::new();
+    for group in counter_groups.values() {
+        if group.overflowed {
+            if group.total < 2 {
+                continue;
+            }
+            if !group.has_distinct_observation {
+                continue;
+            }
+            let (Some(first_value), Some(last_value)) = (group.first_value, group.last_value)
+            else {
+                continue;
+            };
+            if last_value <= first_value || !group.monotonic_non_decreasing {
+                continue;
+            }
+            candidate_group_count += 1;
+            *candidate_field_count += group.total;
+            candidate_samples.extend(group.retained.iter().cloned());
+            continue;
+        }
+
+        if group.retained.len() < 2 {
+            continue;
+        }
+        let mut samples: Vec<&StepPacketDiscoveryCandidate> = group.retained.iter().collect();
+        samples.sort_by(|left, right| {
+            left.captured_at
+                .cmp(&right.captured_at)
+                .then_with(|| left.frame_id.cmp(&right.frame_id))
+        });
+        if !has_distinct_counter_observations(&samples) {
+            continue;
+        }
+        let values = samples
+            .iter()
+            .filter_map(|candidate| numeric_i64(&candidate.value))
+            .collect::<Vec<_>>();
+        if values.len() != samples.len() {
+            continue;
+        }
+        let Some(first_value) = values.first() else {
+            continue;
+        };
+        let Some(last_value) = values.last() else {
+            continue;
+        };
+        if *last_value <= *first_value {
+            continue;
+        }
+        if !values.windows(2).all(|pair| pair[1] >= pair[0]) {
+            continue;
+        }
+        candidate_group_count += 1;
+        *candidate_field_count += samples.len();
+        candidate_samples.extend(samples.into_iter().cloned());
+    }
+
+    let _ = max_candidate_fields;
+    (candidate_group_count, candidate_samples)
 }
 
 fn monotonic_counter_candidate_samples(

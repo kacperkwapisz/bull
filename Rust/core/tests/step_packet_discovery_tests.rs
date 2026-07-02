@@ -378,6 +378,63 @@ fn step_capture_validation_blocks_counter_without_validation_label() {
     );
 }
 
+#[test]
+fn step_packet_discovery_overflow_group_still_qualifies_and_truncates_output() {
+    let max_fields = 4usize;
+    let mut rows = Vec::new();
+    for index in 0..8 {
+        rows.push(decoded_frame_row(
+            &format!("hidden-counter-{index}"),
+            &format!("2026-06-02T12:{index:02}:00Z"),
+            "HISTORICAL_DATA",
+            json!({
+                "kind": "data_packet",
+                "packet_k": 11,
+                "domain": "raw_stream_counted",
+                "body_summary": {
+                    "kind": "raw_stream_counted",
+                    "hidden_stride": 1000 + index as i64
+                },
+                "warnings": []
+            }),
+        ));
+    }
+
+    let report = run_step_packet_discovery(
+        &rows,
+        "synthetic.sqlite",
+        "2026-06-02T00:00:00Z",
+        "2026-06-03T00:00:00Z",
+        StepPacketDiscoveryOptions {
+            max_candidate_fields: max_fields,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.monotonic_counter_candidate_count, 1);
+    assert!(
+        report
+            .issues
+            .contains(&"candidate_field_output_truncated".to_string()),
+        "{:?}",
+        report.issues
+    );
+    assert!(
+        report.candidate_field_count > report.candidate_fields.len(),
+        "count {} emitted {}",
+        report.candidate_field_count,
+        report.candidate_fields.len()
+    );
+    assert!(
+        report
+            .candidate_fields
+            .iter()
+            .any(|field| field.field_name == "hidden_stride"),
+        "{:?}",
+        report.candidate_fields
+    );
+}
+
 fn decoded_frame_row(
     frame_id: &str,
     captured_at: &str,
