@@ -123,8 +123,16 @@ final class BullBLEClient: NSObject, ObservableObject {
   }()
   let autoHistoricalSyncOnReady: Bool = {
     let processInfo = ProcessInfo.processInfo
-    return processInfo.arguments.contains("--bull-auto-historical-sync")
-      || processInfo.environment["BULL_AUTO_HISTORICAL_SYNC"] == "1"
+    if processInfo.arguments.contains("--bull-disable-auto-historical-sync")
+      || processInfo.environment["BULL_AUTO_HISTORICAL_SYNC"] == "0" {
+      return false
+    }
+    // Historical sync is the durable overnight-data path: it asks the connected
+    // device for stored history packets (HR + motion) after ready/reconnect so
+    // the server has enough sensor data to compute sleep/recovery. Live streams
+    // remain opt-in because they are foreground/battery-sensitive; history sync
+    // is the low-duty default for a daily companion.
+    return true
   }()
   let diagnosticLoggingEnabled: Bool = {
     let processInfo = ProcessInfo.processInfo
