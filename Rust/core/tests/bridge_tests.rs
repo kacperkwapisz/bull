@@ -5048,9 +5048,9 @@ fn bridge_builds_local_sleep_score_from_motion_features() {
     assert_eq!(report["schema"], "bull.sleep-feature-score-report.v1");
     assert_eq!(report["pass"], true);
     assert_eq!(report["sleep_window"]["time_in_bed_minutes"], 240.0);
-    assert_eq!(report["sleep_window"]["sleep_duration_minutes"], 180.0);
+    assert_eq!(report["sleep_window"]["sleep_duration_minutes"], 120.0);
     assert_eq!(report["sleep_window"]["disturbance_count"], 1);
-    assert_eq!(report["score_result"]["output"]["score_0_to_100"], 80.75);
+    assert_eq!(report["score_result"]["output"]["score_0_to_100"], 62.0);
     assert_eq!(
         report["persisted_algorithm_run"]["run_id"],
         "bridge-sleep-feature-run-1"
@@ -6424,7 +6424,7 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
     assert_eq!(report["recovery_input"]["hrv_rmssd_ms"], 25.0);
     assert_eq!(report["recovery_input"]["hrv_baseline_rmssd_ms"], 50.0);
     assert_eq!(report["recovery_input"]["resting_hr_bpm"], 72.0);
-    assert_eq!(report["recovery_input"]["sleep_score_0_to_100"], 80.75);
+    assert_eq!(report["recovery_input"]["sleep_score_0_to_100"], 62.0);
     assert_eq!(
         report["provided_vitals"]["source"],
         "metrics.recovery_sensor_discovery"

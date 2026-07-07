@@ -1221,6 +1221,98 @@ fn resting_heart_rate_features_exclude_high_motion_heart_rate_samples() {
 }
 
 #[test]
+fn sleep_feature_score_report_trims_continuous_evening_overnight_morning_wear() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Quiet awake evening (low motion, HR near waking), real overnight sleep (HR dip),
+    // then quiet awake morning — one continuous worn cluster without 2h gaps.
+    for hour in 19..=21u32 {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &format!("2026-06-22T{hour:02}:00:00Z"),
+            1000,
+        );
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            76,
+            &format!("2026-06-22T{hour:02}:15:00Z"),
+        );
+    }
+    for (ts, hr) in [
+        ("2026-06-22T22:00:00Z", 52),
+        ("2026-06-22T23:00:00Z", 52),
+        ("2026-06-23T00:00:00Z", 52),
+    ] {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            ts,
+            1000,
+        );
+        import_history_frame_at(&store, "user-owned-live-notification", hr, ts);
+    }
+    for hour in 1..=3u32 {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &format!("2026-06-23T{hour:02}:00:00Z"),
+            1000,
+        );
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            52,
+            &format!("2026-06-23T{hour:02}:15:00Z"),
+        );
+    }
+    for hour in 4..=6u32 {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            &format!("2026-06-23T{hour:02}:00:00Z"),
+            1000,
+        );
+        import_history_frame_at(
+            &store,
+            "user-owned-live-notification",
+            73,
+            &format!("2026-06-23T{hour:02}:15:00Z"),
+        );
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-06-22T12:00:00Z",
+        "2026-06-23T12:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            sleep_need_minutes: 420.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    let window = report.sleep_window.expect("overnight sleep window");
+    assert_eq!(window.start_time, "2026-06-22T22:00:00Z");
+    assert_eq!(window.end_time, "2026-06-23T04:00:00Z");
+    assert_close(window.time_in_bed_minutes, 360.0);
+    assert_close(window.sleep_duration_minutes, 360.0);
+    assert!(
+        window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "sleep_window_trimmed_to_sleep_episode")
+    );
+}
+
+#[test]
 fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() {
     let store = BullStore::open_in_memory().unwrap();
     import_motion_frame_at_value_without_heart_rate(
@@ -1618,7 +1710,7 @@ fn sleep_feature_score_report_accepts_real_daytime_nap_with_hr_dip() {
     .unwrap();
 
     let window = report.sleep_window.expect("nap window");
-    assert_eq!(window.start_time, "2026-06-25T14:00:00Z");
+    assert_eq!(window.start_time, "2026-06-25T14:10:00Z");
     assert_eq!(window.end_time, "2026-06-25T14:40:00Z");
     assert!(
         window
@@ -1832,28 +1924,21 @@ fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
     assert!(report.pass, "{:?}", report.issues);
     assert_eq!(report.heart_rate_report.trusted_feature_count, 5);
     let window = report.sleep_window.unwrap();
-    assert_close(window.time_in_bed_minutes, 300.0);
-    assert_close(window.sleep_duration_minutes, 180.0);
+    assert_close(window.time_in_bed_minutes, 240.0);
+    assert_close(window.sleep_duration_minutes, 60.0);
     assert_close(window.motion_coverage_fraction, 1.0);
     assert_close(window.heart_rate_coverage_fraction, 1.0);
-    assert_close(window.sleep_latency_minutes, 60.0);
-    assert_close(window.wake_after_sleep_onset_minutes, 60.0);
-    assert_eq!(window.wake_episode_count, 1);
+    assert_close(window.sleep_latency_minutes, 0.0);
+    assert_close(window.wake_after_sleep_onset_minutes, 0.0);
+    assert_eq!(window.wake_episode_count, 0);
     assert_eq!(window.disturbance_count, 2);
-    assert_eq!(window.stage_segments.len(), 5);
-    assert_close(*window.stage_minutes.get("awake").unwrap(), 120.0);
-    assert!(
-        window
-            .stage_segments
-            .iter()
-            .any(|segment| segment.stage == SleepStageKind::Deep)
-    );
-    assert!(
-        window
-            .stage_segments
-            .iter()
-            .any(|segment| segment.stage == SleepStageKind::Rem)
-    );
+    assert_eq!(window.stage_segments.len(), 4);
+    assert_close(*window.stage_minutes.get("awake").unwrap(), 180.0);
+    assert_close(*window.stage_minutes.get("deep").unwrap(), 60.0);
+    assert_eq!(window.stage_segments[0].stage, SleepStageKind::Awake);
+    assert_eq!(window.stage_segments[1].stage, SleepStageKind::Awake);
+    assert_eq!(window.stage_segments[2].stage, SleepStageKind::Deep);
+    assert_eq!(window.stage_segments[3].stage, SleepStageKind::Awake);
     for segment in &window.stage_segments {
         assert_eq!(segment.stage_probabilities.len(), 4);
         assert_close(segment.stage_probabilities.values().sum::<f64>(), 1.0);
@@ -1871,12 +1956,9 @@ fn sleep_feature_score_report_derives_wake_stages_and_heart_rate_dip() {
         );
     }
     assert_close(window.lowest_sleep_hr_bpm.unwrap(), 55.0);
-    assert_close(
-        window.sleep_hr_trend_bpm_per_hour.unwrap(),
-        1.6666666666666667,
-    );
-    assert_close(window.baseline_awake_hr_bpm.unwrap(), 80.0);
-    assert_close(window.heart_rate_dip_percent.unwrap(), 31.25);
+    assert!(window.sleep_hr_trend_bpm_per_hour.is_none());
+    assert_close(window.baseline_awake_hr_bpm.unwrap(), 72.5);
+    assert_close(window.heart_rate_dip_percent.unwrap(), 24.137931034482758);
     assert!(
         !window
             .quality_flags
@@ -2003,7 +2085,7 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
         window.stage_segments[0].stage
     );
     assert_eq!(window.stage_segments[0].start_time, "2026-05-27T22:00:00Z");
-    // Total session duration should exceed 60 min (the window tiles the full span).
+    // Total stage duration tiles the reported sleep candidate.
     let total_dur: f64 = window
         .stage_segments
         .iter()
@@ -2014,10 +2096,7 @@ fn sleep_feature_score_report_merges_adjacent_compatible_stage_segments() {
         "total stage duration should exceed 60m, got {}",
         total_dur
     );
-    assert_close(
-        window.motion_coverage_fraction,
-        180.0 / window.time_in_bed_minutes,
-    );
+    assert_close(window.motion_coverage_fraction, 1.0);
     assert_close(window.heart_rate_coverage_fraction, 0.0);
     assert_close(
         window
@@ -2206,6 +2285,9 @@ fn sleep_feature_score_report_reports_duplicate_and_gap_coverage() {
             sample_value,
         );
     }
+    for captured_at in ["2026-05-27T23:15:00Z", "2026-05-28T00:15:00Z"] {
+        import_history_frame_at(&store, "user-owned-live-notification", 55, captured_at);
+    }
 
     let report = run_sleep_feature_score_report_for_store(
         &store,
@@ -2266,6 +2348,12 @@ fn sleep_feature_score_report_drops_nonexistent_calendar_timestamps() {
             1000,
         );
     }
+    import_history_frame_at(
+        &store,
+        "user-owned-live-notification",
+        55,
+        "2026-02-28T23:15:00Z",
+    );
 
     let report = run_sleep_feature_score_report_for_store(
         &store,

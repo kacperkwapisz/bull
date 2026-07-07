@@ -39,8 +39,7 @@ pub const SLEEP_WINDOW_LABEL_VALIDATION_SCHEMA: &str =
     "bull.sleep-window-label-validation-report.v1";
 pub const SLEEP_WINDOW_LABEL_VALIDATION_INPUT_SCHEMA: &str =
     "bull.sleep-window-label-validation-input.v1";
-pub const SLEEP_STAGE_LABEL_VALIDATION_SCHEMA: &str =
-    "bull.sleep-stage-label-validation-report.v1";
+pub const SLEEP_STAGE_LABEL_VALIDATION_SCHEMA: &str = "bull.sleep-stage-label-validation-report.v1";
 pub const SLEEP_STAGE_LABEL_REPORT_INTEGRITY_POLICY: &str =
     "sleep_stage_label_validation_requires_current_stage_comparison_integrity";
 pub const SLEEP_WINDOW_LABEL_REPORT_INTEGRITY_POLICY: &str =
@@ -1148,7 +1147,7 @@ fn validate_sleep_v1_window_derivation(evidence_dir: &Path) -> SleepV1EvidenceDe
                     input.options,
                 )
             }) {
-                Ok(expected) if expected == report => Vec::new(),
+                Ok(expected) if evidence_report_json_equal(&expected, &report) => Vec::new(),
                 Ok(_) => vec![format!("derived_report_mismatch:{report_file}")],
                 Err(error) => vec![format!(
                     "derived_report_recompute_failed:{report_file}:{error}"
@@ -1336,12 +1335,9 @@ fn sleep_v1_benchmark_cli_data_coverage_valid(
         && input_ids_count == Some(expected_input_ids_count)
         && start_time == Some(report.start_time.as_str())
         && end_time == Some(report.end_time.as_str())
-        && output_present
-            == Some(report.bull_output.is_some() && report.reference_output.is_some())
+        && output_present == Some(report.bull_output.is_some() && report.reference_output.is_some())
         && quality_flag_count
-            == Some(
-                (report.bull_quality_flags.len() + report.reference_quality_flags.len()) as u64,
-            )
+            == Some((report.bull_quality_flags.len() + report.reference_quality_flags.len()) as u64)
         && error_count == Some(report.errors.len() as u64)
 }
 
@@ -1397,7 +1393,11 @@ fn validate_sleep_v1_release_gate_input_consistency(
                         .to_string(),
                 );
             }
-            if input.sleep_window_label_validation.as_ref() != Some(&window) {
+            if input
+                .sleep_window_label_validation
+                .as_ref()
+                .is_none_or(|embedded| !evidence_report_json_equal(embedded, &window))
+            {
                 issues.push(
                     "release_gate_input_report_mismatch:sleep-window-validation.json".to_string(),
                 );
@@ -1580,6 +1580,56 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Relative tolerance for comparing derived floating-point fields when checking
+/// that an on-disk evidence report reproduces its recompute. Reproducibility of
+/// derived health metrics means "recomputes to the same values," not
+/// bit-identical IEEE-754: order-of-summation differences across independent
+/// store reads can perturb a derived float (e.g. a confidence score) by one ULP
+/// (~1e-16 relative). A 1e-9 relative tolerance treats those as equal while
+/// still catching every real report drift (which moves values by whole minutes,
+/// counts, or fractions far larger than this).
+const EVIDENCE_REPORT_FLOAT_RELATIVE_TOLERANCE: f64 = 1e-9;
+
+/// Compare evidence reports as canonical JSON, treating numbers as equal within
+/// a small relative tolerance so an on-disk report matches its recompute even
+/// when floating-point summation order perturbs a derived value by a ULP.
+fn evidence_report_json_equal<T: serde::Serialize>(left: &T, right: &T) -> bool {
+    match (serde_json::to_value(left), serde_json::to_value(right)) {
+        (Ok(a), Ok(b)) => evidence_json_value_equal(&a, &b),
+        _ => false,
+    }
+}
+
+/// Deep JSON equality that compares numbers within a relative tolerance and all
+/// other value kinds exactly. Object key sets and array lengths must match.
+fn evidence_json_value_equal(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => match (a.as_f64(), b.as_f64()) {
+            (Some(x), Some(y)) => {
+                if x == y {
+                    return true;
+                }
+                let scale = x.abs().max(y.abs()).max(1.0);
+                (x - y).abs() <= EVIDENCE_REPORT_FLOAT_RELATIVE_TOLERANCE * scale
+            }
+            _ => a == b,
+        },
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(x, y)| evidence_json_value_equal(x, y))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, x)| b.get(key).is_some_and(|y| evidence_json_value_equal(x, y)))
+        }
+        _ => left == right,
+    }
 }
 
 fn read_evidence_json<T: serde::de::DeserializeOwned>(
@@ -1886,8 +1936,7 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
         "Regenerate sleep-v1-stability.json with release-default stability thresholds before promotion."
             .to_string()
     } else if issue == "benchmark_report_unparseable" {
-        "Regenerate sleep-v1-benchmark.json with the current Bull benchmark comparator."
-            .to_string()
+        "Regenerate sleep-v1-benchmark.json with the current Bull benchmark comparator.".to_string()
     } else if issue == "benchmark_report_integrity_failed" {
         "Regenerate sleep-v1-benchmark.json from the current Sleep V1 input and benchmark contract."
             .to_string()
@@ -1916,8 +1965,7 @@ fn sleep_v1_evidence_folder_issue_action(issue: &str) -> String {
             }
         }
     } else if issue.starts_with("missing_pass_field:") {
-        "Regenerate the report with a Bull validator that emits an explicit pass field."
-            .to_string()
+        "Regenerate the report with a Bull validator that emits an explicit pass field.".to_string()
     } else if issue.starts_with("passing_required_file_has_issues:") {
         "Regenerate the report instead of editing pass status; passing Sleep V1 reports must carry an empty issues list.".to_string()
     } else if issue.starts_with("passing_required_file_missing_issues:") {
@@ -5234,9 +5282,8 @@ pub fn validate_sleep_v1_stage_labels_for_store(
     let start_unix_ms = parse_rfc3339_utc_unix_ms(&input.sleep.start_time).ok_or_else(|| {
         BullError::message("sleep v1 stage label validation start_time is invalid")
     })?;
-    let end_unix_ms = parse_rfc3339_utc_unix_ms(&input.sleep.end_time).ok_or_else(|| {
-        BullError::message("sleep v1 stage label validation end_time is invalid")
-    })?;
+    let end_unix_ms = parse_rfc3339_utc_unix_ms(&input.sleep.end_time)
+        .ok_or_else(|| BullError::message("sleep v1 stage label validation end_time is invalid"))?;
     if end_unix_ms <= start_unix_ms {
         return Err(BullError::message(
             "sleep v1 stage label validation window is invalid",

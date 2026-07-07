@@ -5415,6 +5415,10 @@ const SLEEP_WINDOW_MIN_SPAN_MINUTES: i64 = 30;
 /// below this fraction of the wake-reference HR (median HR across high-motion
 /// epochs of the same window). Quiet rest with wake-level HR is not sleep.
 const SLEEP_HR_WAKE_REFERENCE_MAX_FRACTION: f64 = 0.95;
+/// Low-motion epochs whose HR sits clearly above the window's sleep-HR reference
+/// (the low-quartile mean across still epochs) are quiet awake wear — evening
+/// sofa time keeps near-waking HR while true sleep dips below that band.
+const SLEEP_HR_ELEVATED_ABOVE_SLEEP_REFERENCE_FRACTION: f64 = 1.08;
 /// Minutes of confirmed wake required after the last sleep-staged segment
 /// before a window is reported. Until then the candidate sleep is still in
 /// progress; reporting it live would count quiet evening rest as sleep.
@@ -5602,11 +5606,20 @@ fn select_sleep_cluster(
 
     // Day-median HR baseline: the waking reference every window is judged
     // against. Sleep dips at/below it; sedentary daytime rest sits near it.
-    let hr_baseline = if timed_heart_rate_features.is_empty() {
+    // Raw-motion K10 carries a preliminary packet marker that is useful for
+    // coverage/off-wrist checks, but it is not strong enough to veto an
+    // otherwise plausible overnight motion-only sleep candidate. Physiological
+    // confirmation comes from dedicated history HR streams.
+    let confirming_heart_rate_features = timed_heart_rate_features
+        .iter()
+        .copied()
+        .filter(|(_, feature)| heart_rate_feature_confirms_sleep(feature))
+        .collect::<Vec<_>>();
+    let hr_baseline = if confirming_heart_rate_features.is_empty() {
         None
     } else {
         Some(median(
-            timed_heart_rate_features
+            confirming_heart_rate_features
                 .iter()
                 .map(|(_, feature)| feature.heart_rate_bpm)
                 .collect::<Vec<_>>(),
@@ -5638,19 +5651,28 @@ fn select_sleep_cluster(
             target_midpoint_minutes_since_midnight,
         );
         let is_daytime = midpoint_deviation > SLEEP_DAYTIME_MIDPOINT_DEVIATION_MINUTES;
-        let in_window = || timed_features.iter().filter(move |(m, _)| *m >= start && *m <= end);
+        let in_window = || {
+            timed_features
+                .iter()
+                .filter(move |(m, _)| *m >= start && *m <= end)
+        };
         let count = in_window().count().max(1);
-        let motion_mean =
-            in_window().map(|(_, f)| f.motion_intensity_0_to_1).sum::<f64>() / count as f64;
+        let motion_mean = in_window()
+            .map(|(_, f)| f.motion_intensity_0_to_1)
+            .sum::<f64>()
+            / count as f64;
         let resting_hr = lowest_rolling_mean_hr(
             start,
             end,
-            timed_heart_rate_features,
+            &confirming_heart_rate_features,
             SLEEP_RESTING_HR_WINDOW_MINUTES,
         );
-        let mean_hr = average_heart_rate_for_minute_range(start, end, timed_heart_rate_features);
+        let mean_hr =
+            average_heart_rate_for_minute_range(start, end, &confirming_heart_rate_features);
         let dip_fraction = match (hr_baseline, resting_hr) {
-            (Some(baseline), Some(resting)) if baseline > 0.0 => Some((baseline - resting) / baseline),
+            (Some(baseline), Some(resting)) if baseline > 0.0 => {
+                Some((baseline - resting) / baseline)
+            }
             _ => None,
         };
         let off_wrist_fraction = off_wrist_gap_fraction(
@@ -5697,7 +5719,10 @@ fn select_sleep_cluster(
         let low_motion_score = (1.0 - f.motion_mean).clamp(0.0, 1.0);
         let timing_score = (1.0 - f.midpoint_deviation / (12.0 * 60.0)).clamp(0.0, 1.0);
         let duration_score = (f.span as f64 / 420.0).clamp(0.0, 1.0);
-        let dip_score = f.dip_fraction.map(|d| (d / 0.10).clamp(0.0, 1.0)).unwrap_or(0.0);
+        let dip_score = f
+            .dip_fraction
+            .map(|d| (d / 0.10).clamp(0.0, 1.0))
+            .unwrap_or(0.0);
 
         // Off-wrist backstop: a window mostly without HR is not scoreable sleep.
         let off_wrist = f.off_wrist_fraction >= SLEEP_OFF_WRIST_MAX_FRACTION;
@@ -5783,8 +5808,7 @@ fn select_sleep_cluster(
         // Ranking (orders accepted candidates): a real overnight main sleep
         // should beat a short nap; longer + better-timed + stronger dip wins.
         let overnight_bonus = if f.is_daytime { 0.0 } else { 0.5 };
-        let rank =
-            duration_score + 0.6 * dip_score + 0.4 * timing_score + overnight_bonus;
+        let rank = duration_score + 0.6 * dip_score + 0.4 * timing_score + overnight_bonus;
 
         // Output confidence: HR-confirmed windows are trustworthy; motion-only
         // overnight windows are honestly low.
@@ -5889,6 +5913,11 @@ fn sleep_window_feature(
             .cmp(&right.0)
             .then_with(|| left.1.metric_input_id.cmp(&right.1.metric_input_id))
     });
+    let timed_sleep_heart_rate_features = timed_heart_rate_features
+        .iter()
+        .copied()
+        .filter(|(_, feature)| heart_rate_feature_confirms_sleep(feature))
+        .collect::<Vec<_>>();
 
     // Count parsed motion samples before candidate selection so trimming the
     // window does not get misreported as dropped/unparseable timestamps.
@@ -5927,7 +5956,7 @@ fn sleep_window_feature(
     if timed_heart_rate_features.len() < heart_rate_features.len() {
         quality_flags.insert("unparseable_heart_rate_timestamps_dropped".to_string());
     }
-    if timed_heart_rate_features.is_empty() {
+    if timed_sleep_heart_rate_features.is_empty() {
         quality_flags.insert("stage_hr_unavailable".to_string());
         quality_flags.insert("heart_rate_dip_unavailable".to_string());
     }
@@ -5973,7 +6002,7 @@ fn sleep_window_feature(
                 if let Some(bpm) = average_heart_rate_for_minute_range(
                     pair[0].0,
                     pair[1].0,
-                    &timed_heart_rate_features,
+                    &timed_sleep_heart_rate_features,
                 ) {
                     values.push(bpm);
                 }
@@ -5987,16 +6016,34 @@ fn sleep_window_feature(
     } else {
         Some(median(wake_reference_hr_values))
     };
-    let window_hr_values = timed_heart_rate_features
+    let mut low_motion_hr_values = Vec::new();
+    for pair in timed_features.windows(2) {
+        if pair[1].0 <= pair[0].0 {
+            continue;
+        }
+        if pair[0].1.motion_intensity_0_to_1 <= options.low_motion_threshold_0_to_1 {
+            if let Some(bpm) = average_heart_rate_for_minute_range(
+                pair[0].0,
+                pair[1].0,
+                &timed_sleep_heart_rate_features,
+            ) {
+                low_motion_hr_values.push(bpm);
+            }
+        }
+    }
+    let window_hr_values = timed_sleep_heart_rate_features
         .iter()
         .filter(|(minute, _)| *minute >= first.0 && *minute <= last.0)
         .map(|(_, feature)| feature.heart_rate_bpm)
         .collect::<Vec<_>>();
     let window_min_hr = window_hr_values.iter().copied().reduce(f64::min);
     let window_max_hr = window_hr_values.iter().copied().reduce(f64::max);
+    let sleep_hr_reference = if low_motion_hr_values.len() >= 2 {
+        Some(low_quartile_mean_f64(&low_motion_hr_values))
+    } else {
+        low_motion_hr_values.first().copied().or(window_min_hr)
+    };
     let mut stage_segments = Vec::new();
-    let mut motion_covered_minutes = 0.0;
-    let mut heart_rate_covered_minutes = 0.0;
     let mut large_motion_gap_count = 0usize;
     let mut largest_motion_gap_minutes = 0i64;
     let mut non_increasing_motion_interval_count = 0usize;
@@ -6007,30 +6054,27 @@ fn sleep_window_feature(
             quality_flags.insert("non_increasing_motion_timestamps".to_string());
             continue;
         }
-        let interval_covered_by_motion = interval_minutes <= 90;
         if interval_minutes > 90 {
             large_motion_gap_count += 1;
             largest_motion_gap_minutes = largest_motion_gap_minutes.max(interval_minutes);
             quality_flags.insert("large_motion_feature_gap".to_string());
         }
-        if interval_covered_by_motion {
-            motion_covered_minutes += interval_minutes as f64;
-        }
         let current_motion = pair[0].1.motion_intensity_0_to_1;
         if current_motion >= options.disturbance_motion_threshold_0_to_1 {
             disturbance_count += 1;
         }
-        let heart_rate_bpm =
-            average_heart_rate_for_minute_range(pair[0].0, pair[1].0, &timed_heart_rate_features);
-        if interval_covered_by_motion && heart_rate_bpm.is_some() {
-            heart_rate_covered_minutes += interval_minutes as f64;
-        }
+        let heart_rate_bpm = average_heart_rate_for_minute_range(
+            pair[0].0,
+            pair[1].0,
+            &timed_sleep_heart_rate_features,
+        );
         let (stage, confidence_0_to_1, stage_probabilities, mut segment_flags) = infer_sleep_stage(
             current_motion,
             heart_rate_bpm,
             window_min_hr,
             window_max_hr,
             wake_reference_hr,
+            sleep_hr_reference,
             (pair[0].0 - first.0) as f64 / (last.0 - first.0).max(1) as f64,
             &options,
         );
@@ -6053,7 +6097,7 @@ fn sleep_window_feature(
                 heart_rate_bpm,
                 pair[0].0,
                 pair[1].0,
-                &timed_heart_rate_features,
+                &timed_sleep_heart_rate_features,
             ),
         });
     }
@@ -6068,33 +6112,119 @@ fn sleep_window_feature(
     if stage_segments.len() < compatible_merged_stage_segment_count {
         quality_flags.insert("short_stage_transition_smoothed".to_string());
     }
-    let time_in_bed_minutes = (last.0 - first.0) as f64;
-    if time_in_bed_minutes <= 0.0 {
+    let cluster_time_in_bed_minutes = (last.0 - first.0) as f64;
+    if cluster_time_in_bed_minutes <= 0.0 {
         return None;
-    }
-    let motion_coverage_fraction = (motion_covered_minutes / time_in_bed_minutes).clamp(0.0, 1.0);
-    let heart_rate_coverage_fraction =
-        (heart_rate_covered_minutes / time_in_bed_minutes).clamp(0.0, 1.0);
-    if motion_coverage_fraction < 0.70 {
-        quality_flags.insert("sleep_motion_coverage_low".to_string());
-    }
-    if heart_rate_coverage_fraction < 0.50 {
-        quality_flags.insert("sleep_heart_rate_coverage_low".to_string());
     }
     let first_sleep_start = stage_segments
         .iter()
         .find(|segment| segment.stage != SleepStageKind::Awake)
         .and_then(|segment| parse_rfc3339_utc_unix_ms(&segment.start_time))
         .map(|unix_ms| unix_ms / 60_000);
-    let sleep_latency_minutes = first_sleep_start
-        .map(|start_minute| (start_minute - first.0).max(0) as f64)
-        .unwrap_or(time_in_bed_minutes);
     let last_sleep_end = stage_segments
         .iter()
         .rev()
         .find(|segment| segment.stage != SleepStageKind::Awake)
         .and_then(|segment| parse_rfc3339_utc_unix_ms(&segment.end_time))
         .map(|unix_ms| unix_ms / 60_000);
+    let preserve_motion_only_candidate_bounds = segmentation
+        .quality_flags
+        .iter()
+        .any(|flag| flag == "sleep_candidate_hr_unavailable");
+    let (Some(first_sleep_start_minute), Some(last_sleep_end_minute)) =
+        (first_sleep_start, last_sleep_end)
+    else {
+        return None;
+    };
+    if last_sleep_end_minute <= first_sleep_start_minute {
+        return None;
+    }
+    let (episode_start_minute, episode_end_minute, episode_start_time, episode_end_time) =
+        if preserve_motion_only_candidate_bounds {
+            (
+                first.0,
+                last.0,
+                first.1.sample_time.clone(),
+                last.1.sample_time.clone(),
+            )
+        } else {
+            let start_segment = stage_segments
+                .iter()
+                .find(|segment| !sleep_edge_awake_segment_is_trim_eligible(segment))?;
+            let end_segment = stage_segments
+                .iter()
+                .rev()
+                .find(|segment| !sleep_edge_awake_segment_is_trim_eligible(segment))?;
+            let start_minute = parse_rfc3339_utc_unix_ms(&start_segment.start_time)? / 60_000;
+            let end_minute = parse_rfc3339_utc_unix_ms(&end_segment.end_time)? / 60_000;
+            if end_minute < last.0 || start_minute > first.0 {
+                quality_flags.insert("sleep_window_trimmed_to_sleep_episode".to_string());
+            }
+            (
+                start_minute,
+                end_minute,
+                start_segment.start_time.clone(),
+                end_segment.end_time.clone(),
+            )
+        };
+    stage_segments.retain(|segment| {
+        let Some(start) =
+            parse_rfc3339_utc_unix_ms(&segment.start_time).map(|unix_ms| unix_ms / 60_000)
+        else {
+            return false;
+        };
+        let Some(end) =
+            parse_rfc3339_utc_unix_ms(&segment.end_time).map(|unix_ms| unix_ms / 60_000)
+        else {
+            return false;
+        };
+        end > episode_start_minute && start < episode_end_minute
+    });
+    if stage_segments.is_empty() {
+        return None;
+    }
+    let time_in_bed_minutes = (episode_end_minute - episode_start_minute) as f64;
+    let mut episode_motion_covered = 0.0;
+    let mut episode_hr_covered = 0.0;
+    for pair in timed_features.windows(2) {
+        let interval_start = pair[0].0;
+        let interval_end = pair[1].0;
+        if interval_end <= episode_start_minute || interval_start >= episode_end_minute {
+            continue;
+        }
+        let clipped_start = interval_start.max(episode_start_minute);
+        let clipped_end = interval_end.min(episode_end_minute);
+        let interval_minutes = clipped_end - clipped_start;
+        if interval_minutes <= 0 {
+            continue;
+        }
+        if interval_minutes <= 90 {
+            episode_motion_covered += interval_minutes as f64;
+        }
+        if average_heart_rate_for_minute_range(
+            clipped_start,
+            clipped_end,
+            &timed_sleep_heart_rate_features,
+        )
+        .is_some()
+            && interval_minutes <= 90
+        {
+            episode_hr_covered += interval_minutes as f64;
+        }
+    }
+    let motion_coverage_fraction = (episode_motion_covered / time_in_bed_minutes).clamp(0.0, 1.0);
+    let heart_rate_coverage_fraction = (episode_hr_covered / time_in_bed_minutes).clamp(0.0, 1.0);
+    if motion_coverage_fraction < 0.70 {
+        quality_flags.insert("sleep_motion_coverage_low".to_string());
+    }
+    if heart_rate_coverage_fraction < 0.50 {
+        quality_flags.insert("sleep_heart_rate_coverage_low".to_string());
+    }
+    let sleep_latency_minutes = if preserve_motion_only_candidate_bounds {
+        (first_sleep_start_minute - episode_start_minute).max(0) as f64
+    } else {
+        0.0
+    };
     // Wake-confirmation guard: sleep is reported only after it has ended. A
     // candidate whose last sleep-staged segment reaches into the last few
     // minutes before "now" is still in progress; surfacing it live would
@@ -6140,7 +6270,10 @@ fn sleep_window_feature(
         .iter()
         .filter(|segment| segment.stage != SleepStageKind::Awake)
         .map(|segment| segment.duration_minutes)
-        .sum();
+        .sum::<f64>();
+    if sleep_duration_minutes <= 0.0 {
+        return None;
+    }
     let mut stage_minutes = BTreeMap::new();
     for segment in &stage_segments {
         *stage_minutes
@@ -6150,12 +6283,25 @@ fn sleep_window_feature(
     let sleep_hr_values = raw_stage_segments
         .iter()
         .filter(|segment| segment.stage != SleepStageKind::Awake)
+        .filter(|segment| {
+            let Some(start) =
+                parse_rfc3339_utc_unix_ms(&segment.start_time).map(|unix_ms| unix_ms / 60_000)
+            else {
+                return false;
+            };
+            let Some(end) =
+                parse_rfc3339_utc_unix_ms(&segment.end_time).map(|unix_ms| unix_ms / 60_000)
+            else {
+                return false;
+            };
+            end > episode_start_minute && start < episode_end_minute
+        })
         .filter_map(|segment| segment.heart_rate_bpm)
         .collect::<Vec<_>>();
     let average_sleep_hr_bpm = average_f64(&sleep_hr_values);
     let lowest_sleep_hr_bpm = sleep_hr_values.iter().copied().reduce(f64::min);
     let sleep_hr_trend_bpm_per_hour = sleep_hr_trend_bpm_per_hour(&raw_stage_segments);
-    let pre_sleep_awake_hr_values = raw_stage_segments
+    let pre_sleep_awake_hr_values = stage_segments
         .iter()
         .filter(|segment| segment.stage == SleepStageKind::Awake)
         .filter(|segment| {
@@ -6168,7 +6314,7 @@ fn sleep_window_feature(
         })
         .filter_map(|segment| segment.heart_rate_bpm)
         .collect::<Vec<_>>();
-    let awake_hr_values = raw_stage_segments
+    let awake_hr_values = stage_segments
         .iter()
         .filter(|segment| segment.stage == SleepStageKind::Awake)
         .filter_map(|segment| segment.heart_rate_bpm)
@@ -6194,19 +6340,21 @@ fn sleep_window_feature(
         _ => None,
     };
 
-    let midpoint_minutes_since_midnight = (((first.0 + last.0) / 2).rem_euclid(24 * 60)) as f64;
+    let midpoint_minutes_since_midnight =
+        (((episode_start_minute + episode_end_minute) / 2).rem_euclid(24 * 60)) as f64;
     let midpoint_deviation_minutes = circular_minute_deviation(
         midpoint_minutes_since_midnight,
         options.target_midpoint_minutes_since_midnight,
     );
     let mut input_ids = timed_features
         .iter()
+        .filter(|(minute, _)| *minute >= episode_start_minute && *minute <= episode_end_minute)
         .map(|(_, feature)| feature.metric_input_id.clone())
         .collect::<Vec<_>>();
     input_ids.extend(
-        timed_heart_rate_features
+        timed_sleep_heart_rate_features
             .iter()
-            .filter(|(minute, _)| *minute >= first.0 && *minute <= last.0)
+            .filter(|(minute, _)| *minute >= episode_start_minute && *minute <= episode_end_minute)
             .map(|(_, feature)| feature.metric_input_id.clone()),
     );
     input_ids.sort();
@@ -6214,8 +6362,8 @@ fn sleep_window_feature(
 
     Some(SleepWindowFeature {
         metric_input_id: format!("sleep_window.{}.{}", requested_start, requested_end),
-        start_time: first.1.sample_time.clone(),
-        end_time: last.1.sample_time.clone(),
+        start_time: episode_start_time,
+        end_time: episode_end_time,
         time_in_bed_minutes,
         sleep_duration_minutes,
         sleep_latency_minutes,
@@ -6232,18 +6380,20 @@ fn sleep_window_feature(
         baseline_awake_hr_bpm,
         heart_rate_dip_percent,
         motion_feature_count: timed_features.len(),
-        heart_rate_feature_count: timed_heart_rate_features
+        heart_rate_feature_count: timed_sleep_heart_rate_features
             .iter()
-            .filter(|(minute, _)| *minute >= first.0 && *minute <= last.0)
+            .filter(|(minute, _)| *minute >= episode_start_minute && *minute <= episode_end_minute)
             .count(),
         motion_coverage_fraction,
         heart_rate_coverage_fraction,
         trusted_metric_input: timed_features
             .iter()
             .all(|(_, feature)| feature.trusted_metric_input)
-            && timed_heart_rate_features
+            && timed_sleep_heart_rate_features
                 .iter()
-                .filter(|(minute, _)| *minute >= first.0 && *minute <= last.0)
+                .filter(|(minute, _)| {
+                    *minute >= episode_start_minute && *minute <= episode_end_minute
+                })
                 .all(|(_, feature)| feature.trusted_metric_input),
         quality_flags: quality_flags.into_iter().collect(),
         input_ids,
@@ -6532,6 +6682,14 @@ fn complete_stage_probability_map(segment: &SleepStageSegmentFeature) -> BTreeMa
     )])
 }
 
+fn sleep_edge_awake_segment_is_trim_eligible(segment: &SleepStageSegmentFeature) -> bool {
+    segment.stage == SleepStageKind::Awake
+        && !segment
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "wake_from_high_motion")
+}
+
 fn compatible_sleep_stage_segments(
     left: &SleepStageSegmentFeature,
     right: &SleepStageSegmentFeature,
@@ -6547,6 +6705,7 @@ fn infer_sleep_stage(
     window_min_hr: Option<f64>,
     window_max_hr: Option<f64>,
     wake_reference_hr: Option<f64>,
+    sleep_hr_reference: Option<f64>,
     night_fraction_0_to_1: f64,
     options: &SleepFeatureScoreOptions,
 ) -> (SleepStageKind, f64, BTreeMap<String, f64>, Vec<String>) {
@@ -6614,6 +6773,26 @@ fn infer_sleep_stage(
                 ]),
                 vec!["quiet_rest_hr_at_wake_level".to_string()],
             );
+        }
+    }
+    if motion_intensity_0_to_1 <= options.low_motion_threshold_0_to_1 {
+        let at_wear_block_edge = night_fraction_0_to_1 < 0.25 || night_fraction_0_to_1 > 0.75;
+        if at_wear_block_edge {
+            if let Some(sleep_ref) = sleep_hr_reference {
+                if heart_rate_bpm > sleep_ref * SLEEP_HR_ELEVATED_ABOVE_SLEEP_REFERENCE_FRACTION {
+                    return (
+                        SleepStageKind::Awake,
+                        0.58,
+                        stage_probability_map([
+                            (SleepStageKind::Awake, 0.58),
+                            (SleepStageKind::Core, 0.28),
+                            (SleepStageKind::Deep, 0.07),
+                            (SleepStageKind::Rem, 0.07),
+                        ]),
+                        vec!["quiet_awake_hr_above_sleep_reference".to_string()],
+                    );
+                }
+            }
         }
     }
 
@@ -7202,6 +7381,13 @@ fn resting_heart_rate_baseline_feature(
     })
 }
 
+fn low_quartile_mean_f64(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let take_count = ((sorted.len() as f64) * 0.25).ceil().max(1.0) as usize;
+    sorted.iter().take(take_count).sum::<f64>() / take_count as f64
+}
+
 fn low_quartile_mean_hr(features: &[&HeartRateFeature]) -> f64 {
     let mut values = features
         .iter()
@@ -7461,6 +7647,10 @@ fn heart_rate_feature_time_unix_ms(feature: &HeartRateFeature) -> Option<i64> {
     feature
         .sample_time_unix_ms
         .or_else(|| parse_rfc3339_utc_unix_ms(&feature.sample_time))
+}
+
+fn heart_rate_feature_confirms_sleep(feature: &HeartRateFeature) -> bool {
+    feature.source_signal != "raw_motion_k10_heart_rate"
 }
 
 fn unix_ms_to_rfc3339_utc(unix_ms: i64) -> String {

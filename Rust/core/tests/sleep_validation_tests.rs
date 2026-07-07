@@ -19,8 +19,9 @@ use bull_core::{
         SleepStageLabelValidationOptions, SleepStageLabelValidationReport,
         SleepV1EvidenceFolderOptions, SleepV1ExplanationStabilityOptions, SleepV1ReleaseGateInput,
         SleepV1ReleaseGateReport, SleepWindowLabelValidationEvidenceInput,
-        SleepWindowLabelValidationOptions, run_sleep_window_label_validation_for_store,
-        validate_sleep_v1_evidence_folder, validate_sleep_v1_evidence_folder_with_options,
+        SleepWindowLabelValidationOptions, SleepWindowLabelValidationReport,
+        run_sleep_window_label_validation_for_store, validate_sleep_v1_evidence_folder,
+        validate_sleep_v1_evidence_folder_with_options,
         validate_sleep_v1_explanation_and_stability, validate_sleep_v1_release_gates,
         validate_sleep_v1_stage_labels_for_store,
     },
@@ -1843,9 +1844,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
     if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
         bull_output["components"][0]["name"] = serde_json::json!("sleep need fulfillment");
-        let component_provenance = bull_output["component_provenance"]
-            .as_object_mut()
-            .unwrap();
+        let component_provenance = bull_output["component_provenance"].as_object_mut().unwrap();
         let sleep_need_provenance = component_provenance
             .remove("sleep_need_fulfillment")
             .unwrap();
@@ -1997,9 +1996,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
             .iter_mut()
             .find(|component| component["name"] == "data_confidence")
             .unwrap()["name"] = serde_json::json!("sensor_reliability");
-        let provenance = bull_output["component_provenance"]
-            .as_object_mut()
-            .unwrap();
+        let provenance = bull_output["component_provenance"].as_object_mut().unwrap();
         let data_confidence = provenance.remove("data_confidence").unwrap();
         provenance.insert("sensor_reliability".to_string(), data_confidence);
     }
@@ -2466,10 +2463,7 @@ fn sleep_v1_release_gate_validation_passes_only_when_all_evidence_reports_pass()
     let mut forged_input = input.clone();
     let mut forged_benchmark = forged_input.benchmark_comparisons.remove(0);
     if let Some(bull_output) = forged_benchmark.bull_output.as_mut() {
-        bull_output
-            .as_object_mut()
-            .unwrap()
-            .remove("status_report");
+        bull_output.as_object_mut().unwrap().remove("status_report");
     }
     forged_benchmark.pass = true;
     forged_input.benchmark_comparisons = vec![forged_benchmark];
@@ -3152,6 +3146,67 @@ fn sleep_v1_release_gate_cli_composes_individual_evidence_reports() {
     assert_eq!(input_manifest["min_hand_reviewed_window_comparisons"], 3);
     assert_eq!(input_manifest["min_stage_label_comparisons"], 1);
     assert_eq!(input_manifest["min_benchmark_comparisons"], 1);
+}
+
+#[test]
+fn evidence_folder_sleep_window_json_matches_store_recompute() {
+    let tempdir = tempfile::tempdir().unwrap();
+    write_passing_sleep_v1_evidence_folder(tempdir.path());
+    let input: SleepWindowLabelValidationEvidenceInput = serde_json::from_str(
+        &fs::read_to_string(tempdir.path().join("sleep-window-validation-input.json")).unwrap(),
+    )
+    .unwrap();
+    let on_disk: SleepWindowLabelValidationReport = serde_json::from_str(
+        &fs::read_to_string(tempdir.path().join("sleep-window-validation.json")).unwrap(),
+    )
+    .unwrap();
+    let store =
+        BullStore::open_read_only(&tempdir.path().join("sleep-window-store.sqlite")).unwrap();
+    let recomputed = run_sleep_window_label_validation_for_store(
+        &store,
+        &input.database_path,
+        &input.start,
+        &input.end,
+        input.options,
+    )
+    .unwrap();
+    // Reproducibility here means "recomputes to the same values," not
+    // bit-identical IEEE-754: independent store reads can perturb a derived
+    // float (e.g. a confidence score) by one ULP via summation order. Compare
+    // with a small relative tolerance, matching the evidence-folder validator.
+    assert!(
+        json_values_equal_within_tolerance(
+            &serde_json::to_value(&on_disk).unwrap(),
+            &serde_json::to_value(&recomputed).unwrap(),
+        ),
+        "on-disk sleep-window-validation.json must reproduce store recompute"
+    );
+}
+
+/// Deep JSON equality with a small relative tolerance on numbers; mirrors the
+/// reproducibility policy in `sleep_validation::evidence_report_json_equal`.
+fn json_values_equal_within_tolerance(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => match (a.as_f64(), b.as_f64()) {
+            (Some(x), Some(y)) => x == y || (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0),
+            _ => a == b,
+        },
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(x, y)| json_values_equal_within_tolerance(x, y))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter().all(|(key, x)| {
+                    b.get(key)
+                        .is_some_and(|y| json_values_equal_within_tolerance(x, y))
+                })
+        }
+        _ => left == right,
+    }
 }
 
 #[test]
@@ -5790,10 +5845,7 @@ fn sleep_stage_label_validation_compares_user_owned_stage_labels() {
     .unwrap();
 
     assert!(report.pass, "{:?}", report.issues);
-    assert_eq!(
-        report.schema,
-        "bull.sleep-stage-label-validation-report.v1"
-    );
+    assert_eq!(report.schema, "bull.sleep-stage-label-validation-report.v1");
     assert_eq!(report.label_count, 2);
     assert_eq!(report.compared_label_count, 2);
     assert_eq!(report.passing_label_count, 2);
@@ -5935,18 +5987,17 @@ fn sleep_stage_label_validator_cli_reports_user_owned_stage_matches() {
     let output_path = tempdir.path().join("sleep-stage-validation.json");
     write_json(&input_path, &sleep_v1_quality_gate_input());
 
-    let output =
-        std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-stage-label-validator"))
-            .args([
-                "--db",
-                db.to_str().unwrap(),
-                "--input",
-                input_path.to_str().unwrap(),
-                "--output",
-                output_path.to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bull-sleep-stage-label-validator"))
+        .args([
+            "--db",
+            db.to_str().unwrap(),
+            "--input",
+            input_path.to_str().unwrap(),
+            "--output",
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
 
     assert!(
         output.status.success(),
@@ -6008,14 +6059,6 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
         "strap-capture-2026-01-01".to_string(),
     );
     let sleep_v1_input = sleep_v1_quality_gate_input();
-    let window_report = run_sleep_window_label_validation_for_store(
-        &store,
-        &window_input.database_path,
-        &window_input.start,
-        &window_input.end,
-        window_options,
-    )
-    .unwrap();
     let stability_report = validate_sleep_v1_explanation_and_stability(
         &sleep_v1_input,
         SleepV1ExplanationStabilityOptions::default(),
@@ -6028,6 +6071,21 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
     )
     .unwrap();
     let benchmark_report = compare_sleep_v1_bull_to_reference(&sleep_v1_input).unwrap();
+    drop(store);
+    let store_ro = BullStore::open_read_only(&sleep_window_store_path).unwrap();
+    let window_report = run_sleep_window_label_validation_for_store(
+        &store_ro,
+        &window_input.database_path,
+        &window_input.start,
+        &window_input.end,
+        window_options,
+    )
+    .unwrap();
+    assert!(
+        window_report.pass,
+        "evidence folder window validation must pass: {:?}",
+        window_report.issues
+    );
     let release_gate_input = SleepV1ReleaseGateInput {
         physical_historical_sync: Some(physical_report.clone()),
         sleep_window_label_validation: Some(window_report.clone()),
@@ -6062,10 +6120,6 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
         &physical_report,
     );
     write_json(
-        &evidence_dir.join("sleep-window-validation.json"),
-        &window_report,
-    );
-    write_json(
         &evidence_dir.join("sleep-stage-validation.json"),
         &stage_report,
     );
@@ -6080,6 +6134,45 @@ fn write_passing_sleep_v1_evidence_folder(evidence_dir: &std::path::Path) {
     write_json(
         &evidence_dir.join("sleep-v1-release-gate.json"),
         &release_gate_report,
+    );
+
+    let window_input_on_disk: SleepWindowLabelValidationEvidenceInput = serde_json::from_str(
+        &fs::read_to_string(evidence_dir.join("sleep-window-validation-input.json")).unwrap(),
+    )
+    .unwrap();
+    let store_final = BullStore::open_read_only(&sleep_window_store_path).unwrap();
+    let window_report_final = run_sleep_window_label_validation_for_store(
+        &store_final,
+        &window_input_on_disk.database_path,
+        &window_input_on_disk.start,
+        &window_input_on_disk.end,
+        window_input_on_disk.options,
+    )
+    .unwrap();
+    let window_report_canonical: SleepWindowLabelValidationReport =
+        serde_json::from_value(serde_json::to_value(&window_report_final).unwrap()).unwrap();
+    write_json(
+        &evidence_dir.join("sleep-window-validation.json"),
+        &window_report_canonical,
+    );
+    let release_gate_input_final = SleepV1ReleaseGateInput {
+        physical_historical_sync: Some(physical_report.clone()),
+        sleep_window_label_validation: Some(window_report_canonical.clone()),
+        sleep_stage_label_validation: Some(stage_report.clone()),
+        explanation_stability: Some(stability_report.clone()),
+        benchmark_comparisons: vec![benchmark_report.clone()],
+        min_hand_reviewed_window_comparisons: 3,
+        min_stage_label_comparisons: 1,
+        min_benchmark_comparisons: 1,
+    };
+    let release_gate_report_final = validate_sleep_v1_release_gates(&release_gate_input_final);
+    write_json(
+        &evidence_dir.join("sleep-v1-release-gate-input.json"),
+        &release_gate_input_final,
+    );
+    write_json(
+        &evidence_dir.join("sleep-v1-release-gate.json"),
+        &release_gate_report_final,
     );
 }
 
@@ -6132,7 +6225,7 @@ fn seed_sleep_window_motion(store: &BullStore) {
             captured_at: captured_at.to_string(),
             device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: k10_motion_frame_hex_with_value(sample_value),
-            sensitivity: "user-owned-capture".to_string(),
+            sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
             device_type: DeviceType::Bull,
         }];
@@ -6151,11 +6244,11 @@ fn seed_sleep_window_motion(store: &BullStore) {
 
 fn seed_sleep_window_heart_rate(store: &BullStore) {
     for (index, (captured_at, marker_value)) in [
-        ("2026-05-27T22:00:00Z", 78),
-        ("2026-05-27T23:00:00Z", 70),
-        ("2026-05-28T00:00:00Z", 64),
-        ("2026-05-28T01:00:00Z", 61),
-        ("2026-05-28T02:00:00Z", 63),
+        ("2026-05-27T22:15:00Z", 80),
+        ("2026-05-27T23:15:00Z", 55),
+        ("2026-05-28T00:15:00Z", 55),
+        ("2026-05-28T01:15:00Z", 55),
+        ("2026-05-28T02:15:00Z", 55),
     ]
     .into_iter()
     .enumerate()
@@ -6167,7 +6260,7 @@ fn seed_sleep_window_heart_rate(store: &BullStore) {
             captured_at: captured_at.to_string(),
             device_model: "WHOOP 5.0 Bull".to_string(),
             frame_hex: historical_k18_frame_hex(marker_value),
-            sensitivity: "user-owned-capture".to_string(),
+            sensitivity: "user-owned-live-notification".to_string(),
             capture_session_id: None,
             device_type: DeviceType::Bull,
         }];
@@ -6617,14 +6710,15 @@ fn historical_k18_frame_hex(marker_value: u8) -> String {
         0x66,
         0x55,
         0xaa,
-        marker_value,
+        0x00,
         0xbb,
         0xcc,
         0xdd,
         0xee,
         0xff,
     ];
-    payload.resize(24, 0);
+    payload.resize(80, 0);
+    payload[25] = marker_value;
     hex::encode(build_v5_payload_frame(&payload))
 }
 
