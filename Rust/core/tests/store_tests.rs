@@ -1042,6 +1042,97 @@ fn store_maintenance_compacts_payload_copies_and_reports_file_state() {
 }
 
 #[test]
+fn store_maintenance_vacuums_compacted_payload_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bull.sqlite");
+    let store = BullStore::open(&path).unwrap();
+    let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();
+    let raw_payload = vec![0xab; 64 * 1024];
+    let decoded_payload_hex = "cd".repeat(64 * 1024);
+
+    for i in 0..40 {
+        let evidence_id = format!("maintenance-large-{i:02}");
+        let captured_at = format!("2026-05-27T00:00:{i:02}Z");
+        store
+            .insert_raw_evidence(RawEvidenceInput {
+                evidence_id: &evidence_id,
+                source: "synthetic.fixture",
+                captured_at: &captured_at,
+                device_model: "WHOOP 5.0 Bull",
+                payload: &raw_payload,
+                sensitivity: "public-test-fixture",
+                capture_session_id: None,
+            })
+            .unwrap();
+        store
+            .insert_decoded_frame(DecodedFrameInput {
+                frame_id: &format!("{evidence_id}.frame.0"),
+                evidence_id: &evidence_id,
+                parsed: &parsed,
+                parser_version: "bull-core/0.1.0",
+            })
+            .unwrap();
+    }
+
+    {
+        let conn = Connection::open(&path).unwrap();
+        for i in 0..40 {
+            conn.execute(
+                "UPDATE decoded_frames SET payload_hex = ?1 WHERE frame_id = ?2",
+                params![
+                    &decoded_payload_hex,
+                    format!("maintenance-large-{i:02}.frame.0"),
+                ],
+            )
+            .unwrap();
+        }
+    }
+
+    let page_bytes_before = store.database_byte_size().unwrap();
+    assert!(
+        page_bytes_before > 4 * 1024 * 1024,
+        "test fixture should allocate enough pages before maintenance"
+    );
+
+    let report = store
+        .maintain(StoreMaintenanceOptions {
+            raw_payload_limit_bytes: 0,
+            decoded_payload_limit_bytes: 0,
+            vacuum_min_free_bytes: 4096,
+            vacuum_min_free_percent: 1,
+        })
+        .unwrap();
+
+    eprintln!(
+        "maintenance shrink: pages {} -> {}, bytes {} -> {}, vacuumed={}",
+        report.page_count_before,
+        report.page_count_after,
+        report.file_bytes_before,
+        report.file_bytes_after,
+        report.vacuumed
+    );
+
+    assert_eq!(report.file_bytes_before, page_bytes_before);
+    assert!(report.vacuumed, "freelist threshold should trigger VACUUM");
+    assert!(
+        report.page_count_after < report.page_count_before,
+        "expected VACUUM to shrink page count (before={}, after={})",
+        report.page_count_before,
+        report.page_count_after
+    );
+    assert!(
+        report.file_bytes_after < report.file_bytes_before,
+        "expected file bytes to shrink (before={}, after={})",
+        report.file_bytes_before,
+        report.file_bytes_after
+    );
+    assert_eq!(report.raw_evidence.after_bytes, 0);
+    assert_eq!(report.decoded_frames.after_bytes, 0);
+    assert_eq!(store.table_count("raw_evidence").unwrap(), 40);
+    assert_eq!(store.table_count("decoded_frames").unwrap(), 40);
+}
+
+#[test]
 fn decoded_frame_requires_existing_raw_evidence() {
     let store = BullStore::open_in_memory().unwrap();
     let parsed = parse_frame_hex(DeviceType::Bull, GET_HELLO_FRAME).unwrap();

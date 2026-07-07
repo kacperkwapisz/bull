@@ -43,6 +43,14 @@ const STORE_RETENTION_DAYS = Math.max(
   Number(process.env.BULL_STORE_RETENTION_DAYS ?? "5") || 5,
 )
 
+// Server hot-store maintenance caps. Raw bundles in object storage are the
+// source of record, so SQLite keeps only a bounded recent payload cache while
+// retaining decoded rows, parsed payload JSON, and all metric tables.
+const SERVER_STORE_RAW_PAYLOAD_LIMIT_BYTES = 64 * 1024 * 1024
+const SERVER_STORE_DECODED_PAYLOAD_LIMIT_BYTES = 64 * 1024 * 1024
+const SERVER_STORE_VACUUM_MIN_FREE_BYTES = 64 * 1024 * 1024
+const SERVER_STORE_VACUUM_MIN_FREE_PERCENT = 10
+
 // Plausible main-sleep duration band, mirroring the Rust nightly gate
 // (`MIN/MAX_MAIN_SLEEP_MINUTES` in bridge.rs). Used to purge physiologically
 // impossible sleep rows from the durable projection. No real night is shorter
@@ -220,6 +228,42 @@ async function pruneHotStoreRetentionWindow(
   }
 }
 
+type StoreMaintenancePayloadReport = {
+  compacted_rows?: number
+}
+
+type StoreMaintenanceReport = {
+  file_bytes_before?: number
+  file_bytes_after?: number
+  vacuumed?: boolean
+  wal_bytes_before?: number
+  wal_bytes_after?: number
+  wal_checkpoint_busy?: boolean
+  raw_evidence?: StoreMaintenancePayloadReport
+  decoded_frames?: StoreMaintenancePayloadReport
+}
+
+function megabytes(bytes: number | undefined): string {
+  return `${((bytes ?? 0) / 1_000_000).toFixed(1)}MB`
+}
+
+async function maintainHotStore(core: BullCore, userId: string, dbPath: string): Promise<void> {
+  try {
+    const report = await core.request<StoreMaintenanceReport>("store.maintain", {
+      database_path: dbPath,
+      raw_payload_limit_bytes: SERVER_STORE_RAW_PAYLOAD_LIMIT_BYTES,
+      decoded_payload_limit_bytes: SERVER_STORE_DECODED_PAYLOAD_LIMIT_BYTES,
+      vacuum_min_free_bytes: SERVER_STORE_VACUUM_MIN_FREE_BYTES,
+      vacuum_min_free_percent: SERVER_STORE_VACUUM_MIN_FREE_PERCENT,
+    })
+    console.log(
+      `[compute] ${userId} store maintenance: db=${megabytes(report.file_bytes_before)}->${megabytes(report.file_bytes_after)} vacuumed=${report.vacuumed === true} raw_compacted=${report.raw_evidence?.compacted_rows ?? 0} decoded_compacted=${report.decoded_frames?.compacted_rows ?? 0} wal=${megabytes(report.wal_bytes_before)}->${megabytes(report.wal_bytes_after)} busy=${report.wal_checkpoint_busy === true}`,
+    )
+  } catch (error) {
+    console.error(`[compute] ${userId} store maintenance failed: ${errorMessage(error)}`)
+  }
+}
+
 /** UTC day/hour windows for the run_pipeline call, derived from server "now". */
 function pipelineWindows(now: Date) {
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -285,6 +329,21 @@ async function importBundleFrames(
  * user's store and fold the results into Postgres. This scans the whole store,
  * so it must run ONCE per drain cycle, not per bundle. */
 async function computeUserStore(
+  db: Db,
+  core: BullCore,
+  userId: string,
+  dbPath: string,
+  config?: ParseBundleConfig,
+  dataDays?: Set<string>,
+): Promise<void> {
+  try {
+    await computeUserStoreProjections(db, core, userId, dbPath, config, dataDays)
+  } finally {
+    await maintainHotStore(core, userId, dbPath)
+  }
+}
+
+async function computeUserStoreProjections(
   db: Db,
   core: BullCore,
   userId: string,
