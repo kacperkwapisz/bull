@@ -24,6 +24,34 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   // reason to keep them locally — drop all synced frames and retain only the
   // not-yet-uploaded buffer. A far-future cutoff means "all synced".
   static let drainAllSyncedBefore = "9999-12-31T23:59:59Z"
+  /// Local-first retention: when the phone computes its own scores it must keep a
+  /// recent window of captured frames on-device to score from. Only synced
+  /// frames older than this window are pruned. Server mode drops all synced
+  /// frames (the server holds the durable copy). Kept a touch wider than the
+  /// score scan window so a night at the edge is still fully scoreable.
+  static let localFirstRetentionDays = 16
+
+  /// The `captured_before` cutoff for pruning synced frames, honouring compute
+  /// mode. Nonisolated so the background drain queue can read it without hopping
+  /// to the main actor.
+  static func syncedPruneCutoff(now: Date = Date()) -> String {
+    let args = ProcessInfo.processInfo.arguments
+    let localMode: Bool
+    if args.contains("--bull-compute-server") {
+      localMode = false
+    } else if args.contains("--bull-compute-local") {
+      localMode = true
+    } else if let raw = UserDefaults.standard.string(forKey: "bull.compute.mode") {
+      localMode = raw != "server"
+    } else {
+      localMode = true
+    }
+    guard localMode else { return drainAllSyncedBefore }
+    let cutoff = now.addingTimeInterval(-Double(localFirstRetentionDays) * 86_400)
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.string(from: cutoff)
+  }
   /// Safety bound on bundles drained per pass (each pass is re-entrant-safe).
   private static let maxBundlesPerPass = 512
   /// Minimum decoded payload to bother uploading on a non-forced (continuous)
@@ -143,7 +171,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     // server-side and are read back over the API.
     if let pruneResult = try? bridge.request(
       method: "store.prune_synced_frames",
-      args: ["database_path": databasePath, "captured_before": Self.drainAllSyncedBefore]
+      args: ["database_path": databasePath, "captured_before": Self.syncedPruneCutoff()]
     ) {
       let removed = (pruneResult["removed"] as? Int) ?? 0
       if removed > 0 { log("drain.pruned", "removed=\(removed)") }
