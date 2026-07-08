@@ -1406,8 +1406,8 @@ fn motion_feature_extraction_normalizes_historical_k21_sample_time() {
     let report = run_motion_feature_report_for_store(
         &store,
         "test-db",
-        "2026-01-01T19:00:00Z",
         "2026-01-01T21:00:00Z",
+        "2026-01-01T23:00:00Z",
         MotionFeatureOptions {
             min_owned_captures_per_summary: 1,
             require_trusted_evidence: true,
@@ -1519,8 +1519,8 @@ fn sleep_feature_score_report_uses_device_sample_time_for_sleep_epochs() {
     let report = run_sleep_feature_score_report_for_store(
         &store,
         "test-db",
-        "2026-01-01T19:00:00Z",
         "2026-01-01T21:00:00Z",
+        "2026-01-02T03:00:00Z",
         SleepFeatureScoreOptions {
             min_owned_captures_per_summary: 1,
             require_trusted_evidence: true,

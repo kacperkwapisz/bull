@@ -1107,8 +1107,8 @@ pub fn run_motion_feature_report_for_store(
     let correlation = run_capture_correlation_for_store(
         store,
         database_path,
-        start,
-        end,
+        "0000",
+        "9999",
         CaptureCorrelationOptions {
             min_owned_captures_per_summary: options.min_owned_captures_per_summary,
             require_owned_captures: options.require_trusted_evidence,
@@ -1121,7 +1121,12 @@ pub fn run_motion_feature_report_for_store(
     let trusted_frames = motion_trusted_frames(&correlation);
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
-    store.for_each_decoded_frame_between(start, end, |row| {
+    // Historical sync packets are captured/uploaded when the phone reconnects,
+    // but their physiological sample_time belongs to the device's recorded
+    // history. Scan the retained hot store and filter the derived features by
+    // sample_time so a morning sync can populate the prior night's sleep window
+    // instead of being attributed to the upload time.
+    store.for_each_decoded_frame_between("0000", "9999", |row| {
         push_motion_feature(
             &row,
             &trusted_frames,
@@ -1129,6 +1134,7 @@ pub fn run_motion_feature_report_for_store(
             &mut features,
         )
     })?;
+    features.retain(|feature| sample_time_in_requested_window(&feature.sample_time, start, end));
     Ok(assemble_motion_report(
         features,
         candidate_frame_count,
@@ -1232,8 +1238,8 @@ pub fn run_heart_rate_feature_report_for_store(
     let correlation = run_capture_correlation_for_store(
         store,
         database_path,
-        start,
-        end,
+        "0000",
+        "9999",
         CaptureCorrelationOptions {
             min_owned_captures_per_summary: options.min_owned_captures_per_summary,
             require_owned_captures: options.require_trusted_evidence,
@@ -1250,7 +1256,9 @@ pub fn run_heart_rate_feature_report_for_store(
     let mut r20_chunk_evidence_id = String::new();
     let mut r20_chunk_captured_at = String::new();
     let mut r20_frames_in_chunk = 0usize;
-    store.for_each_decoded_frame_between(start, end, |row| {
+    // See run_motion_feature_report_for_store: historical packets must be
+    // windowed by derived physiological sample_time, not by upload/capture time.
+    store.for_each_decoded_frame_between("0000", "9999", |row| {
         push_heart_rate_feature(
             &row,
             &trusted_frames,
@@ -1342,6 +1350,7 @@ pub fn run_heart_rate_feature_report_for_store(
             }
         }
     }
+    features.retain(|feature| sample_time_in_requested_window(&feature.sample_time, start, end));
     Ok(assemble_heart_rate_report(
         features,
         candidate_frame_count,
@@ -7666,6 +7675,17 @@ fn unix_ms_to_rfc3339_utc(unix_ms: i64) -> String {
         format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
     } else {
         format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
+    }
+}
+
+fn sample_time_in_requested_window(sample_time: &str, start: &str, end: &str) -> bool {
+    match (
+        parse_rfc3339_utc_unix_ms(sample_time),
+        parse_rfc3339_utc_unix_ms(start),
+        parse_rfc3339_utc_unix_ms(end),
+    ) {
+        (Some(sample), Some(start_ms), Some(end_ms)) => sample >= start_ms && sample < end_ms,
+        _ => sample_time >= start && sample_time < end,
     }
 }
 
