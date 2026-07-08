@@ -1375,6 +1375,9 @@ fn heart_rate_feature_is_suspicious_v18_sleep_artifact(feature: &HeartRateFeatur
     if feature.source_signal != "v18_history_hr" {
         return false;
     }
+    if !(35.0..=120.0).contains(&feature.heart_rate_bpm) {
+        return true;
+    }
     if !feature
         .quality_flags
         .iter()
