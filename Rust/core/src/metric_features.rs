@@ -1371,6 +1371,22 @@ fn heart_rate_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap
     )
 }
 
+fn heart_rate_feature_is_suspicious_v18_sleep_artifact(feature: &HeartRateFeature) -> bool {
+    if feature.source_signal != "v18_history_hr" {
+        return false;
+    }
+    if !feature
+        .quality_flags
+        .iter()
+        .any(|flag| flag == "device_timestamp_subseconds_out_of_range")
+    {
+        return false;
+    }
+    [32.0, 64.0, 96.0]
+        .iter()
+        .any(|artifact| (feature.heart_rate_bpm - artifact).abs() < f64::EPSILON)
+}
+
 fn push_heart_rate_feature(
     row: &DecodedFrameRow,
     trusted_frames: &BTreeMap<String, bool>,
@@ -2562,8 +2578,19 @@ pub fn run_sleep_feature_score_report_for_store(
         issues.push("disturbance_motion_threshold_invalid".to_string());
     }
 
+    // Some real v18 history frames currently expose quantized 32/64/96 markers
+    // with invalid subseconds; those are decoder artifacts, not physiological
+    // HR. Keep v18 available for calibrated/test fixtures, but exclude this
+    // suspicious production shape from sleep staging so a valid motion-history
+    // night is not chopped into false deep/awake fragments.
+    let sleep_heart_rate_features = heart_rate_features
+        .iter()
+        .copied()
+        .filter(|feature| !heart_rate_feature_is_suspicious_v18_sleep_artifact(feature))
+        .collect::<Vec<_>>();
+
     let sleep_window = if issues.is_empty() {
-        sleep_window_feature(start, end, &motion_features, &heart_rate_features, options)
+        sleep_window_feature(start, end, &motion_features, &sleep_heart_rate_features, options)
     } else {
         None
     };
