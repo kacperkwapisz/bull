@@ -102,5 +102,39 @@ export function adminRoutes(env: Env) {
     }
   })
 
-  return new Hyper({ prefix: "" }).use([resetStore, drain, debug])
+  const debugSleep = route.get("/admin/debug/sleep").handle(async ({ req }) => {
+    const auth = req.headers.get("authorization")
+    if (auth !== `Bearer ${secret}`) return json(401, { error: "unauthorized" })
+    if (!env.BULL_CORE_BIN || !env.BULL_CORE_DATA_DIR) return json(503, { error: "not_configured" })
+    const url = new URL(req.url)
+    const userId = url.searchParams.get("userId")?.trim()
+    const start = url.searchParams.get("start")?.trim()
+    const end = url.searchParams.get("end")?.trim()
+    if (!userId) return json(400, { error: "userId required" })
+    if (!start || !end) return json(400, { error: "start and end required" })
+    const dbPath = deviceStorePath(env.BULL_CORE_DATA_DIR, userId)
+    const core = new BullCore(env.BULL_CORE_BIN)
+    try {
+      const report = await core.request("metrics.sleep_score_from_features", {
+        database_path: dbPath,
+        start,
+        end,
+        algorithm_id: "bull_sleep_v0",
+        algorithm_version: "0.1.0",
+        min_owned_captures: 1,
+        require_trusted_evidence: false,
+        sleep_need_minutes: 480.0,
+        low_motion_threshold_0_to_1: 0.05,
+        disturbance_motion_threshold_0_to_1: 0.20,
+        target_midpoint_minutes_since_midnight: 180.0,
+        persist_algorithm_run: false,
+        persist_nightly: false,
+      })
+      return ok(report)
+    } finally {
+      core.close()
+    }
+  })
+
+  return new Hyper({ prefix: "" }).use([resetStore, drain, debug, debugSleep])
 }
