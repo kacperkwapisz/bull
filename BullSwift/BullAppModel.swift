@@ -290,9 +290,9 @@ final class BullAppModel: ObservableObject {
   static let heartRateHourlyRangePublishInterval: TimeInterval = 1
   static let packetUIStatePublishInterval: TimeInterval = 0.2
   static let restingHeartRateFrameWriteInterval: TimeInterval = 0.1
-  static let captureFrameWriteQueueMaxRows = 2048
-  static let captureFrameWriteBatchMaxRows = 128
-  static let captureFrameWriteCoalesceDelay: TimeInterval = 0.05
+  static let captureFrameWriteQueueMaxRows = 16_384
+  static let captureFrameWriteBatchMaxRows = 512
+  static let captureFrameWriteCoalesceDelay: TimeInterval = 0.02
   static let passiveActivityCaptureDuration: TimeInterval = 12 * 60 * 60
   static let movementPacketStatusInterval: TimeInterval = 1
   static let movementPacketLogInterval: TimeInterval = 5
@@ -425,8 +425,17 @@ final class BullAppModel: ObservableObject {
       queue: .main
     ) { [weak self] _ in
       guard let self else { return }
-      self.ble.record(source: "storage.drain", title: "historical_sync_complete.force_drain")
-      self.frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
+      self.ble.record(source: "storage.drain", title: "historical_sync_complete.force_drain.scheduled")
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        guard let self else { return }
+        self.ble.record(source: "storage.drain", title: "historical_sync_complete.force_drain")
+        self.frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+        guard let self else { return }
+        self.ble.record(source: "storage.drain", title: "historical_sync_complete.tail_force_drain")
+        self.frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
+      }
     }
     ble.record(source: "app", title: "model.init")
     prepareClientHello()

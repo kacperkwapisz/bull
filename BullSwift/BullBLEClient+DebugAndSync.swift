@@ -397,6 +397,9 @@ extension BullBLEClient {
   func scheduleHistoricalIdleCompletion(reason: String) {
     historicalIdleWorkItem?.cancel()
     let runID = historicalSyncRunID
+    let idleGrace = historicalPacketsReceivedThisSync > 0 && !historyEndReceived && !historyCompleteReceived
+      ? historicalPacketBurstIdleGrace
+      : 12
     let workItem = DispatchWorkItem { [weak self] in
       guard let self,
             self.historicalSyncRunID == runID,
@@ -413,12 +416,43 @@ extension BullBLEClient {
       self.completeHistoricalSync(reason: reason)
     }
     historicalIdleWorkItem = workItem
-    DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: workItem)
+    DispatchQueue.main.asyncAfter(deadline: .now() + idleGrace, execute: workItem)
   }
 
   func retryHistoricalTransferAfterIdleIfNeeded(reason: String) -> Bool {
-    guard !historicalRangePollOnly,
-          historicalPacketsReceivedThisSync == 0 else {
+    guard !historicalRangePollOnly else {
+      return false
+    }
+
+    if historicalPacketsReceivedThisSync > 0 && !historyEndReceived && !historyCompleteReceived {
+      guard historicalTransferRequestAttemptCount < historicalPartialTransferMaxRequestAttempts else {
+        record(
+          level: .warn,
+          source: "ble.sync",
+          title: "historical_sync.partial_transfer.exhausted",
+          body: "packets=\(historicalPacketsReceivedThisSync) attempts=\(historicalTransferRequestAttemptCount) reason=\(reason)"
+        )
+        return false
+      }
+      historicalSyncStatus = "waiting"
+      record(
+        level: .warn,
+        source: "ble.sync",
+        title: "historical_sync.partial_transfer.retry",
+        body: "packets=\(historicalPacketsReceivedThisSync) attempts=\(historicalTransferRequestAttemptCount) reason=\(reason)"
+      )
+      publishSyncToast(phase: .syncing, detail: "Continuing historical transfer")
+      notifyHistoricalSyncProgress(
+        status: "waiting",
+        detail: "Continuing historical transfer after \(historicalPacketsReceivedThisSync) packets",
+        terminal: false,
+        failed: false
+      )
+      writeHistoricalCommand(.sendHistoricalData)
+      return true
+    }
+
+    guard historicalPacketsReceivedThisSync == 0 else {
       return false
     }
     guard historicalTransferRequestAttemptCount < historicalTransferMaxRequestAttempts else {

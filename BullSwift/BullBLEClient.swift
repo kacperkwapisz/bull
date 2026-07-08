@@ -330,6 +330,8 @@ final class BullBLEClient: NSObject, ObservableObject {
   let historicalRangeRetryDelay: TimeInterval = 1
   let historicalRangeMaxRetries = 2
   let historicalTransferMaxRequestAttempts = 3
+  let historicalPartialTransferMaxRequestAttempts = 8
+  let historicalPacketBurstIdleGrace: TimeInterval = 30
   var historicalSyncRunID = UUID()
   var historicalRangePollOnly = false
   var autoStartedPhysiologyCapture = false
