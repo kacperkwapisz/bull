@@ -2591,7 +2591,13 @@ pub fn run_sleep_feature_score_report_for_store(
         .collect::<Vec<_>>();
 
     let sleep_window = if issues.is_empty() {
-        sleep_window_feature(start, end, &motion_features, &sleep_heart_rate_features, options)
+        sleep_window_feature(
+            start,
+            end,
+            &motion_features,
+            &sleep_heart_rate_features,
+            options,
+        )
     } else {
         None
     };
@@ -2646,6 +2652,142 @@ pub fn run_sleep_feature_score_report_for_store(
     })
 }
 
+fn folded_baseline_is_ready(
+    state: &crate::baselines::BaselineState,
+    baseline_min_days: usize,
+) -> bool {
+    state.is_usable() && state.n_valid >= baseline_min_days
+}
+
+fn folded_baseline_provenance(
+    metric: &str,
+    start: &str,
+    end: &str,
+    state: &crate::baselines::BaselineState,
+    baseline_min_days: usize,
+) -> serde_json::Value {
+    json!({
+        "input_source": "daily_recovery_metrics",
+        "method": "winsorized_ewma_daily_recovery_metrics",
+        "metric": metric,
+        "baseline_min_days": baseline_min_days,
+        "observed_nights": state.n_valid,
+        "trust_level": state.status.as_str(),
+        "nights_since_update": state.nights_since_update,
+        "spread": state.spread,
+        "requested_start_time": start,
+        "requested_end_time": end,
+        "current_day_policy": "fold_from_store_replays_available_daily_recovery_metrics_rows_in_order",
+    })
+}
+
+fn folded_hrv_baseline_report(
+    start: &str,
+    end: &str,
+    options: HrvFeatureOptions,
+    state: &crate::baselines::BaselineState,
+) -> HrvFeatureReport {
+    let baseline =
+        folded_baseline_is_ready(state, options.baseline_min_days).then(|| HrvBaselineFeature {
+            metric_input_id: format!("hrv_baseline.daily_recovery_metrics.{}.{}", start, end),
+            hrv_baseline_rmssd_ms: state.baseline,
+            method: "winsorized_ewma_daily_recovery_metrics".to_string(),
+            day_count: state.n_valid,
+            trusted_metric_input: matches!(state.status, crate::baselines::BaselineStatus::Trusted),
+            input_ids: Vec::new(),
+            provenance: folded_baseline_provenance(
+                "hrv_rmssd_ms",
+                start,
+                end,
+                state,
+                options.baseline_min_days,
+            ),
+        });
+    let mut issues = Vec::new();
+    if options.require_baseline && baseline.is_none() {
+        issues.push("hrv_baseline_min_days_not_met".to_string());
+    }
+    let next_actions = metric_feature_next_actions("hrv", &issues);
+
+    HrvFeatureReport {
+        schema: HRV_FEATURE_REPORT_SCHEMA.to_string(),
+        generated_by: "bull-hrv-feature-extractor".to_string(),
+        pass: issues.is_empty(),
+        require_trusted_evidence: options.require_trusted_evidence,
+        capture_correlation_pass: true,
+        start_time: start.to_string(),
+        end_time: end.to_string(),
+        candidate_frame_count: 0,
+        feature_count: 0,
+        trusted_feature_count: 0,
+        rr_interval_count: 0,
+        trusted_rr_interval_count: 0,
+        min_rr_intervals_to_compute: options.min_rr_intervals_to_compute,
+        require_baseline: options.require_baseline,
+        baseline_min_days: options.baseline_min_days,
+        daily_count: state.n_valid,
+        hrv_input: None,
+        score_result: None,
+        baseline,
+        daily: Vec::new(),
+        features: Vec::new(),
+        issues,
+        next_actions,
+    }
+}
+
+fn folded_resting_heart_rate_baseline_feature(
+    start: &str,
+    end: &str,
+    options: RestingHeartRateFeatureOptions,
+    state: &crate::baselines::BaselineState,
+) -> Option<RestingHeartRateBaselineFeature> {
+    folded_baseline_is_ready(state, options.baseline_min_days).then(|| {
+        RestingHeartRateBaselineFeature {
+            metric_input_id: format!(
+                "resting_hr_baseline.daily_recovery_metrics.{}.{}",
+                start, end
+            ),
+            resting_hr_baseline_bpm: state.baseline,
+            method: "winsorized_ewma_daily_recovery_metrics".to_string(),
+            day_count: state.n_valid,
+            trusted_metric_input: matches!(state.status, crate::baselines::BaselineStatus::Trusted),
+            input_ids: Vec::new(),
+            provenance: folded_baseline_provenance(
+                "resting_hr_bpm",
+                start,
+                end,
+                state,
+                options.baseline_min_days,
+            ),
+        }
+    })
+}
+
+fn apply_folded_resting_heart_rate_baseline(
+    report: &mut RestingHeartRateFeatureReport,
+    start: &str,
+    end: &str,
+    options: RestingHeartRateFeatureOptions,
+    state: &crate::baselines::BaselineState,
+) {
+    report.require_baseline = options.require_baseline;
+    report.baseline_min_days = options.baseline_min_days;
+    report.baseline = folded_resting_heart_rate_baseline_feature(start, end, options, state);
+    report
+        .issues
+        .retain(|issue| issue != "resting_hr_baseline_min_days_not_met");
+    if options.require_baseline && report.baseline.is_none() {
+        report
+            .issues
+            .push("resting_hr_baseline_min_days_not_met".to_string());
+    }
+    report.issues.sort();
+    report.issues.dedup();
+    report.pass = report.issues.is_empty();
+    report.next_actions = metric_feature_next_actions("resting_hr", &report.issues);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_recovery_feature_score_report_for_store(
     store: &BullStore,
@@ -2677,9 +2819,8 @@ pub fn run_recovery_feature_score_report_for_store(
             require_baseline: false,
         },
     )?;
-    let hrv_baseline_report = run_hrv_feature_report_for_store(
-        store,
-        database_path,
+    let personal_baseline = crate::baselines::PersonalBaseline::fold_from_store(store)?;
+    let hrv_baseline_report = folded_hrv_baseline_report(
         hrv_baseline_start,
         hrv_baseline_end,
         HrvFeatureOptions {
@@ -2689,8 +2830,9 @@ pub fn run_recovery_feature_score_report_for_store(
             baseline_min_days: options.hrv_baseline_min_days,
             require_baseline: true,
         },
-    )?;
-    let resting_report = run_resting_heart_rate_feature_report_for_store(
+        &personal_baseline.hrv,
+    );
+    let mut resting_report = run_resting_heart_rate_feature_report_for_store(
         store,
         database_path,
         resting_start,
@@ -2699,9 +2841,21 @@ pub fn run_recovery_feature_score_report_for_store(
             min_owned_captures_per_summary: options.min_owned_captures_per_summary,
             require_trusted_evidence: options.require_trusted_evidence,
             baseline_min_days: options.resting_baseline_min_days,
-            require_baseline: true,
+            require_baseline: false,
         },
     )?;
+    apply_folded_resting_heart_rate_baseline(
+        &mut resting_report,
+        resting_start,
+        resting_end,
+        RestingHeartRateFeatureOptions {
+            min_owned_captures_per_summary: options.min_owned_captures_per_summary,
+            require_trusted_evidence: options.require_trusted_evidence,
+            baseline_min_days: options.resting_baseline_min_days,
+            require_baseline: true,
+        },
+        &personal_baseline.resting_hr,
+    );
     let sleep_report = run_sleep_feature_score_report_for_store(
         store,
         database_path,
@@ -2733,7 +2887,12 @@ pub fn run_recovery_feature_score_report_for_store(
             max_hr_bpm: options.prior_strain_max_hr_bpm,
         },
     )?;
-    let provided_vitals = recovery_provided_vitals_feature(start, end, &options);
+    let folded_resp_baseline_rpm = personal_baseline
+        .respiratory_rate
+        .is_usable()
+        .then_some(personal_baseline.respiratory_rate.baseline);
+    let provided_vitals =
+        recovery_provided_vitals_feature(start, end, &options, folded_resp_baseline_rpm);
 
     let mut issues = Vec::new();
     if !hrv_report.pass {
@@ -2883,7 +3042,6 @@ pub fn run_recovery_feature_score_report_for_store(
         };
         // Try the Winsorized baseline scorer first (z-score + logistic).
         // Falls back to v0 when the personal baseline is still calibrating.
-        let personal_bl = crate::baselines::PersonalBaseline::fold_from_store(store)?;
         let personal_recovery = crate::baselines::recovery_score(
             &crate::baselines::RecoveryInput {
                 hrv: input.hrv_rmssd_ms,
@@ -2892,9 +3050,9 @@ pub fn run_recovery_feature_score_report_for_store(
                 sleep_perf: Some(input.sleep_score_0_to_100 / 100.0),
                 skin_temp_dev: input.skin_temp_delta_c,
             },
-            &personal_bl.hrv,
-            Some(&personal_bl.resting_hr),
-            None,
+            &personal_baseline.hrv,
+            Some(&personal_baseline.resting_hr),
+            Some(&personal_baseline.respiratory_rate),
         );
         let mut result = if let Some(pr) = personal_recovery {
             // Override the v0 score with the baseline-normalized score.
@@ -2911,8 +3069,9 @@ pub fn run_recovery_feature_score_report_for_store(
                 "hrv_z": pr.hrv_z,
                 "rhr_z": pr.rhr_z,
                 "band": pr.band,
-                "hrv_baseline_n": personal_bl.hrv.n_valid,
-                "rhr_baseline_n": personal_bl.resting_hr.n_valid,
+                "hrv_baseline_n": personal_baseline.hrv.n_valid,
+                "rhr_baseline_n": personal_baseline.resting_hr.n_valid,
+                "resp_baseline_n": personal_baseline.respiratory_rate.n_valid,
             });
             v0_result
         } else {
@@ -6926,12 +7085,13 @@ fn recovery_provided_vitals_feature(
     start: &str,
     end: &str,
     options: &RecoveryFeatureScoreOptions,
+    folded_respiratory_rate_baseline_rpm: Option<f64>,
 ) -> Option<RecoveryProvidedVitalsFeature> {
-    let (Some(respiratory_rate_rpm), Some(respiratory_rate_baseline_rpm), Some(skin_temp_delta_c)) = (
-        options.respiratory_rate_rpm,
-        options.respiratory_rate_baseline_rpm,
-        options.skin_temp_delta_c,
-    ) else {
+    let respiratory_rate_baseline_rpm =
+        folded_respiratory_rate_baseline_rpm.or(options.respiratory_rate_baseline_rpm)?;
+    let (Some(respiratory_rate_rpm), Some(skin_temp_delta_c)) =
+        (options.respiratory_rate_rpm, options.skin_temp_delta_c)
+    else {
         return None;
     };
     if respiratory_rate_rpm <= 0.0
@@ -6993,6 +7153,12 @@ fn recovery_provided_vitals_feature(
     quality_flags.sort();
     quality_flags.dedup();
 
+    let respiratory_rate_baseline_source = if folded_respiratory_rate_baseline_rpm.is_some() {
+        "daily_recovery_metrics"
+    } else {
+        "provided_recovery_vitals"
+    };
+
     Some(RecoveryProvidedVitalsFeature {
         metric_input_id: format!("provided_recovery_vitals.{}.{}", start, end),
         respiratory_rate_rpm,
@@ -7004,6 +7170,7 @@ fn recovery_provided_vitals_feature(
         provenance: json!({
             "input_source": source,
             "provided_vitals_provenance": provided_provenance,
+            "respiratory_rate_baseline_source": respiratory_rate_baseline_source,
             "requested_start_time": start,
             "requested_end_time": end,
             "promotion_policy": "packet_derived_recovery_vitals_only",

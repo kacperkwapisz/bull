@@ -17,7 +17,7 @@ use bull_core::{
         DeviceType, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
         build_v5_payload_frame,
     },
-    store::BullStore,
+    store::{BullStore, DailyRecoveryMetricInput},
 };
 
 #[test]
@@ -2481,7 +2481,7 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
     );
     let input = report.recovery_input.unwrap();
     assert_close(input.hrv_rmssd_ms, 25.0);
-    assert_close(input.hrv_baseline_rmssd_ms, 50.0);
+    assert_close(input.hrv_baseline_rmssd_ms, 24.5);
     // Resting HR is the lowest-quartile mean of low-motion HR across the broad
     // resting window; the realistic overnight HR in the sleep window adds
     // low-motion samples, so the quartile mean is 54.6 rather than 54.5.
@@ -2513,11 +2513,150 @@ fn recovery_feature_score_report_builds_local_recovery_from_trusted_feature_repo
             .any(|flag| flag == "provided_resp_temp_inputs_not_packet_derived")
     );
     let output = result.output.unwrap();
-    // Winsorized EWMA baselines produce slightly different z-scores.
+    // Winsorized EWMA baselines are sourced from persisted nightly aggregates.
     assert!(
-        (output.score_0_to_100 - 61.1).abs() < 1.0,
-        "expected ~61, got {}",
+        (output.score_0_to_100 - 60.0).abs() < 2.0,
+        "expected ~60, got {}",
         output.score_0_to_100
+    );
+}
+
+#[test]
+fn recovery_feature_score_report_uses_persisted_baseline_after_raw_frame_pruning() {
+    let store = BullStore::open_in_memory().unwrap();
+    import_recovery_raw_feature_inputs(&store);
+    insert_recovery_baseline_nights(&store, 20);
+    for day in 8..=23 {
+        import_r17_frame_at(
+            &store,
+            "user-owned-live-notification",
+            &[800, 850, 800],
+            &format!("2026-05-{day:02}T04:00:00Z"),
+        );
+    }
+    store
+        .prune_raw_evidence_before("2026-05-24T00:00:00Z")
+        .unwrap();
+    let pruned_baseline_frames = store
+        .decoded_frames_between("2026-05-01T00:00:00Z", "2026-05-24T00:00:00Z")
+        .unwrap();
+    assert!(pruned_baseline_frames.is_empty());
+
+    let report = run_recovery_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-28T06:00:00Z",
+        "2026-05-28T06:05:00Z",
+        "2026-05-28T04:00:00Z",
+        "2026-05-28T05:00:00Z",
+        "2026-05-01T00:00:00Z",
+        "2026-05-24T00:00:00Z",
+        "2026-05-27T00:00:00Z",
+        "2026-05-29T00:00:00Z",
+        "2026-05-27T22:00:00Z",
+        "2026-05-28T03:00:00Z",
+        "2026-05-27T12:00:00Z",
+        "2026-05-27T12:30:00Z",
+        RecoveryFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            resting_baseline_min_days: 3,
+            hrv_min_rr_intervals_to_compute: 2,
+            hrv_baseline_min_days: 3,
+            sleep_need_minutes: 240.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 0.0,
+            prior_strain_resting_baseline_min_days: 1,
+            prior_strain_max_hr_bpm: None,
+            respiratory_rate_rpm: Some(14.0),
+            respiratory_rate_baseline_rpm: None,
+            skin_temp_delta_c: Some(0.0),
+            provided_vitals_source: Some("metrics.recovery_sensor_discovery".to_string()),
+            provided_vitals_provenance_json: Some(
+                r#"{"source_kind":"device_sensor","decoder":"bull_packet_decoder","packet_family":"vital_event","source":"metric_features_test"}"#.to_string(),
+            ),
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.hrv_baseline_report.feature_count, 0);
+    assert_eq!(report.hrv_baseline_report.daily_count, 14);
+    let input = report.recovery_input.as_ref().unwrap();
+    assert_close(input.hrv_baseline_rmssd_ms, 24.5);
+    assert_close(input.resting_hr_baseline_bpm, 55.5);
+    assert_close(input.respiratory_rate_baseline_rpm.unwrap(), 14.0);
+    assert_eq!(
+        report
+            .hrv_baseline_report
+            .baseline
+            .as_ref()
+            .unwrap()
+            .provenance["input_source"],
+        "daily_recovery_metrics"
+    );
+}
+
+#[test]
+fn recovery_feature_score_report_keeps_calibrating_baseline_as_report_issue() {
+    let store = BullStore::open_in_memory().unwrap();
+    import_recovery_raw_feature_inputs(&store);
+    insert_recovery_baseline_nights(&store, 3);
+
+    let report = run_recovery_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-28T06:00:00Z",
+        "2026-05-28T06:05:00Z",
+        "2026-05-28T04:00:00Z",
+        "2026-05-28T05:00:00Z",
+        "2026-05-01T00:00:00Z",
+        "2026-05-24T00:00:00Z",
+        "2026-05-27T00:00:00Z",
+        "2026-05-29T00:00:00Z",
+        "2026-05-27T22:00:00Z",
+        "2026-05-28T03:00:00Z",
+        "2026-05-27T12:00:00Z",
+        "2026-05-27T12:30:00Z",
+        RecoveryFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            resting_baseline_min_days: 3,
+            hrv_min_rr_intervals_to_compute: 2,
+            hrv_baseline_min_days: 3,
+            sleep_need_minutes: 240.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 0.0,
+            prior_strain_resting_baseline_min_days: 1,
+            prior_strain_max_hr_bpm: None,
+            respiratory_rate_rpm: Some(14.0),
+            respiratory_rate_baseline_rpm: None,
+            skin_temp_delta_c: Some(0.0),
+            provided_vitals_source: Some("metrics.recovery_sensor_discovery".to_string()),
+            provided_vitals_provenance_json: Some(
+                r#"{"source_kind":"device_sensor","decoder":"bull_packet_decoder","packet_family":"vital_event","source":"metric_features_test"}"#.to_string(),
+            ),
+        },
+    )
+    .unwrap();
+
+    assert!(!report.pass);
+    assert_eq!(report.hrv_baseline_report.daily_count, 3);
+    assert!(report.hrv_baseline_report.baseline.is_none());
+    assert!(report.recovery_input.is_none());
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "hrv_baseline_report_not_passed")
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "hrv_baseline_missing")
     );
 }
 
@@ -3052,6 +3191,11 @@ fn import_motion_frame(store: &BullStore, sensitivity: &str) {
 }
 
 fn import_recovery_feature_inputs(store: &BullStore) {
+    import_recovery_raw_feature_inputs(store);
+    insert_recovery_baseline_nights(store, 14);
+}
+
+fn import_recovery_raw_feature_inputs(store: &BullStore) {
     for (captured_at, marker) in [
         ("2026-05-25T04:00:00Z", 56),
         ("2026-05-26T04:00:00Z", 55),
@@ -3109,6 +3253,35 @@ fn import_recovery_feature_inputs(store: &BullStore) {
         ("2026-05-28T01:15:00Z", 60),
     ] {
         import_history_frame_at(store, "user-owned-live-notification", marker, captured_at);
+    }
+}
+
+fn insert_recovery_baseline_nights(store: &BullStore, night_count: usize) {
+    let first_day = 28usize.saturating_sub(night_count);
+    for offset in 0..night_count {
+        let day = first_day + offset;
+        let date_key = format!("2026-05-{day:02}");
+        let daily_metric_id = format!("test-recovery-baseline-{date_key}");
+        let start_time_unix_ms = 1_779_926_400_000 + (offset as i64) * 86_400_000;
+        store
+            .insert_daily_recovery_metric(DailyRecoveryMetricInput {
+                daily_metric_id: &daily_metric_id,
+                date_key: &date_key,
+                timezone: "UTC",
+                start_time_unix_ms,
+                end_time_unix_ms: start_time_unix_ms + 86_400_000,
+                resting_hr_bpm: Some(55.5),
+                hrv_rmssd_ms: Some(24.5),
+                respiratory_rate_rpm: Some(14.0),
+                oxygen_saturation_percent: None,
+                skin_temperature_delta_c: Some(36.5),
+                source_kind: "device_sensor",
+                confidence: 1.0,
+                inputs_json: "{}",
+                quality_flags_json: "[]",
+                provenance_json: r#"{"source":"metric_features_test"}"#,
+            })
+            .unwrap();
     }
 }
 

@@ -3337,7 +3337,7 @@ fn bull_recovery_v1_bridge(args: RecoveryV1BridgeArgs) -> BullResult<serde_json:
         &rec_input,
         &personal.hrv,
         Some(&personal.resting_hr),
-        None, // resp baseline not yet tracked
+        Some(&personal.respiratory_rate),
     );
     let trust_level = personal.hrv.status.as_str().to_string();
     let (score, band, z_hrv, z_rhr) = match result {

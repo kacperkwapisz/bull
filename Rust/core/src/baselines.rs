@@ -14,6 +14,8 @@
 ///     EWMA-abs-dev to approximate Gaussian σ
 ///
 /// References: EWMA smoothing (Roberts 1959), Winsorization (Dixon 1960).
+use std::collections::BTreeMap;
+
 use crate::{BullResult, store::BullStore};
 
 // ---------------------------------------------------------------------------
@@ -444,13 +446,17 @@ pub fn recovery_score(
     }
 
     // Sleep performance: no baseline needed; centered at SLEEP_PERF_CENTER.
-    let sleep_z = input.sleep_perf.map(|sp| (sp - SLEEP_PERF_CENTER) / SLEEP_PERF_SCALE);
+    let sleep_z = input
+        .sleep_perf
+        .map(|sp| (sp - SLEEP_PERF_CENTER) / SLEEP_PERF_SCALE);
     if let Some(z) = sleep_z {
         terms.push((z, W_SLEEP));
     }
 
     // Skin temp: symmetric penalty on |deviation|.
-    let skin_z = input.skin_temp_dev.map(|dev| -dev.abs() / SKIN_TEMP_SCALE_C);
+    let skin_z = input
+        .skin_temp_dev
+        .map(|dev| -dev.abs() / SKIN_TEMP_SCALE_C);
     if let Some(z) = skin_z {
         terms.push((z, W_SKIN_TEMP));
     }
@@ -465,8 +471,8 @@ pub fn recovery_score(
     }
 
     let composite_z: f64 = terms.iter().map(|(z, w)| z * w).sum::<f64>() / total_weight;
-    let score = (100.0 / (1.0 + (-LOGISTIC_K * (composite_z - LOGISTIC_Z0)).exp()))
-        .clamp(0.0, 100.0);
+    let score =
+        (100.0 / (1.0 + (-LOGISTIC_K * (composite_z - LOGISTIC_Z0)).exp())).clamp(0.0, 100.0);
 
     let band = if score < BAND_RED_MAX {
         "red"
@@ -497,6 +503,7 @@ pub fn recovery_score(
 pub struct PersonalBaseline {
     pub hrv: BaselineState,
     pub resting_hr: BaselineState,
+    pub respiratory_rate: BaselineState,
 }
 
 impl PersonalBaseline {
@@ -506,27 +513,44 @@ impl PersonalBaseline {
     /// floor subtraction).
     pub fn fold_from_store(store: &BullStore) -> BullResult<Self> {
         let all_rows = store.daily_recovery_metrics_all_ordered()?;
-        // ponytail: take last 14 rows. Old inflated values age out naturally.
-        let rows = if all_rows.len() > 14 {
-            &all_rows[all_rows.len() - 14..]
+        let mut nights = BTreeMap::<String, (Option<f64>, Option<f64>, Option<f64>)>::new();
+        for row in all_rows {
+            let entry = nights.entry(row.date_key).or_default();
+            if row.hrv_rmssd_ms.is_some() {
+                entry.0 = row.hrv_rmssd_ms;
+            }
+            if row.resting_hr_bpm.is_some() {
+                entry.1 = row.resting_hr_bpm;
+            }
+            if row.respiratory_rate_rpm.is_some() {
+                entry.2 = row.respiratory_rate_rpm;
+            }
+        }
+        let nightly_values = nights.into_values().collect::<Vec<_>>();
+        // ponytail: take last 14 nights. Old inflated values age out naturally.
+        let rows = if nightly_values.len() > 14 {
+            &nightly_values[nightly_values.len() - 14..]
         } else {
-            &all_rows
+            &nightly_values
         };
         let mut hrv_state: Option<BaselineState> = None;
         let mut rhr_state: Option<BaselineState> = None;
-        for row in rows {
+        let mut resp_state: Option<BaselineState> = None;
+        for &(hrv_rmssd_ms, resting_hr_bpm, respiratory_rate_rpm) in rows {
             // Skip implausible HRV values (PPG jitter artifact). The HRV_CONFIG
             // max is 250ms but values above 150ms from PPG are almost certainly
             // inflated by quantization noise.
-            let hrv_val = row.hrv_rmssd_ms
-                .filter(|v| v.is_finite() && *v <= 150.0);
-            let rhr_val = row.resting_hr_bpm.filter(|v| v.is_finite());
+            let hrv_val = hrv_rmssd_ms.filter(|v| v.is_finite() && *v <= 150.0);
+            let rhr_val = resting_hr_bpm.filter(|v| v.is_finite());
+            let resp_val = respiratory_rate_rpm.filter(|v| v.is_finite());
             hrv_state = Some(baseline_update(hrv_state.as_ref(), hrv_val, &HRV_CONFIG));
             rhr_state = Some(baseline_update(rhr_state.as_ref(), rhr_val, &RHR_CONFIG));
+            resp_state = Some(baseline_update(resp_state.as_ref(), resp_val, &RESP_CONFIG));
         }
         Ok(Self {
             hrv: hrv_state.unwrap_or_else(|| fold_history(&[], &HRV_CONFIG)),
             resting_hr: rhr_state.unwrap_or_else(|| fold_history(&[], &RHR_CONFIG)),
+            respiratory_rate: resp_state.unwrap_or_else(|| fold_history(&[], &RESP_CONFIG)),
         })
     }
 }
@@ -545,10 +569,14 @@ impl EwmaBaseline {
         let mut baseline = Self::default();
         for row in &rows {
             if let Some(hrv) = row.hrv_rmssd_ms {
-                if hrv.is_finite() { baseline.hrv.fold(hrv); }
+                if hrv.is_finite() {
+                    baseline.hrv.fold(hrv);
+                }
             }
             if let Some(rhr) = row.resting_hr_bpm {
-                if rhr.is_finite() { baseline.resting_hr.fold(rhr); }
+                if rhr.is_finite() {
+                    baseline.resting_hr.fold(rhr);
+                }
             }
         }
         Ok(baseline)
@@ -659,7 +687,10 @@ mod tests {
         let s1 = baseline_update(None, Some(60.0), &HRV_CONFIG);
         // 300 ms is above HRV max (250)
         let s2 = baseline_update(Some(&s1), Some(300.0), &HRV_CONFIG);
-        assert_eq!(s2.n_valid, 1, "out-of-range value must not increment n_valid");
+        assert_eq!(
+            s2.n_valid, 1,
+            "out-of-range value must not increment n_valid"
+        );
     }
 
     #[test]
@@ -707,8 +738,14 @@ mod tests {
     fn test_anti_anchoring_pulls_down_from_high_seed() {
         // First few nights are artificially high, then real values come in lower.
         let vals: Vec<Option<f64>> = vec![
-            Some(120.0), Some(115.0), Some(110.0), // high seed
-            Some(55.0), Some(52.0), Some(54.0), Some(53.0), Some(55.0), // real values
+            Some(120.0),
+            Some(115.0),
+            Some(110.0), // high seed
+            Some(55.0),
+            Some(52.0),
+            Some(54.0),
+            Some(53.0),
+            Some(55.0), // real values
         ];
         let s = fold_history(&vals, &HRV_CONFIG);
         // Without anti-anchoring, baseline would stay near ~110. With it, should converge toward ~55.
@@ -789,7 +826,11 @@ mod tests {
             skin_temp_dev: None,
         };
         let out = recovery_score(&input, &hrv_bl, None, None).unwrap();
-        assert_eq!(out.band, "green", "high HRV should give green, score={}", out.score);
+        assert_eq!(
+            out.band, "green",
+            "high HRV should give green, score={}",
+            out.score
+        );
     }
 
     #[test]
@@ -806,7 +847,11 @@ mod tests {
             skin_temp_dev: None,
         };
         let out = recovery_score(&input, &hrv_bl, None, None).unwrap();
-        assert_eq!(out.band, "red", "low HRV should give red, score={}", out.score);
+        assert_eq!(
+            out.band, "red",
+            "low HRV should give red, score={}",
+            out.score
+        );
     }
 
     // ---- Legacy compat shim -----------------------------------------------
@@ -821,9 +866,18 @@ mod tests {
 
     #[test]
     fn test_legacy_trust_levels() {
-        assert_eq!(EwmaTrustLevel::from_night_count(3), EwmaTrustLevel::Calibrating);
-        assert_eq!(EwmaTrustLevel::from_night_count(4), EwmaTrustLevel::Provisional);
-        assert_eq!(EwmaTrustLevel::from_night_count(14), EwmaTrustLevel::Trusted);
+        assert_eq!(
+            EwmaTrustLevel::from_night_count(3),
+            EwmaTrustLevel::Calibrating
+        );
+        assert_eq!(
+            EwmaTrustLevel::from_night_count(4),
+            EwmaTrustLevel::Provisional
+        );
+        assert_eq!(
+            EwmaTrustLevel::from_night_count(14),
+            EwmaTrustLevel::Trusted
+        );
     }
 
     // ---- Store integration ------------------------------------------------
@@ -863,6 +917,7 @@ mod tests {
         let bl = PersonalBaseline::fold_from_store(&store).expect("fold");
         assert_eq!(bl.hrv.n_valid, 0);
         assert_eq!(bl.resting_hr.n_valid, 0);
+        assert_eq!(bl.respiratory_rate.n_valid, 0);
     }
 
     #[test]
@@ -874,6 +929,7 @@ mod tests {
         let bl = PersonalBaseline::fold_from_store(&store).expect("fold");
         assert_eq!(bl.hrv.n_valid, 3);
         assert_eq!(bl.resting_hr.n_valid, 3);
+        assert_eq!(bl.respiratory_rate.n_valid, 0);
     }
 
     #[test]

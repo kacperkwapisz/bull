@@ -6378,6 +6378,33 @@ fn bridge_builds_local_recovery_score_from_feature_reports_and_provided_vitals()
         }
     }));
     assert!(import.ok, "{:?}", import.error);
+    {
+        let store = BullStore::open(&db).unwrap();
+        for day in 24..=27 {
+            let date_key = format!("2026-05-{day:02}");
+            let daily_metric_id = format!("bridge-recovery-baseline-{date_key}");
+            let start_time_unix_ms = 1_779_926_400_000 + ((day - 24) as i64) * 86_400_000;
+            store
+                .insert_daily_recovery_metric(DailyRecoveryMetricInput {
+                    daily_metric_id: &daily_metric_id,
+                    date_key: &date_key,
+                    timezone: "UTC",
+                    start_time_unix_ms,
+                    end_time_unix_ms: start_time_unix_ms + 86_400_000,
+                    resting_hr_bpm: Some(72.0),
+                    hrv_rmssd_ms: Some(50.0),
+                    respiratory_rate_rpm: Some(14.0),
+                    oxygen_saturation_percent: None,
+                    skin_temperature_delta_c: Some(36.5),
+                    source_kind: "device_sensor",
+                    confidence: 1.0,
+                    inputs_json: "{}",
+                    quality_flags_json: "[]",
+                    provenance_json: r#"{"source":"bridge_test"}"#,
+                })
+                .unwrap();
+        }
+    }
 
     let response = request(serde_json::json!({
         "schema": "bull.bridge.request.v1",
