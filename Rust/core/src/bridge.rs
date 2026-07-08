@@ -7182,6 +7182,82 @@ fn debug_db_overview_bridge(args: DebugDbOverviewArgs) -> BullResult<serde_json:
         .map(|output| output.score_0_to_100);
     let nightly = store.list_daily_sleep_metrics(5)?;
 
+    let mut motion_feature_counts_by_day: BTreeMap<String, i64> = BTreeMap::new();
+    let mut heart_rate_feature_counts_by_day: BTreeMap<String, i64> = BTreeMap::new();
+    let mut motion_sample_time_min: Option<String> = None;
+    let mut motion_sample_time_max: Option<String> = None;
+    let mut heart_rate_sample_time_min: Option<String> = None;
+    let mut heart_rate_sample_time_max: Option<String> = None;
+    for feature in &sleep.motion_report.features {
+        if feature.sample_time.len() >= 10 {
+            *motion_feature_counts_by_day
+                .entry(feature.sample_time[..10].to_string())
+                .or_insert(0) += 1;
+        }
+        if motion_sample_time_min
+            .as_ref()
+            .map(|value| feature.sample_time < *value)
+            .unwrap_or(true)
+        {
+            motion_sample_time_min = Some(feature.sample_time.clone());
+        }
+        if motion_sample_time_max
+            .as_ref()
+            .map(|value| feature.sample_time > *value)
+            .unwrap_or(true)
+        {
+            motion_sample_time_max = Some(feature.sample_time.clone());
+        }
+    }
+    for feature in &sleep.heart_rate_report.features {
+        if feature.sample_time.len() >= 10 {
+            *heart_rate_feature_counts_by_day
+                .entry(feature.sample_time[..10].to_string())
+                .or_insert(0) += 1;
+        }
+        if heart_rate_sample_time_min
+            .as_ref()
+            .map(|value| feature.sample_time < *value)
+            .unwrap_or(true)
+        {
+            heart_rate_sample_time_min = Some(feature.sample_time.clone());
+        }
+        if heart_rate_sample_time_max
+            .as_ref()
+            .map(|value| feature.sample_time > *value)
+            .unwrap_or(true)
+        {
+            heart_rate_sample_time_max = Some(feature.sample_time.clone());
+        }
+    }
+    let motion_feature_samples: Vec<_> = sleep
+        .motion_report
+        .features
+        .iter()
+        .take(8)
+        .map(|feature| json!({
+            "sample_time": feature.sample_time,
+            "body_summary_kind": feature.body_summary_kind,
+            "source_signal": feature.source_signal,
+            "motion_intensity_0_to_1": feature.motion_intensity_0_to_1,
+            "heart_rate_bpm": feature.heart_rate_bpm,
+            "quality_flags": feature.quality_flags,
+        }))
+        .collect();
+    let heart_rate_feature_samples: Vec<_> = sleep
+        .heart_rate_report
+        .features
+        .iter()
+        .take(8)
+        .map(|feature| json!({
+            "sample_time": feature.sample_time,
+            "body_summary_kind": feature.body_summary_kind,
+            "source_signal": feature.source_signal,
+            "heart_rate_bpm": feature.heart_rate_bpm,
+            "quality_flags": feature.quality_flags,
+        }))
+        .collect();
+
     Ok(json!({
         "schema": "bull.debug-db-overview.v1",
         "database_bytes": database_bytes,
@@ -7198,6 +7274,14 @@ fn debug_db_overview_bridge(args: DebugDbOverviewArgs) -> BullResult<serde_json:
         "sleep_window_quality_flags": sleep.sleep_window.as_ref().map(|window| window.quality_flags.clone()),
         "sleep_motion_feature_count": sleep.motion_report.feature_count,
         "sleep_heart_rate_feature_count": sleep.heart_rate_report.feature_count,
+        "sleep_motion_sample_time_min": motion_sample_time_min,
+        "sleep_motion_sample_time_max": motion_sample_time_max,
+        "sleep_heart_rate_sample_time_min": heart_rate_sample_time_min,
+        "sleep_heart_rate_sample_time_max": heart_rate_sample_time_max,
+        "sleep_motion_feature_counts_by_day": motion_feature_counts_by_day,
+        "sleep_heart_rate_feature_counts_by_day": heart_rate_feature_counts_by_day,
+        "sleep_motion_feature_samples": motion_feature_samples,
+        "sleep_heart_rate_feature_samples": heart_rate_feature_samples,
         "nightly_records": nightly,
     }))
 }
