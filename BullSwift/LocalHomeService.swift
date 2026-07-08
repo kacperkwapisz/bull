@@ -11,6 +11,24 @@ struct LocalHomeProfile {
 enum LocalHomeService {
   private static let storeRetentionDays = 5
   private static let dayMilliseconds: Int64 = 86_400_000
+
+  /// Per-metric analysis windows. Each metric is judged against the window that is
+  /// physiologically meaningful for it, not a single blanket window. Baselines are
+  /// folded from persisted nightly summaries, so a longer baseline window stays cheap.
+  enum ScoreWindows {
+    /// Personal HRV / resting-HR baseline is set against roughly the last month of
+    /// nights, long enough to be stable and to follow genuine physiological drift.
+    static let recoveryBaselineDays = 30
+    /// Minimum nights before a personal baseline is trusted rather than calibrating.
+    static let recoveryBaselineMinDays = 3
+    /// Days of data needed before a strain target is meaningful.
+    static let strainCalibrationDays = 4
+    /// Consecutive nights needed before sleep guidance is personalized.
+    static let sleepCalibrationNights = 3
+    /// Trend comparison windows (short vs long rolling average).
+    static let trendShortDays = 30
+    static let trendLongDays = 90
+  }
   private static let hourMilliseconds: Int64 = 3_600_000
   private static let localBiometricDeviceID = "bull-local"
   private static let inputBiometricDeviceID = "bull.device.local.v1"
@@ -385,6 +403,12 @@ enum LocalHomeService {
 
   private static func scoreArgs(now: Date) -> [String: Any] {
     let start = isoString(fromMilliseconds: milliseconds(from: now) - 14 * dayMilliseconds)
+    // The personal baseline is set against a longer window than the current-value
+    // window; it folds cheap persisted nightly summaries, so reaching back a month
+    // costs nothing and yields a more stable, drift-aware baseline.
+    let baselineStart = isoString(
+      fromMilliseconds: milliseconds(from: now)
+        - Int64(ScoreWindows.recoveryBaselineDays) * dayMilliseconds)
     return [
       "start": start,
       "end": "9999",
@@ -392,9 +416,9 @@ enum LocalHomeService {
       "require_trusted_evidence": false,
       "hrv_start": start,
       "hrv_end": "9999",
-      "hrv_baseline_start": start,
+      "hrv_baseline_start": baselineStart,
       "hrv_baseline_end": "9999",
-      "resting_start": start,
+      "resting_start": baselineStart,
       "resting_end": "9999",
       "sleep_start": start,
       "sleep_end": "9999",

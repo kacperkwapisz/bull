@@ -24,12 +24,14 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   // reason to keep them locally — drop all synced frames and retain only the
   // not-yet-uploaded buffer. A far-future cutoff means "all synced".
   static let drainAllSyncedBefore = "9999-12-31T23:59:59Z"
-  /// Local-first retention: when the phone computes its own scores it must keep a
-  /// recent window of captured frames on-device to score from. Only synced
-  /// frames older than this window are pruned. Server mode drops all synced
-  /// frames (the server holds the durable copy). Kept a touch wider than the
-  /// score scan window so a night at the edge is still fully scoreable.
-  static let localFirstRetentionDays = 16
+  /// Local-first raw-frame retention: the phone only needs raw captured frames
+  /// long enough to score the current night and calibrate a strain target from a
+  /// few recent days. Personal baselines and long-run trends are read from
+  /// persisted nightly summaries (`daily_recovery_metrics`, `daily_sleep_metrics`,
+  /// …), which pruning never touches — so raw frames can be released quickly
+  /// while a full history of cheap summaries is kept. Holding less raw sensor data
+  /// on-device is also better for privacy. Server mode drops all synced frames.
+  static let localFirstRetentionDays = 4
 
   /// True when compute runs on-device (local-first). Nonisolated so the drain
   /// queue can read it without hopping to the main actor.
