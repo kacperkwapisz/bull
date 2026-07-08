@@ -61,6 +61,7 @@ final class BullAppModel: ObservableObject {
   let ble: BullBLEClient
   /// Combine subscriptions for local-notification triggers (battery level).
   private var notificationCancellables = Set<AnyCancellable>()
+  private var historicalSyncCompletedObserver: NSObjectProtocol?
   let packetMonitor = PacketMonitorModel()
   let activitySession = ActivitySessionModel()
   let activityLocationTracker = ActivityLocationTracker()
@@ -418,6 +419,15 @@ final class BullAppModel: ObservableObject {
         }
       }
       .store(in: &notificationCancellables)
+    historicalSyncCompletedObserver = NotificationCenter.default.addObserver(
+      forName: HealthDataStore.historicalSyncDidCompleteNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self else { return }
+      self.ble.record(source: "storage.drain", title: "historical_sync_complete.force_drain")
+      self.frameDrainUploader.drain(databasePath: HealthDataStore.defaultDatabasePath(), force: true)
+    }
     ble.record(source: "app", title: "model.init")
     prepareClientHello()
     performLaunchStorageMaintenance()
@@ -443,6 +453,9 @@ final class BullAppModel: ObservableObject {
     overnightGuardHeartbeatWorkItem?.cancel()
     overnightGuardRangePollWorkItem?.cancel()
     overnightGuardFinalSyncDrainWorkItem?.cancel()
+    if let historicalSyncCompletedObserver {
+      NotificationCenter.default.removeObserver(historicalSyncCompletedObserver)
+    }
     if overnightGuardCriticalBackgroundTaskID != .invalid {
       let backgroundTaskID = overnightGuardCriticalBackgroundTaskID
       Task { @MainActor in
