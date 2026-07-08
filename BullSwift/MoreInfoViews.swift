@@ -24,6 +24,18 @@ struct MorePrivacyView: View {
         MoreActionRow(title: "Data Export Link", detail: "Use Raw Export after a local database exists", systemImage: "square.and.arrow.up", status: store.databaseExists ? .pending : .unavailable, disabled: true) {}
         MoreActionRow(title: "Data Deletion Link", detail: store.deletionStatus, systemImage: "trash", status: .blocked, disabled: true) {}
       }
+
+      Section {
+        NavigationLink {
+          BullLocalBackupView()
+        } label: {
+          Label("Encrypted Backup & Restore", systemImage: "lock.doc")
+        }
+      } header: {
+        Text("Backup & Restore")
+      } footer: {
+        Text("Export an encrypted copy of your on-device data to Files or iCloud, and restore it on a new device. Your data stays under your control — the backup is encrypted with your passphrase.")
+      }
     }
     .bullListBackground()
     .navigationTitle("Privacy")
