@@ -65,6 +65,27 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.string(from: cutoff)
   }
+
+  /// Trim fine-grained derived per-sample rows (secondary gravity, SpO2, skin
+  /// temperature, respiration, signal quality, step samples, raw BLE
+  /// notifications, debug features) older than the retention window. They only
+  /// feed the persisted daily summaries, so past the window they no longer back
+  /// any view; pruning them keeps on-device storage bounded and holds less raw
+  /// sensor data on-device.
+  static func pruneDerivedSamples(
+    bridge: BullRustBridge,
+    databasePath: String,
+    log: (String, String) -> Void
+  ) {
+    if let result = try? bridge.request(
+      method: "store.prune_derived_samples_before",
+      args: ["database_path": databasePath, "created_before": retentionCutoff()]
+    ) {
+      let removed = (result["removed"] as? Int) ?? 0
+      if removed > 0 { log("drain.derived_samples_pruned", "removed=\(removed)") }
+    }
+  }
+
   /// Safety bound on bundles drained per pass (each pass is re-entrant-safe).
   private static let maxBundlesPerPass = 512
   /// Minimum decoded payload to bother uploading on a non-forced (continuous)
@@ -118,6 +139,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
         let removed = (pruneResult["removed"] as? Int) ?? 0
         if removed > 0 { log("drain.local_retention_pruned", "removed=\(removed)") }
       }
+      Self.pruneDerivedSamples(bridge: bridge, databasePath: databasePath, log: log)
       _ = try? bridge.request(method: "store.maintain", args: ["database_path": databasePath])
       return
     }
@@ -209,6 +231,8 @@ final class BullFrameDrainUploader: @unchecked Sendable {
       let removed = (pruneResult["removed"] as? Int) ?? 0
       if removed > 0 { log("drain.pruned", "removed=\(removed)") }
     }
+
+    Self.pruneDerivedSamples(bridge: bridge, databasePath: databasePath, log: log)
 
     // Fold the freed space back and truncate the WAL.
     _ = try? bridge.request(method: "store.maintain", args: ["database_path": databasePath])

@@ -331,6 +331,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "store.maintain",
     "store.mark_already_uploaded_synced",
     "store.mark_frames_synced",
+    "store.prune_derived_samples_before",
     "store.prune_raw_evidence_before",
     "store.prune_synced_frames",
     "store.prune_synced_to_cap",
@@ -2885,6 +2886,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(prune_raw_evidence_before_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.prune_derived_samples_before" => request_args::<PruneDerivedSamplesBeforeArgs>(&request)
+            .and_then(prune_derived_samples_before_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.prune_synced_frames" => request_args::<PruneSyncedFramesArgs>(&request)
             .and_then(prune_synced_frames_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4308,6 +4313,23 @@ fn prune_raw_evidence_before_bridge(
 ) -> BullResult<serde_json::Value> {
     let store = open_bridge_store_hot(&args.database_path)?;
     let removed = store.prune_raw_evidence_before(&args.captured_before)?;
+    Ok(json!({ "removed": removed }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PruneDerivedSamplesBeforeArgs {
+    database_path: String,
+    /// RFC3339; derived per-sample rows created strictly before this are deleted.
+    /// Bounds on-device storage of fine-grained samples that only feed the
+    /// persisted daily summaries.
+    created_before: String,
+}
+
+fn prune_derived_samples_before_bridge(
+    args: PruneDerivedSamplesBeforeArgs,
+) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let removed = store.prune_derived_samples_before(&args.created_before)?;
     Ok(json!({ "removed": removed }))
 }
 

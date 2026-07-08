@@ -6217,6 +6217,51 @@ impl BullStore {
         Ok(removed)
     }
 
+    /// Trim derived per-sample rows written before `created_before` (RFC3339).
+    ///
+    /// The biometric/step ingest writes fine-grained per-sample rows
+    /// (secondary gravity, SpO2, skin temperature, respiration, signal quality,
+    /// step samples, raw BLE notifications, and debug features). These only feed
+    /// the daily rollups, which are persisted independently as compact nightly
+    /// summaries; once a sample is older than the on-device retention window it
+    /// no longer backs any live view. Pruning by wall-clock `created_at` keeps a
+    /// short rolling window of raw samples on-device (better for privacy and to
+    /// bound storage) while the long-run history lives in the summary tables.
+    ///
+    /// Returns the total number of rows removed across all derived sample tables.
+    pub fn prune_derived_samples_before(&self, created_before: &str) -> BullResult<usize> {
+        validate_required("created_before", created_before)?;
+        let mut removed = 0usize;
+        for table in [
+            "gravity",
+            "gravity2_samples",
+            "spo2_samples",
+            "skin_temp_samples",
+            "resp_samples",
+            "sig_quality_samples",
+            "step_counter_samples",
+            "ble_raw_notifications",
+            "metric_debug_features",
+        ] {
+            // Schema evolves across migrations; skip any derived table that a
+            // given database revision has not created yet so pruning is a no-op
+            // rather than an error on stores that predate a table.
+            let exists: bool = self.conn.query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |_| Ok(true),
+            ).optional()?.unwrap_or(false);
+            if !exists {
+                continue;
+            }
+            removed += self.conn.execute(
+                &format!("DELETE FROM {table} WHERE created_at < ?1"),
+                params![created_before],
+            )?;
+        }
+        Ok(removed)
+    }
+
     pub fn decoded_frames_between(
         &self,
         start: &str,
@@ -9433,6 +9478,41 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM raw_evidence", [], |r| r.get(0))
             .unwrap();
         assert_eq!(remaining, 1, "only the recent frame remains");
+    }
+
+    #[test]
+    fn prune_derived_samples_before_bounds_fine_grained_tables() {
+        let store = BullStore::open_in_memory().unwrap();
+        let device_id = "bull.test.derived";
+        let inserted = store
+            .insert_gravity2_batch(
+                device_id,
+                &[(1_000.0, 0.1, -0.2, 0.98), (1_001.0, 0.11, -0.21, 0.97)],
+            )
+            .unwrap();
+        assert_eq!(inserted, 2);
+
+        // A cutoff in the past (before these rows were created) removes nothing.
+        let none = store
+            .prune_derived_samples_before("2000-01-01T00:00:00Z")
+            .unwrap();
+        assert_eq!(none, 0, "rows newer than the cutoff must be retained");
+        let remaining: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM gravity2_samples", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 2);
+
+        // A far-future cutoff removes every derived sample created before it.
+        let removed = store
+            .prune_derived_samples_before("9999-12-31T23:59:59Z")
+            .unwrap();
+        assert_eq!(removed, 2, "rows older than the cutoff must be pruned");
+        let after: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM gravity2_samples", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after, 0);
     }
 
     #[test]
