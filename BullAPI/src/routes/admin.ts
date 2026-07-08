@@ -119,7 +119,7 @@ export function adminRoutes(env: Env) {
         database_path: dbPath,
         start,
         end,
-        algorithm_id: "bull_sleep_v0",
+        algorithm_id: "bull.sleep.v0",
         algorithm_version: "0.1.0",
         min_owned_captures: 1,
         require_trusted_evidence: false,
