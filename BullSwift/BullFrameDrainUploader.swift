@@ -31,22 +31,33 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   /// score scan window so a night at the edge is still fully scoreable.
   static let localFirstRetentionDays = 16
 
-  /// The `captured_before` cutoff for pruning synced frames, honouring compute
-  /// mode. Nonisolated so the background drain queue can read it without hopping
-  /// to the main actor.
-  static func syncedPruneCutoff(now: Date = Date()) -> String {
+  /// True when compute runs on-device (local-first). Nonisolated so the drain
+  /// queue can read it without hopping to the main actor.
+  static func localComputeMode() -> Bool {
     let args = ProcessInfo.processInfo.arguments
-    let localMode: Bool
-    if args.contains("--bull-compute-server") {
-      localMode = false
-    } else if args.contains("--bull-compute-local") {
-      localMode = true
-    } else if let raw = UserDefaults.standard.string(forKey: "bull.compute.mode") {
-      localMode = raw != "server"
-    } else {
-      localMode = true
-    }
-    guard localMode else { return drainAllSyncedBefore }
+    if args.contains("--bull-compute-server") { return false }
+    if args.contains("--bull-compute-local") { return true }
+    if let raw = UserDefaults.standard.string(forKey: "bull.compute.mode") { return raw != "server" }
+    return true
+  }
+
+  /// Whether raw frames are uploaded to the cloud as an OPTIONAL backup. Local-
+  /// first computes everything on-device, so uploading is opt-in and defaults
+  /// OFF: physiological data stays on the device unless the user enables cloud
+  /// backup. In server compute mode uploading stays on (the server needs the
+  /// frames to compute).
+  static func cloudBackupEnabled() -> Bool {
+    let args = ProcessInfo.processInfo.arguments
+    if args.contains("--bull-cloud-backup") { return true }
+    if args.contains("--bull-no-cloud-backup") { return false }
+    if !localComputeMode() { return true }
+    return UserDefaults.standard.bool(forKey: "bull.cloud.backup.enabled")
+  }
+
+  /// The `captured_before` retention cutoff: keep a recent window of frames on
+  /// device so the phone can score them locally; prune older frames to bound
+  /// storage. Nonisolated for the background drain queue.
+  static func retentionCutoff(now: Date = Date()) -> String {
     let cutoff = now.addingTimeInterval(-Double(localFirstRetentionDays) * 86_400)
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
@@ -75,7 +86,11 @@ final class BullFrameDrainUploader: @unchecked Sendable {
   func drain(databasePath: String, force: Bool = false) {
     queue.async { [weak self] in
       guard let self, !self.isRunning else { return }
-      guard let token = CoachAuthKeychain.load() else { return }
+      let cloudBackup = Self.cloudBackupEnabled()
+      // Cloud backup needs a signed-in token; local-first retention maintenance
+      // does not. When backup is off we still run to bound local storage.
+      let token = cloudBackup ? CoachAuthKeychain.load() : nil
+      if cloudBackup && token == nil { return }
       self.isRunning = true
       Task { [weak self] in
         guard let self else { return }
@@ -85,10 +100,26 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     }
   }
 
-  private func runDrain(databasePath: String, token: String, force: Bool = false) async {
+  private func runDrain(databasePath: String, token: String?, force: Bool = false) async {
     let bridge = BullRustBridge()
     var uploadedBundles = 0
     var uploadedFrames = 0
+    let cloudBackup = token != nil
+
+    // Local-first without cloud backup: no upload. Just bound local storage to
+    // the on-device scoring window and reclaim space, then return.
+    if !cloudBackup {
+      if let pruneResult = try? bridge.request(
+        method: "store.prune_raw_evidence_before",
+        args: ["database_path": databasePath, "captured_before": Self.retentionCutoff()]
+      ) {
+        let removed = (pruneResult["removed"] as? Int) ?? 0
+        if removed > 0 { log("drain.local_retention_pruned", "removed=\(removed)") }
+      }
+      _ = try? bridge.request(method: "store.maintain", args: ["database_path": databasePath])
+      return
+    }
+    guard let token else { return }
 
     // Re-streamed data the server already has (timestamp ≤ upload watermark) is
     // marked synced without re-uploading, so a band re-pull never resends it.
@@ -171,7 +202,7 @@ final class BullFrameDrainUploader: @unchecked Sendable {
     // server-side and are read back over the API.
     if let pruneResult = try? bridge.request(
       method: "store.prune_synced_frames",
-      args: ["database_path": databasePath, "captured_before": Self.syncedPruneCutoff()]
+      args: ["database_path": databasePath, "captured_before": Self.retentionCutoff()]
     ) {
       let removed = (pruneResult["removed"] as? Int) ?? 0
       if removed > 0 { log("drain.pruned", "removed=\(removed)") }
