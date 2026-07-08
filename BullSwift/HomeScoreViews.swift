@@ -289,6 +289,12 @@ struct HomeStressEnergySection: View {
               .font(.caption.weight(.semibold))
               .foregroundStyle(.secondary)
 
+            MetricMeasurementCaption(
+              text: MetricMeasurementCopy.stressToday,
+              systemImage: "waveform.path.ecg",
+              iconColor: stress.tint
+            )
+
             HStack(spacing: 12) {
               HomeStressStat(value: highestStressText, label: "Highest", color: .red)
               HomeStressStat(value: lowestStressText, label: "Lowest", color: .cyan)

@@ -90,12 +90,44 @@ struct HealthTodayFocusCard: View {
           .font(.caption.weight(.semibold))
           .foregroundStyle(snapshot.tint)
           .lineLimit(1)
+        if let measurementCaption {
+          MetricMeasurementCaption(
+            text: measurementCaption,
+            systemImage: measurementSystemImage,
+            iconColor: snapshot.tint
+          )
+        }
       }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, minHeight: 154, alignment: .topLeading)
     .padding(16)
     .healthDashboardSurface(tint: snapshot.tint, tintOpacity: 0.08)
+  }
+
+  private var measurementCaption: String? {
+    switch snapshot.route {
+    case .sleep:
+      return MetricMeasurementCopy.sleepScoredFromLastNight
+    case .recovery:
+      return MetricMeasurementCopy.recoveryWindow
+    case .strain:
+      return MetricMeasurementCopy.strainToday
+    case .stress:
+      return MetricMeasurementCopy.stressToday
+    default:
+      return nil
+    }
+  }
+
+  private var measurementSystemImage: String {
+    switch snapshot.route {
+    case .sleep: return "moon.zzz.fill"
+    case .recovery: return "calendar"
+    case .strain: return "figure.run"
+    case .stress: return "waveform.path.ecg"
+    default: return "info.circle"
+    }
   }
 }
 
@@ -467,11 +499,51 @@ struct HealthMetricCard: View {
           .font(.caption2)
           .foregroundStyle(.tertiary)
           .lineLimit(1)
+        if let measurementCaption {
+          MetricMeasurementCaption(
+            text: measurementCaption,
+            systemImage: measurementSystemImage,
+            iconColor: snapshot.tint
+          )
+        }
       }
     }
     .frame(maxWidth: .infinity, minHeight: 144, alignment: .topLeading)
     .padding(14)
     .healthCardSurface()
+  }
+
+  private var measurementCaption: String? {
+    let title = snapshot.title.lowercased()
+    if title.contains("hrv") || (title.contains("resting hr") && !title.contains("hrv")) {
+      return MetricMeasurementCopy.hrvRhrTypicalRange
+    }
+    switch snapshot.route {
+    case .sleep:
+      return MetricMeasurementCopy.sleepScoredFromLastNight
+    case .recovery:
+      return MetricMeasurementCopy.recoveryWindow
+    case .strain:
+      return MetricMeasurementCopy.strainToday
+    case .stress:
+      return MetricMeasurementCopy.stressToday
+    default:
+      return nil
+    }
+  }
+
+  private var measurementSystemImage: String {
+    let title = snapshot.title.lowercased()
+    if title.contains("hrv") || title.contains("resting hr") {
+      return "ruler"
+    }
+    switch snapshot.route {
+    case .sleep: return "moon.zzz.fill"
+    case .recovery: return "calendar"
+    case .strain: return "figure.run"
+    case .stress: return "waveform.path.ecg"
+    default: return "info.circle"
+    }
   }
 }
 

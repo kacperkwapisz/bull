@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		264D0F33575432C45BA4FA4E /* BullLocalBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */; };
+		288A75025CA0C16D3999C04F /* MetricMeasurementCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84DE28AF0CBEFA80A1D6ABD /* MetricMeasurementCaption.swift */; };
 		3C4253C1537A0E6942355CFB /* LocalHomeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */; };
 		6FBFF2545164AEFCD13DA563 /* HealthDataStore+LocalCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */; };
 		73BFB144F96CE109549C9F5B /* BullLocalBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306C9F06106291AE20E7AF7C /* BullLocalBackupView.swift */; };
@@ -375,6 +376,7 @@
 		D20000000000000000000061 /* CalibrationPhaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPhaseViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000062 /* BullFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFeatureFlags.swift; sourceTree = "<group>"; };
 		E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BullLocalBackup.swift; path = BullLocalBackup.swift; sourceTree = "<group>"; };
+		F84DE28AF0CBEFA80A1D6ABD /* MetricMeasurementCaption.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MetricMeasurementCaption.swift; path = MetricMeasurementCaption.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -577,6 +579,7 @@
 				03C820B9FFDD3908BF410DC2 /* HealthDataStore+LocalReads.swift */,
 				E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */,
 				306C9F06106291AE20E7AF7C /* BullLocalBackupView.swift */,
+				F84DE28AF0CBEFA80A1D6ABD /* MetricMeasurementCaption.swift */,
 			);
 			path = BullSwift;
 			sourceTree = "<group>";
@@ -907,6 +910,7 @@
 				88CCC4616A14F0BC9086BBEA /* HealthDataStore+LocalReads.swift in Sources */,
 				264D0F33575432C45BA4FA4E /* BullLocalBackup.swift in Sources */,
 				73BFB144F96CE109549C9F5B /* BullLocalBackupView.swift in Sources */,
+				288A75025CA0C16D3999C04F /* MetricMeasurementCaption.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

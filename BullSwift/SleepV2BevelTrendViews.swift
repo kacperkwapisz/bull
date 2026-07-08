@@ -22,6 +22,14 @@ struct SleepV2BevelTrendSheet: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           summaryHeader(snapshot: currentSnapshot, palette: palette)
+          if let measurementCaption = measurementCaption(for: currentSnapshot) {
+            MetricMeasurementCaption(
+              text: measurementCaption,
+              systemImage: "ruler",
+              textColor: palette.secondaryText,
+              iconColor: palette.mutedText
+            )
+          }
           metricPills(palette: palette)
 
           if currentSnapshot.trend.hasData {
@@ -284,6 +292,14 @@ struct SleepV2BevelTrendSheet: View {
       || title.contains("stress")
       || title.contains("sleep debt")
       || title.contains("time to fall asleep")
+  }
+
+  private func measurementCaption(for snapshot: HealthMetricSnapshot) -> String? {
+    let title = snapshot.title.lowercased()
+    if title.contains("hrv") || (title.contains("resting hr") && !title.contains("hrv")) {
+      return MetricMeasurementCopy.hrvRhrTypicalRange
+    }
+    return nil
   }
 }
 

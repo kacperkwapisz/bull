@@ -149,6 +149,13 @@ struct PrimarySleepDetailSheet: View {
                 .background(palette.surfaceElevated.opacity(0.65), in: Capsule())
             }
 
+            MetricMeasurementCaption(
+              text: MetricMeasurementCopy.sleepScoredFromLastNight,
+              systemImage: "moon.zzz.fill",
+              textColor: palette.secondaryText,
+              iconColor: palette.accent
+            )
+
             HStack(spacing: 10) {
               SleepV2SleepDetailStat(palette: palette, label: "Asleep", value: sleep.durationText, systemImage: "moon.zzz.fill")
               SleepV2SleepDetailStat(palette: palette, label: "In bed", value: sleep.timeInBedText, systemImage: "bed.double.fill")

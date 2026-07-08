@@ -14,6 +14,18 @@ extension HealthDataStore {
     return recoveryScoreValue() != nil ? 1 : 0
   }
 
+  /// Observed personal-baseline nights when the recovery score report exposes them.
+  func recoveryBaselineObservedNightCount() -> Int? {
+    let recoveryV2 = Self.map(packetScoreReports["recovery"], "score_result", "provenance", "recovery_v2")
+    if let hrvBaselineNights = Self.intValue(recoveryV2?["hrv_baseline_n"]) {
+      return hrvBaselineNights
+    }
+    if let rhrBaselineNights = Self.intValue(recoveryV2?["rhr_baseline_n"]) {
+      return rhrBaselineNights
+    }
+    return nil
+  }
+
   /// Nights with sleep score or duration from the local sleep bridge.
   func calibrationSleepNightCount() -> Int {
     if let report = packetScoreReports["sleep"] {

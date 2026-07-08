@@ -418,6 +418,15 @@ struct StrainV2OverviewPage: View {
           .clipped()
 
           VStack(alignment: .leading, spacing: 14) {
+            MetricMeasurementCaption(
+              text: Calendar.current.isDate(selectedDate, inSameDayAs: Date())
+                ? MetricMeasurementCopy.strainToday
+                : MetricMeasurementCopy.selectedDay,
+              systemImage: "figure.run",
+              textColor: palette.secondaryText,
+              iconColor: palette.accent
+            )
+
             HStack(spacing: 12) {
               SleepV2StatCard(
                 palette: palette,
@@ -433,6 +442,15 @@ struct StrainV2OverviewPage: View {
               )
             }
             .frame(height: 96)
+
+            if let targetCalibrationCaption = data.targetCalibrationCaption {
+              MetricMeasurementCaption(
+                text: targetCalibrationCaption,
+                systemImage: "target",
+                textColor: palette.secondaryText,
+                iconColor: palette.accent
+              )
+            }
 
             HStack(spacing: 12) {
               SleepV2StatCard(
@@ -566,6 +584,7 @@ struct StrainV2OverviewPage: View {
       status: store.strainStatusText(for: selectedDate),
       scoreText: store.strainScoreDisplayText(for: selectedDate),
       targetText: store.strainTargetDisplayText(),
+      targetCalibrationCaption: Self.strainTargetCalibrationCaption(daysObserved: store.calibrationStrainDayCount()),
       durationText: store.strainDurationDisplayText(),
       energyText: store.strainEnergyDisplayText(for: selectedDate),
       stepsText: store.strainActivityCountText(for: selectedDate),
@@ -573,6 +592,13 @@ struct StrainV2OverviewPage: View {
       trendRows: store.trendRows(for: .strain),
       coachTip: CoachTipFactory.metricTip(route: .strain, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     )
+  }
+
+  private static func strainTargetCalibrationCaption(daysObserved: Int) -> String? {
+    let requiredDays = 4
+    let daysToGo = max(requiredDays - min(max(daysObserved, 0), requiredDays), 0)
+    guard daysToGo > 0 else { return nil }
+    return "Calibrating strain target — \(daysToGo) day\(daysToGo == 1 ? "" : "s") to go"
   }
 
   private func openCoachTip() {
@@ -588,6 +614,7 @@ private struct StrainV2PageData {
   let status: String
   let scoreText: String
   let targetText: String
+  let targetCalibrationCaption: String?
   let durationText: String
   let energyText: String
   let stepsText: String

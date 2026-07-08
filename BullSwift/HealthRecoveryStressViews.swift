@@ -62,6 +62,13 @@ struct RecoveryV2OverviewPage: View {
             .frame(height: heroHeight)
 
             VStack(alignment: .leading, spacing: 14) {
+              MetricMeasurementCaption(
+                text: Self.recoveryWindowCaption(baselineNightCount: data.baselineNightCount),
+                systemImage: "calendar",
+                textColor: palette.secondaryText,
+                iconColor: palette.accent
+              )
+
               LazyVGrid(columns: statColumns, spacing: 12) {
                 SleepV2StatCard(
                   palette: palette,
@@ -202,9 +209,17 @@ struct RecoveryV2OverviewPage: View {
       respiratoryText: store.recoveryRespiratoryRateDisplayText(for: selectedDate),
       oxygenText: store.recoveryOxygenSaturationDisplayText(for: selectedDate),
       temperatureText: store.recoveryWristTemperatureDisplayText(for: selectedDate),
+      baselineNightCount: store.recoveryBaselineObservedNightCount(),
       trendRows: store.recoveryTrendOverviewRows(),
       coachTip: CoachTipFactory.metricTip(route: .recovery, healthStore: store, appModel: model, calibrationSnapshot: calibration.uiSnapshot)
     )
+  }
+
+  private static func recoveryWindowCaption(baselineNightCount: Int?) -> String {
+    guard let baselineNightCount, baselineNightCount < 14 else {
+      return MetricMeasurementCopy.recoveryWindow
+    }
+    return "\(MetricMeasurementCopy.recoveryWindow) · \(max(baselineNightCount, 0)) of 14 nights"
   }
 
   private func openCoachTip() {
@@ -222,6 +237,7 @@ private struct RecoveryV2PageData {
   let respiratoryText: String
   let oxygenText: String
   let temperatureText: String
+  let baselineNightCount: Int?
   let trendRows: [HealthMetricSnapshot]
   let coachTip: CoachInlineTip
 }
@@ -284,6 +300,15 @@ struct StressV2OverviewPage: View {
           .frame(height: heroHeight)
 
           VStack(alignment: .leading, spacing: 14) {
+            MetricMeasurementCaption(
+              text: Calendar.current.isDate(selectedDate, inSameDayAs: Date())
+                ? MetricMeasurementCopy.stressToday
+                : MetricMeasurementCopy.selectedDay,
+              systemImage: "waveform.path.ecg",
+              textColor: palette.secondaryText,
+              iconColor: palette.accent
+            )
+
             HStack(spacing: 12) {
               SleepV2StatCard(
                 palette: palette,

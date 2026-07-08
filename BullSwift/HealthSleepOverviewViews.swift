@@ -65,6 +65,13 @@ struct SleepV2OverviewPage: View {
 	            .frame(height: heroHeight)
 
 	            VStack(alignment: .leading, spacing: 14) {
+              MetricMeasurementCaption(
+                text: MetricMeasurementCopy.sleepScoredFromLastNight,
+                systemImage: "moon.zzz.fill",
+                textColor: palette.secondaryText,
+                iconColor: palette.accent
+              )
+
 	              HStack(spacing: 12) {
                 SleepV2StatCard(
                   palette: palette,
@@ -83,6 +90,15 @@ struct SleepV2OverviewPage: View {
 
               SleepV2CoachingCard(palette: palette, tip: data.coachTip) {
                 router.openCoach(prompt: data.coachTip.prompt)
+              }
+
+              if data.sleepNightCount < 3 {
+                MetricMeasurementCaption(
+                  text: MetricMeasurementCopy.sleepCoachNeedsThreeNights,
+                  systemImage: "calendar.badge.clock",
+                  textColor: palette.secondaryText,
+                  iconColor: palette.accent
+                )
               }
 
 	              SleepV2ActionRow(
@@ -227,6 +243,7 @@ struct SleepV2OverviewPage: View {
     return SleepV2PageData(
       score: score,
       primarySleep: primarySleep,
+      sleepNightCount: store.calibrationSleepNightCount(),
       trendRows: store.trendRows(for: .sleep),
       coachTip: CoachTipFactory.sleepTip(healthStore: store, ble: ble, calibrationSnapshot: calibration.uiSnapshot)
     )
@@ -268,6 +285,7 @@ struct SleepV2OverviewPage: View {
 private struct SleepV2PageData {
   let score: Int?
   let primarySleep: PrimarySleepDetail?
+  let sleepNightCount: Int
   let trendRows: [HealthMetricSnapshot]
   let coachTip: CoachInlineTip
 }

@@ -173,6 +173,15 @@ struct RecoveryV2TrendCard: View {
               .minimumScaleFactor(0.72)
           }
           .foregroundStyle(statusColor)
+
+          if let measurementCaption {
+            MetricMeasurementCaption(
+              text: measurementCaption,
+              systemImage: "ruler",
+              textColor: palette.secondaryText,
+              iconColor: palette.mutedText
+            )
+          }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .layoutPriority(1)
@@ -226,6 +235,14 @@ struct RecoveryV2TrendCard: View {
 
   private var statusText: String {
     snapshot.status.localizedCaseInsensitiveContains("no data") ? "No data" : snapshot.status
+  }
+
+  private var measurementCaption: String? {
+    let title = snapshot.title.lowercased()
+    if title.contains("hrv") || (title.contains("resting hr") && !title.contains("hrv")) {
+      return MetricMeasurementCopy.hrvRhrTypicalRange
+    }
+    return nil
   }
 
   private var statusIcon: String {
