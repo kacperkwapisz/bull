@@ -5952,6 +5952,13 @@ impl BullStore {
                     INNER JOIN raw_evidence
                         ON raw_evidence.evidence_id = decoded_frames.evidence_id
                     WHERE decoded_frames.payload_hex != ''
+                      AND COALESCE(decoded_frames.packet_type_name, '') NOT IN (
+                          'HISTORICAL_DATA',
+                          'HISTORICAL_IMU_DATA_STREAM',
+                          'REALTIME_RAW_DATA',
+                          'REALTIME_IMU_DATA_STREAM',
+                          'REALTIME_DATA'
+                      )
                 )
                 WHERE running_bytes > ?1
             )
