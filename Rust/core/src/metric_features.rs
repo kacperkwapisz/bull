@@ -1378,16 +1378,14 @@ fn heart_rate_feature_is_suspicious_v18_sleep_artifact(feature: &HeartRateFeatur
     if !(35.0..=120.0).contains(&feature.heart_rate_bpm) {
         return true;
     }
-    if !feature
+    if feature
         .quality_flags
         .iter()
         .any(|flag| flag == "device_timestamp_subseconds_out_of_range")
     {
-        return false;
+        return true;
     }
-    [32.0, 64.0, 96.0]
-        .iter()
-        .any(|artifact| (feature.heart_rate_bpm - artifact).abs() < f64::EPSILON)
+    false
 }
 
 fn push_heart_rate_feature(
