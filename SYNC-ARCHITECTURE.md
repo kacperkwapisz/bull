@@ -1,51 +1,57 @@
-# Sync architecture — incremental pull + thin client
+# Sync architecture — local-first compute + optional backup
 
-Goal: the phone is a **pipe + viewer**, the server is the **system of record**.
-Re-syncing must be cheap and idempotent; the local DB stays small and bounded.
-This supersedes the on-device decode/parse-everything approach (the source of the
-earlier storage blowup) for the **bulk historical path**. Live/realtime data
-keeps a lightweight on-device decode for immediate display.
+Goal: the phone is the **primary store and compute surface**. The app captures
+BLE frames, stores them in the local SQLite database, computes scores on-device
+through the linked Bull Rust core, and uses the cloud only for optional Coach AI
+and opt-in backup/restore.
 
-> **Status (2026-06-18): the thin-client migration is complete and live.** The
-> server runs the single parser + all compute; the app reads results back over
-> the data API (scores, input reports, and a read-through query proxy for nightly
-> sleep / biometric streams / activity) and caches them on disk; on-device
-> compute is deleted; the drain deletes every synced frame after upload, so the
-> local DB collapses to the not-yet-uploaded buffer. The phone→server
-> processed-watermark was **not** built: the upload endpoint persists the bundle
-> bytes before returning 2xx (received = durable), so delete-after-upload is safe
-> without it. See the per-phase status below.
+> **Status (2026-07-08): local-first compute is underway.** The thin-client model
+> documented here on 2026-06-18 has been superseded. The iOS app now computes
+> scores locally via `BullSwift/LocalHomeService.swift` and
+> `HealthDataStore+LocalCompute.swift`, reading from the local SQLite store. The
+> local store retains the recent scoring window needed for on-device metrics;
+> `BullFrameDrainUploader.syncedPruneCutoff` keeps 16 days locally. Frame upload
+> is an opt-in backup path, not the metric compute path.
 
 ## Principles
 
-- **Idempotent by construction.** Re-receiving the same record is a no-op. Dedup
-  on a semantic key (`device_timestamp` [+ `packet_type`]), not on transport ids.
-- **Derive the resume point, don't build a subsystem.** The "what's already
-  synced" watermark is `MAX(device_timestamp)` over stored raw records — a query,
-  not a bespoke cursor store.
-- **Watermark-driven upload, durable handoff.**
-  - strap → phone: `MAX(device_timestamp)` of buffered raw → request only newer.
-  - phone → server: a persistent client-side upload watermark (A-5) marks
-    already-uploaded frames synced without re-sending; the upload endpoint stores
-    the bundle bytes durably **before** returning 2xx, so the phone drops every
-    synced frame after a confirmed upload (no server processed-watermark needed —
-    received = durable; the server re-parses from the stored bundle).
-- **Raw in, compute out.** Phone buffers raw frames; the single Rust parser runs
-  server-side. History can be re-derived by re-parsing on the server without
-  re-pulling the band.
-- **Integrity over guesses.** Track sequence continuity per revision; detect and
-  re-request gaps instead of silently skipping. Honest "unavailable" over made-up
-  values.
+- **Local-first by default.** Daily health metrics should be available from the
+  local store without requiring a server round trip.
+- **Device data provenance.** Physiological metrics derive from the connected
+  device's own sensor data. HealthKit reads remain limited to body weight for
+  profile autofill.
+- **Honest states over guesses.** Missing local source data should produce empty,
+  stale, or unavailable states rather than inferred values.
+- **Bounded local retention.** Keep enough local frame history for scoring and
+  troubleshooting while bounding storage growth. The current scoring retention
+  target is 16 days.
+- **Optional cloud.** BullAPI supports Coach AI proxying and opt-in backup/restore.
+  Upload success must not be required for score availability.
+- **Idempotent backup.** When a user opts into backup, repeated uploads should be
+  safe. Deduplication and pruning should preserve the local scoring window.
 
-## Phase A — Local incremental + UI honesty (phone only, no server change)
+## Current data flow
+
+1. **Capture:** the app receives live and historical BLE frames from the device.
+2. **Store:** frames and decoded records are written to the local SQLite store.
+3. **Compute:** local services read SQLite data and call the linked Rust core to
+   produce sleep, recovery, strain, stress, energy, vitals, and activity results.
+4. **Render:** Home, Health, Coach context, and detail views read local computed
+   summaries and show unavailable states when data is insufficient.
+5. **Optional cloud:** if enabled, frame upload backs up data to BullAPI and Coach
+   AI can use app-provided summaries through the proxy.
+6. **Prune:** synced/eligible frames may be pruned only past the retained local
+   scoring window (`BullFrameDrainUploader.syncedPruneCutoff`).
+
+## Phase A — Local incremental + UI honesty
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
 | A-1 | **Drop the historical % / ETA progress bar.** It has no stable total and misled more than it helped. Replace with an honest indeterminate state: "Syncing — N packets". Keep packet count as telemetry. | `DeviceView.swift` | ⬜ |
 | A-2 | **`device_timestamp` on `decoded_frames`** (schema v17) — the data packet's own `timestamp_seconds`, populated at insert; indexed `(packet_type, device_timestamp)`. | `store.rs` | ✅ |
-| A-3 | ~~Structural content/timestamp dedup~~ **Rejected.** Content (`sha256`) dedup breaks the `evidence_id` pipeline (a deduped raw insert orphans the following `decoded_frames` insert → FK violation) and would drop byte-identical realtime samples. A `(device_timestamp, packet_type)` unique index is lossy for sub-second realtime. Dedup is done by **skip-on-receipt** (A-5) instead. | — | ✅ (decided) |
+| A-3 | ~~Structural content/timestamp dedup~~ **Rejected.** Content (`sha256`) dedup breaks the `evidence_id` pipeline (a deduped raw insert orphans the following `decoded_frames` insert → FK violation) and would drop byte-identical realtime samples. A `(device_timestamp, packet_type)` unique index is lossy for sub-second realtime. Dedup is done at the sync/backup boundary instead. | — | ✅ (decided) |
 | A-4 | **Watermark getters** — `historical_watermarks()` (`MAX(device_timestamp)` per `packet_type`) + `historical_watermark_max()`; bridge `store.historical_watermarks`. | `store.rs`, `bridge.rs` | ✅ |
-| A-5 | **Skip-already-uploaded re-pulls** (the dedup mechanism) — persistent `historical_sync_watermark` (schema v18, `sync_state` table, survives pruning); each drain marks already-uploaded frames (`device_timestamp <= watermark`) synced without re-uploading, then advances the watermark after a confirmed upload. A band re-pull is never resent. (Done at the drain boundary rather than the receive path; receive-path skip to also avoid local re-decode is a later battery optimization.) | `store.rs`, `BullFrameDrainUploader.swift` | ✅ |
+| A-5 | **Skip-already-backed-up re-pulls** — persistent `historical_sync_watermark` (schema v18, `sync_state` table, survives pruning); backup can mark already-uploaded frames synced without re-sending, while local compute still keeps the retained scoring window. | `store.rs`, `BullFrameDrainUploader.swift` | ✅ |
 | A-6 | **`SEND_HISTORICAL_DATA` has no "since" arg** (confirmed: empty payload). Incremental at the band is driven by the `historicalDataResult` ACK advancing the read pointer (already implemented). Verify on-device whether the ACK actually advances across sessions. | BLE | ⬜ |
 
 ## Phase B — Gap integrity
@@ -55,32 +61,32 @@ keeps a lightweight on-device decode for immediate display.
 | B-1 | **Sequence continuity per revision** — track last sequence per packet revision during a burst; record missing ranges. | `BullBLEClient+*` | ⬜ |
 | B-2 | **Gap re-request** — re-pull flagged ranges before declaring a window complete. | BLE | ⬜ |
 
-## Phase C — Stop on-device parse for bulk path (storage win)
+## Phase C — Local retention and backup pruning
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
-| C-1 | **Stop persisting decoded history on device.** Approach changed: capture still decodes transiently, but the drain deletes every synced frame (raw + cascaded decoded) after upload, so nothing decoded is retained. On-device historical compute is deleted outright. | `store.rs`, pipeline, `BullFrameDrainUploader.swift` | ✅ |
-| C-2 | **Shrink retained window** — went past a smaller cap to **drain-to-empty**: `store.prune_synced_frames` with a far-future cutoff drops all synced frames; only the unsynced buffer remains. | drain worker | ✅ |
+| C-1 | **Keep local data needed for scoring.** On-device compute reads from SQLite, so pruning must not remove data inside the scoring window. | `store.rs`, pipeline, `BullFrameDrainUploader.swift` | ✅ |
+| C-2 | **Bound retained history.** `BullFrameDrainUploader.syncedPruneCutoff` retains 16 days locally and only prunes eligible synced data outside that window. | drain worker | ✅ |
 
-## Phase D — Server: parse + watermark read-back
+## Phase D — Optional cloud services
 
 | # | Task | Where | Status |
 |---|------|-------|--------|
-| D-1 | **Run `bull-core` server-side** — native `bull-bridge-serve` sidecar (newline JSON over stdio), bundled in the API image via a multi-stage musl build (root build context). | BullAPI, Dockerfile | ✅ |
-| D-2 | **Parse pipeline** — bundle → import frames → `run_pipeline` → sleep score (persist) → recovery/strain/stress scores → fold into Postgres result tables (`dailySleep`/`vitalsDaily`/`dailyRecovery`/`dailyStrain`/`dailyStress`) → flip `pending→parsed`. Idempotent. **Auto-triggered** by a fire-and-forget pending-sweep on upload. | BullAPI | ✅ |
-| D-3 | **Read APIs serve the result tables** (`/v1/data/recovery|sleep|strain|stress|energy|vitals|spo2`, `/v1/data/inputs`) + a **read-through query proxy** (`POST /v1/data/query`) for nightly sleep / biometric streams / activity. The earlier `GET /v1/data/high-watermark` was **removed** (unused, and `max(timeframeEnd)` is NULL for drain bundles). | BullAPI | ✅ |
-| D-4 | **Drain-to-empty after 2xx.** Skip-already-uploaded (A-5) dedupes uploads; once the app read from the server (D-5) the drain switched to deleting all synced frames. | drain worker | ✅ |
-| D-5 | **App reads results from the server** and **on-device compute is deleted** (no fallback). Scores + input reports + the read-through tail (sleep/biometrics/activity) all read server-side; results cached on disk so launch shows last-known values. | `HealthDataStore+*`, views | ✅ |
+| D-1 | **BullAPI remains optional.** Keep Apple-authenticated cloud paths for Coach AI proxying and opt-in backup/restore. | BullAPI | ✅ |
+| D-2 | **Backup upload is not compute.** Uploading frames can preserve data remotely, but the app must not wait for server parsing/recompute before showing local scores. | BullAPI, app sync | ✅ |
+| D-3 | **Coach AI uses app summaries.** Coach surfaces should explain missing data using the same local metric summaries shown in the app. | Coach UI/API | ✅ |
+
+## Historical note
+
+The 2026-06-18 version of this document described a thin-client migration where
+the server ran the parser and all compute, and the app read scores back through
+`/v1/data/*`. That plan is preserved in git history, but it is no longer the
+current architecture. The active direction is local-first on-device compute with
+optional cloud backup.
 
 ## Notes
 
-- A-1..A-5 directly fix the "150k packets every sync" UX; they are reversible and
-  need zero server change.
-- **A-3 learning:** Bull stores raw (`evidence_id` PK) then decoded (`frame_id`,
-  FK→raw) as a 1:1 pair. Structural content dedup collapses that pair and orphans
-  the decoded insert; and byte-identical realtime frames are legitimately
-  distinct. So dedup must happen *before* the pair is written — i.e.
-  skip-on-receipt against the watermark — not via a DB unique constraint.
-- D folds in the metrics-accuracy work (server-side, one parser).
-- Verify after each unit: `cargo build && cargo test --no-fail-fast`,
-  `git grep -i goose` empty, RE sweep clean, build + install on device.
+- Verify after implementation units: `cargo build && cargo test --no-fail-fast`,
+  `git grep -i goose` empty, build + install on device.
+- Do not weaken the data boundary: physiological metrics come from the connected
+  device's own sensors, not third-party health stores.

@@ -43,25 +43,23 @@ Bull is an independent project and is not affiliated with WHOOP. This repository
 
 ## Architecture
 
-Bull runs a thin-client architecture:
+Bull runs a local-first architecture:
 
-- **Device** captures the band's own sensor data over Bluetooth and relays the
-  raw frames to the user's authenticated Bull account. It keeps only a small
-  local buffer of not-yet-uploaded frames plus an on-disk cache of the latest
-  results for instant display — it does not retain decoded history or compute
-  metrics on device.
-- **Server (BullAPI)** durably stores each uploaded bundle, then runs the single
-  Bull Rust core parser and all metric compute (sleep, recovery, strain, stress,
-  energy, vitals, activity). It is the system of record, so history survives a
-  reinstall.
-- **App** is a viewer: it reads computed results back over the data API
-  (`/v1/data/*`, plus a read-through query proxy for nightly sleep, biometric
-  streams, and recorded activity) and caches them locally.
+- **Device** captures the band's own sensor data over Bluetooth, stores frame
+  data in the local SQLite store, and computes health metrics on-device through
+  the linked Bull Rust core. The app keeps the recent local history needed for
+  scoring, including a 16-day retained scoring window.
+- **App** is the primary compute and viewing surface. Sleep, recovery, strain,
+  stress, energy, vitals, and activity views are produced from local data; when a
+  source is missing, the UI shows an unavailable state instead of guessing.
+- **Server (BullAPI)** is optional. It supports the Coach AI proxy and opt-in
+  backup/restore. Frame upload is a backup path, not a prerequisite for metric
+  computation.
 
-One parser — `bull-core` in Rust — runs in both places (device library + server
-`bull-bridge-serve` sidecar) so the device and server agree. Every physiological
-metric derives from the connected device's own sensors; nothing is imported from
-third-party health stores.
+The shared metric algorithms live in `bull-core` in Rust and are linked into the
+iOS app for on-device scoring. Every physiological metric derives from the
+connected device's own sensors; nothing is imported from third-party health
+stores.
 
 ## Design Credit
 
@@ -195,7 +193,7 @@ script before compiling Swift.
 - Metric rows and trend sheets show where values came from when that information is available.
 - Raw packet payloads stay in debug/export flows rather than everyday health views.
 - Coach responses use the same local metric summaries shown in the app.
-- Health and fitness data is captured from the band and uploaded to the user's authenticated Bull account, where the server parses and computes it; it is scoped to that account and not shared with third parties. Physiological data originates only from the band's own sensors (HealthKit reads are limited to body weight for profile autofill).
+- Health and fitness data is captured from the band, stored locally, and processed on-device. Optional cloud features can upload data to the user's authenticated Bull account for Coach AI and backup/restore; those uploads are not required for local metric computation. Physiological data originates only from the band's own sensors (HealthKit reads are limited to body weight for profile autofill).
 
 ## Documentation
 
