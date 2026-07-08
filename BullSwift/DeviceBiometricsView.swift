@@ -29,16 +29,15 @@ final class DeviceBiometricsModel: ObservableObject {
     let deviceID = HealthDataStore.localBiometricDeviceID
 
     Task { [weak self] in
-      // Server-backed: stream counts + latest raw readings are computed
-      // server-side from the uploaded sensor frames and read through the data
-      // query proxy, so the device no longer needs to retain decoded streams.
+      // Local-first: stream counts + latest raw readings come from the
+      // on-device store when local compute is enabled, with the server query
+      // kept as a fallback.
       var summary: StreamSummary?
-      if let rollup = await HealthDataStore.fetchServerQuery(
+      if let rollup = await HealthDataStore.queryLocalOrServer(
         method: "biometrics.stream_summary",
         args: ["device_id": deviceID]
       ) {
-        // The summary already carries the converted (uncalibrated) SpO2 percent,
-        // computed server-side in the same request.
+        // The summary already carries the converted (uncalibrated) SpO2 percent.
         let latestSpo2 = Self.number(rollup["latest_spo2_pct"])
 
         // Latest skin temperature: raw ADC / 128 = degrees Celsius (uncalibrated).

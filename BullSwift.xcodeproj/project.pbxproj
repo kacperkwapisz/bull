@@ -7,8 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		264D0F33575432C45BA4FA4E /* BullLocalBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */; };
 		3C4253C1537A0E6942355CFB /* LocalHomeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */; };
 		6FBFF2545164AEFCD13DA563 /* HealthDataStore+LocalCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */; };
+		73BFB144F96CE109549C9F5B /* BullLocalBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306C9F06106291AE20E7AF7C /* BullLocalBackupView.swift */; };
+		88CCC4616A14F0BC9086BBEA /* HealthDataStore+LocalReads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03C820B9FFDD3908BF410DC2 /* HealthDataStore+LocalReads.swift */; };
 		A10000000000000000000001 /* BullSwiftApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* BullSwiftApp.swift */; };
 		A10000000000000000000002 /* BullAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* BullAppModel.swift */; };
 		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
@@ -199,7 +202,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		03C820B9FFDD3908BF410DC2 /* HealthDataStore+LocalReads.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "HealthDataStore+LocalReads.swift"; path = "HealthDataStore+LocalReads.swift"; sourceTree = "<group>"; };
 		12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "HealthDataStore+LocalCompute.swift"; path = "HealthDataStore+LocalCompute.swift"; sourceTree = "<group>"; };
+		306C9F06106291AE20E7AF7C /* BullLocalBackupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BullLocalBackupView.swift; path = BullLocalBackupView.swift; sourceTree = "<group>"; };
 		38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalHomeService.swift; path = LocalHomeService.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* BullSwiftApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSwiftApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* BullAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppModel.swift; sourceTree = "<group>"; };
@@ -369,6 +374,7 @@
 		D20000000000000000000060 /* BullPerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPerformanceInstrumentation.swift; sourceTree = "<group>"; };
 		D20000000000000000000061 /* CalibrationPhaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPhaseViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000062 /* BullFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFeatureFlags.swift; sourceTree = "<group>"; };
+		E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BullLocalBackup.swift; path = BullLocalBackup.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -568,6 +574,9 @@
 				A2000000000000000000000F /* Assets.xcassets */,
 				38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */,
 				12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */,
+				03C820B9FFDD3908BF410DC2 /* HealthDataStore+LocalReads.swift */,
+				E2444870B7C2A9DE17C65AF3 /* BullLocalBackup.swift */,
+				306C9F06106291AE20E7AF7C /* BullLocalBackupView.swift */,
 			);
 			path = BullSwift;
 			sourceTree = "<group>";
@@ -895,6 +904,9 @@
 				D10000000000000000000039 /* BullBLEClient+PeripheralDelegate.swift in Sources */,
 				3C4253C1537A0E6942355CFB /* LocalHomeService.swift in Sources */,
 				6FBFF2545164AEFCD13DA563 /* HealthDataStore+LocalCompute.swift in Sources */,
+				88CCC4616A14F0BC9086BBEA /* HealthDataStore+LocalReads.swift in Sources */,
+				264D0F33575432C45BA4FA4E /* BullLocalBackup.swift in Sources */,
+				73BFB144F96CE109549C9F5B /* BullLocalBackupView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

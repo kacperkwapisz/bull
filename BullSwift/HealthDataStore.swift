@@ -138,7 +138,7 @@ final class HealthDataStore: ObservableObject {
     }
   }
 
-  static func defaultDatabasePath() -> String {
+  nonisolated static func defaultDatabasePath() -> String {
     let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
       ?? FileManager.default.temporaryDirectory
     let directory = baseDirectory.appendingPathComponent("BullSwift", isDirectory: true)
@@ -277,14 +277,12 @@ final class HealthDataStore: ObservableObject {
     selectedAlgorithmByFamily[family] = algorithmID
   }
 
-  /// Load the server-computed packet-derived input reports into
-  /// `packetInputReports`. The server runs the same bull-core methods over the
-  /// user's data and stores the map; the app reads it verbatim rather than
-  /// computing on-device. No on-device fallback by design — if the server has
-  /// nothing yet, screens show honest unavailable states.
+  /// Load packet-derived input reports into `packetInputReports`. Local compute
+  /// reads them from the on-device store when enabled; the server remains the
+  /// fallback so screens keep honest unavailable states if no data exists yet.
   func runPacketInputs(completion: (() -> Void)? = nil) {
     guard !packetInputIsRunning else {
-      packetInputStatus = "Loading inputs from server..."
+      packetInputStatus = "Loading inputs..."
       completion?()
       return
     }
@@ -292,20 +290,20 @@ final class HealthDataStore: ObservableObject {
     let runID = UUID()
     packetInputRunID = runID
     packetInputIsRunning = true
-    packetInputStatus = "Loading inputs from server..."
+    packetInputStatus = "Loading inputs..."
 
     Task { [weak self] in
-      let reports = await Self.fetchServerInputReports()
+      let reports = await Self.inputReportsLocalOrServer()
       guard let self, self.packetInputRunID == runID else {
         return
       }
       self.packetInputIsRunning = false
       if reports.isEmpty {
-        self.packetInputStatus = "No server-computed inputs yet"
+        self.packetInputStatus = "No inputs yet"
       } else {
         self.packetInputReports = reports
         Self.saveReportsCache(reports, name: "inputs")
-        self.packetInputStatus = "Inputs loaded from server"
+        self.packetInputStatus = "Inputs loaded"
       }
       completion?()
     }
@@ -324,7 +322,7 @@ final class HealthDataStore: ObservableObject {
   }
 
   func refreshSleepAfterBandSync(packetCount: Int) {
-    bandSleepImportStatus = "Band sync captured \(packetCount) packets | loading from server..."
+    bandSleepImportStatus = "Band sync captured \(packetCount) packets | refreshing scores..."
     // ponytail: unified home refresh handles both scores + inputs in one request
     lastHomeFetchedAt = .distantPast // force refresh
     runHomeRefresh()

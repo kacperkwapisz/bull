@@ -128,7 +128,7 @@ extension HealthDataStore {
           !calendarFetchesInFlight.contains(monthKey) else { return }
     calendarFetchesInFlight.insert(monthKey)
     Task { [weak self] in
-      let result = await Self.fetchCalendar(month: monthKey)
+      let result = await Self.calendarPayloadLocalOrServer(month: monthKey)
       guard let self else { return }
       self.calendarFetchesInFlight.remove(monthKey)
       self.calendarMonthsFetched.insert(monthKey)
