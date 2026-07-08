@@ -7,27 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3C4253C1537A0E6942355CFB /* LocalHomeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */; };
+		6FBFF2545164AEFCD13DA563 /* HealthDataStore+LocalCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */; };
 		A10000000000000000000001 /* BullSwiftApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* BullSwiftApp.swift */; };
 		A10000000000000000000002 /* BullAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* BullAppModel.swift */; };
 		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
-		A10000000000000000000060 /* WhatsNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* WhatsNew.swift */; };
-		A10000000000000000000070 /* SignInGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* SignInGateView.swift */; };
-		A10000000000000000000071 /* BullAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* BullAccountSession.swift */; };
-		A10000000000000000000072 /* BullStorageJanitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000072 /* BullStorageJanitor.swift */; };
-		A10000000000000000000073 /* BullSpoolArchiveUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000073 /* BullSpoolArchiveUploader.swift */; };
-		A10000000000000000000074 /* BullMetricSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000074 /* BullMetricSyncCoordinator.swift */; };
-		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
-		A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* DeviceBiometricsView.swift */; };
-		A10000000000000000000076 /* BullFrameDrainUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000076 /* BullFrameDrainUploader.swift */; };
-		A10000000000000000000077 /* BullSyncStatusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000077 /* BullSyncStatusClient.swift */; };
-		A10000000000000000000078 /* BullAppModel+SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000078 /* BullAppModel+SyncStatus.swift */; };
-		A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* BullNotificationScheduler.swift */; };
-		A10000000000000000000902 /* BullAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000902 /* BullAppDelegate.swift */; };
-		A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000903 /* BullPushTokenUploader.swift */; };
-		A10000000000000000000904 /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000904 /* JournalModels.swift */; };
-		A10000000000000000000905 /* JournalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* JournalStore.swift */; };
-		A10000000000000000000906 /* JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000906 /* JournalView.swift */; };
-		A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* RrHrConsistencyDebugView.swift */; };
 		A10000000000000000000004 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* OnboardingView.swift */; };
 		A10000000000000000000005 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ConnectionView.swift */; };
 		A10000000000000000000006 /* BullRustBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* BullRustBridge.swift */; };
@@ -47,23 +31,38 @@
 		A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* HealthKitSleepImporter.swift */; };
 		A10000000000000000000019 /* OnboardingPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* OnboardingPersistence.swift */; };
 		A1000000000000000000001A /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* MoreView.swift */; };
-
 		A10000000000000000000023 /* BullTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* BullTheme.swift */; };
-
-		A10000000000000000000050 /* CoachAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000050 /* CoachAPIConfiguration.swift */; };
-		A10000000000000000000051 /* CoachAuthKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* CoachAuthKeychain.swift */; };
-		A10000000000000000000052 /* CoachConsentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* CoachConsentStore.swift */; };
-		A10000000000000000000053 /* CoachToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* CoachToolRegistry.swift */; };
-		A10000000000000000000054 /* CoachAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000054 /* CoachAPIClient.swift */; };
-		A10000000000000000000055 /* CoachChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000055 /* CoachChatModel.swift */; };
 		A10000000000000000000027 /* CoachTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* CoachTips.swift */; };
 		A10000000000000000000028 /* CoachSignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* CoachSignInScreen.swift */; };
 		A10000000000000000000029 /* CoachChatScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* CoachChatScreen.swift */; };
 		A1000000000000000000002A /* CoachMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002A /* CoachMessageViews.swift */; };
 		A1000000000000000000002B /* CoachComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002B /* CoachComposer.swift */; };
 		A1000000000000000000002C /* CoachChatTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* CoachChatTypes.swift */; };
-
 		A10000000000000000000040 /* CoachLocalToolContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* CoachLocalToolContext.swift */; };
+		A10000000000000000000050 /* CoachAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000050 /* CoachAPIConfiguration.swift */; };
+		A10000000000000000000051 /* CoachAuthKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* CoachAuthKeychain.swift */; };
+		A10000000000000000000052 /* CoachConsentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* CoachConsentStore.swift */; };
+		A10000000000000000000053 /* CoachToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* CoachToolRegistry.swift */; };
+		A10000000000000000000054 /* CoachAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000054 /* CoachAPIClient.swift */; };
+		A10000000000000000000055 /* CoachChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000055 /* CoachChatModel.swift */; };
+		A10000000000000000000060 /* WhatsNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* WhatsNew.swift */; };
+		A10000000000000000000061 /* BiometricEnginePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* BiometricEnginePreview.swift */; };
+		A10000000000000000000062 /* RrHrConsistencyDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* RrHrConsistencyDebugView.swift */; };
+		A10000000000000000000070 /* SignInGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* SignInGateView.swift */; };
+		A10000000000000000000071 /* BullAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* BullAccountSession.swift */; };
+		A10000000000000000000072 /* BullStorageJanitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000072 /* BullStorageJanitor.swift */; };
+		A10000000000000000000073 /* BullSpoolArchiveUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000073 /* BullSpoolArchiveUploader.swift */; };
+		A10000000000000000000074 /* BullMetricSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000074 /* BullMetricSyncCoordinator.swift */; };
+		A10000000000000000000075 /* DeviceBiometricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* DeviceBiometricsView.swift */; };
+		A10000000000000000000076 /* BullFrameDrainUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000076 /* BullFrameDrainUploader.swift */; };
+		A10000000000000000000077 /* BullSyncStatusClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000077 /* BullSyncStatusClient.swift */; };
+		A10000000000000000000078 /* BullAppModel+SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000078 /* BullAppModel+SyncStatus.swift */; };
+		A10000000000000000000901 /* BullNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* BullNotificationScheduler.swift */; };
+		A10000000000000000000902 /* BullAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000902 /* BullAppDelegate.swift */; };
+		A10000000000000000000903 /* BullPushTokenUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000903 /* BullPushTokenUploader.swift */; };
+		A10000000000000000000904 /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000904 /* JournalModels.swift */; };
+		A10000000000000000000905 /* JournalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* JournalStore.swift */; };
+		A10000000000000000000906 /* JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000906 /* JournalView.swift */; };
 		B10000000000000000000001 /* WorkoutLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* WorkoutLiveActivityAttributes.swift */; };
 		B10000000000000000000002 /* WorkoutLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* WorkoutLiveActivityController.swift */; };
 		B10000000000000000000003 /* BullWorkoutLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* BullWorkoutLiveActivityWidget.swift */; };
@@ -93,6 +92,7 @@
 		C10000000000000000000108 /* HealthDataStore+Sleep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000108 /* HealthDataStore+Sleep.swift */; };
 		C10000000000000000000109 /* HealthDataStore+Utilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000109 /* HealthDataStore+Utilities.swift */; };
 		C1000000000000000000010A /* HealthDataStore+StaticSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000010A /* HealthDataStore+StaticSnapshots.swift */; };
+		C1000000000000000000010B /* HealthDataStore+Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000010B /* HealthDataStore+Calibration.swift */; };
 		D10000000000000000000001 /* MoreRouteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* MoreRouteModels.swift */; };
 		D10000000000000000000002 /* MoreProfileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* MoreProfileViews.swift */; };
 		D10000000000000000000003 /* MoreDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MoreDataStore.swift */; };
@@ -130,8 +130,6 @@
 		D10000000000000000000025 /* HomeTimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000025 /* HomeTimelineViews.swift */; };
 		D10000000000000000000026 /* HomeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000026 /* HomeFormatting.swift */; };
 		D10000000000000000000027 /* SleepV2PaletteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000027 /* SleepV2PaletteViews.swift */; };
-		D10000000000000000000061 /* CalibrationPhaseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000061 /* CalibrationPhaseViews.swift */; };
-		C1000000000000000000010B /* HealthDataStore+Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000010B /* HealthDataStore+Calibration.swift */; };
 		D10000000000000000000028 /* SleepV2InsightViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000028 /* SleepV2InsightViews.swift */; };
 		D10000000000000000000029 /* SleepV2ScheduleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000029 /* SleepV2ScheduleViews.swift */; };
 		D1000000000000000000002A /* SleepV2TimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002A /* SleepV2TimelineViews.swift */; };
@@ -139,8 +137,6 @@
 		D1000000000000000000002C /* SleepBridgeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002C /* SleepBridgeViews.swift */; };
 		D1000000000000000000002D /* SleepDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002D /* SleepDetailViews.swift */; };
 		D1000000000000000000002E /* HealthChartPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002E /* HealthChartPrimitives.swift */; };
-		D10000000000000000000060 /* BullPerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000060 /* BullPerformanceInstrumentation.swift */; };
-		D10000000000000000000062 /* BullFeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000062 /* BullFeatureFlags.swift */; };
 		D1000000000000000000002F /* HealthStressCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002F /* HealthStressCharts.swift */; };
 		D10000000000000000000030 /* SleepV2BevelTrendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000030 /* SleepV2BevelTrendViews.swift */; };
 		D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */; };
@@ -173,6 +169,9 @@
 		D10000000000000000000051 /* BLEUIStateAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000051 /* BLEUIStateAggregator.swift */; };
 		D10000000000000000000052 /* PacketMonitorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000052 /* PacketMonitorModel.swift */; };
 		D10000000000000000000053 /* BullMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000053 /* BullMessageStore.swift */; };
+		D10000000000000000000060 /* BullPerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000060 /* BullPerformanceInstrumentation.swift */; };
+		D10000000000000000000061 /* CalibrationPhaseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000061 /* CalibrationPhaseViews.swift */; };
+		D10000000000000000000062 /* BullFeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000062 /* BullFeatureFlags.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -200,27 +199,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "HealthDataStore+LocalCompute.swift"; path = "HealthDataStore+LocalCompute.swift"; sourceTree = "<group>"; };
+		38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalHomeService.swift; path = LocalHomeService.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* BullSwiftApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSwiftApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* BullAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		A20000000000000000000060 /* WhatsNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNew.swift; sourceTree = "<group>"; };
-		A20000000000000000000070 /* SignInGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInGateView.swift; sourceTree = "<group>"; };
-		A20000000000000000000071 /* BullAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/BullAccountSession.swift; sourceTree = "<group>"; };
-		A20000000000000000000072 /* BullStorageJanitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullStorageJanitor.swift; sourceTree = "<group>"; };
-		A20000000000000000000073 /* BullSpoolArchiveUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSpoolArchiveUploader.swift; sourceTree = "<group>"; };
-		A20000000000000000000074 /* BullMetricSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullMetricSyncCoordinator.swift; sourceTree = "<group>"; };
-		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
-		A20000000000000000000075 /* DeviceBiometricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBiometricsView.swift; sourceTree = "<group>"; };
-		A20000000000000000000076 /* BullFrameDrainUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFrameDrainUploader.swift; sourceTree = "<group>"; };
-		A20000000000000000000077 /* BullSyncStatusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSyncStatusClient.swift; sourceTree = "<group>"; };
-		A20000000000000000000078 /* BullAppModel+SyncStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BullAppModel+SyncStatus.swift"; sourceTree = "<group>"; };
-		A20000000000000000000901 /* BullNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullNotificationScheduler.swift; sourceTree = "<group>"; };
-		A20000000000000000000902 /* BullAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppDelegate.swift; sourceTree = "<group>"; };
-		A20000000000000000000903 /* BullPushTokenUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPushTokenUploader.swift; sourceTree = "<group>"; };
-		A20000000000000000000904 /* JournalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModels.swift; sourceTree = "<group>"; };
-		A20000000000000000000905 /* JournalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalStore.swift; sourceTree = "<group>"; };
-		A20000000000000000000906 /* JournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalView.swift; sourceTree = "<group>"; };
-		A20000000000000000000062 /* RrHrConsistencyDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RrHrConsistencyDebugView.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* BullRustBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullRustBridge.swift; sourceTree = "<group>"; };
@@ -245,23 +228,38 @@
 		A2000000000000000000001B /* HealthKitSleepImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSleepImporter.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* OnboardingPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPersistence.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
-
 		A20000000000000000000023 /* BullTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullTheme.swift; sourceTree = "<group>"; };
-
-		A20000000000000000000050 /* CoachAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIConfiguration.swift; sourceTree = "<group>"; };
-		A20000000000000000000051 /* CoachAuthKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAuthKeychain.swift; sourceTree = "<group>"; };
-		A20000000000000000000052 /* CoachConsentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachConsentStore.swift; sourceTree = "<group>"; };
-		A20000000000000000000053 /* CoachToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachToolRegistry.swift; sourceTree = "<group>"; };
-		A20000000000000000000054 /* CoachAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIClient.swift; sourceTree = "<group>"; };
-		A20000000000000000000055 /* CoachChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachChatModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* CoachTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachTips.swift; sourceTree = "<group>"; };
 		A20000000000000000000028 /* CoachSignInScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachSignInScreen.swift; sourceTree = "<group>"; };
 		A20000000000000000000029 /* CoachChatScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachChatScreen.swift; sourceTree = "<group>"; };
 		A2000000000000000000002A /* CoachMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMessageViews.swift; sourceTree = "<group>"; };
 		A2000000000000000000002B /* CoachComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachComposer.swift; sourceTree = "<group>"; };
 		A2000000000000000000002C /* CoachChatTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachChatTypes.swift; sourceTree = "<group>"; };
-
 		A20000000000000000000040 /* CoachLocalToolContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachLocalToolContext.swift; sourceTree = "<group>"; };
+		A20000000000000000000050 /* CoachAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIConfiguration.swift; sourceTree = "<group>"; };
+		A20000000000000000000051 /* CoachAuthKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAuthKeychain.swift; sourceTree = "<group>"; };
+		A20000000000000000000052 /* CoachConsentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachConsentStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000053 /* CoachToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachToolRegistry.swift; sourceTree = "<group>"; };
+		A20000000000000000000054 /* CoachAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachAPIClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000055 /* CoachChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/CoachChatModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000060 /* WhatsNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsNew.swift; sourceTree = "<group>"; };
+		A20000000000000000000061 /* BiometricEnginePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricEnginePreview.swift; sourceTree = "<group>"; };
+		A20000000000000000000062 /* RrHrConsistencyDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RrHrConsistencyDebugView.swift; sourceTree = "<group>"; };
+		A20000000000000000000070 /* SignInGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInGateView.swift; sourceTree = "<group>"; };
+		A20000000000000000000071 /* BullAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachAI/BullAccountSession.swift; sourceTree = "<group>"; };
+		A20000000000000000000072 /* BullStorageJanitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullStorageJanitor.swift; sourceTree = "<group>"; };
+		A20000000000000000000073 /* BullSpoolArchiveUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSpoolArchiveUploader.swift; sourceTree = "<group>"; };
+		A20000000000000000000074 /* BullMetricSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullMetricSyncCoordinator.swift; sourceTree = "<group>"; };
+		A20000000000000000000075 /* DeviceBiometricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBiometricsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000076 /* BullFrameDrainUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFrameDrainUploader.swift; sourceTree = "<group>"; };
+		A20000000000000000000077 /* BullSyncStatusClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullSyncStatusClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000078 /* BullAppModel+SyncStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BullAppModel+SyncStatus.swift"; sourceTree = "<group>"; };
+		A20000000000000000000901 /* BullNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullNotificationScheduler.swift; sourceTree = "<group>"; };
+		A20000000000000000000902 /* BullAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullAppDelegate.swift; sourceTree = "<group>"; };
+		A20000000000000000000903 /* BullPushTokenUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPushTokenUploader.swift; sourceTree = "<group>"; };
+		A20000000000000000000904 /* JournalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000905 /* JournalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000906 /* JournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalView.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* WorkoutLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivityAttributes.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* WorkoutLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivityController.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* BullWorkoutLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullWorkoutLiveActivityWidget.swift; sourceTree = "<group>"; };
@@ -291,6 +289,7 @@
 		C20000000000000000000108 /* HealthDataStore+Sleep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Sleep.swift"; sourceTree = "<group>"; };
 		C20000000000000000000109 /* HealthDataStore+Utilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Utilities.swift"; sourceTree = "<group>"; };
 		C2000000000000000000010A /* HealthDataStore+StaticSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+StaticSnapshots.swift"; sourceTree = "<group>"; };
+		C2000000000000000000010B /* HealthDataStore+Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Calibration.swift"; sourceTree = "<group>"; };
 		D20000000000000000000001 /* MoreRouteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreRouteModels.swift; sourceTree = "<group>"; };
 		D20000000000000000000002 /* MoreProfileViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreProfileViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MoreDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreDataStore.swift; sourceTree = "<group>"; };
@@ -328,8 +327,6 @@
 		D20000000000000000000025 /* HomeTimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTimelineViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000026 /* HomeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFormatting.swift; sourceTree = "<group>"; };
 		D20000000000000000000027 /* SleepV2PaletteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2PaletteViews.swift; sourceTree = "<group>"; };
-		D20000000000000000000061 /* CalibrationPhaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPhaseViews.swift; sourceTree = "<group>"; };
-		C2000000000000000000010B /* HealthDataStore+Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Calibration.swift"; sourceTree = "<group>"; };
 		D20000000000000000000028 /* SleepV2InsightViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2InsightViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000029 /* SleepV2ScheduleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2ScheduleViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002A /* SleepV2TimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2TimelineViews.swift; sourceTree = "<group>"; };
@@ -337,8 +334,6 @@
 		D2000000000000000000002C /* SleepBridgeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBridgeViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002D /* SleepDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002E /* HealthChartPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthChartPrimitives.swift; sourceTree = "<group>"; };
-		D20000000000000000000060 /* BullPerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPerformanceInstrumentation.swift; sourceTree = "<group>"; };
-		D20000000000000000000062 /* BullFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFeatureFlags.swift; sourceTree = "<group>"; };
 		D2000000000000000000002F /* HealthStressCharts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStressCharts.swift; sourceTree = "<group>"; };
 		D20000000000000000000030 /* SleepV2BevelTrendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelTrendViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelAnalysisViews.swift; sourceTree = "<group>"; };
@@ -371,6 +366,9 @@
 		D20000000000000000000051 /* BLEUIStateAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEUIStateAggregator.swift; sourceTree = "<group>"; };
 		D20000000000000000000052 /* PacketMonitorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketMonitorModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000053 /* BullMessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullMessageStore.swift; sourceTree = "<group>"; };
+		D20000000000000000000060 /* BullPerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullPerformanceInstrumentation.swift; sourceTree = "<group>"; };
+		D20000000000000000000061 /* CalibrationPhaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPhaseViews.swift; sourceTree = "<group>"; };
+		D20000000000000000000062 /* BullFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BullFeatureFlags.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -568,6 +566,8 @@
 				A2000000000000000000000A /* Info.plist */,
 				A20000000000000000000017 /* BullSwift.entitlements */,
 				A2000000000000000000000F /* Assets.xcassets */,
+				38412E3E27FA3EADB0F2C79D /* LocalHomeService.swift */,
+				12CF170BB80845DA8F57CC0E /* HealthDataStore+LocalCompute.swift */,
 			);
 			path = BullSwift;
 			sourceTree = "<group>";
@@ -893,6 +893,8 @@
 				D10000000000000000000037 /* BullBLEClient+Parsing.swift in Sources */,
 				D10000000000000000000038 /* BullBLEClient+CentralDelegate.swift in Sources */,
 				D10000000000000000000039 /* BullBLEClient+PeripheralDelegate.swift in Sources */,
+				3C4253C1537A0E6942355CFB /* LocalHomeService.swift in Sources */,
+				6FBFF2545164AEFCD13DA563 /* HealthDataStore+LocalCompute.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

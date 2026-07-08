@@ -25,12 +25,13 @@ extension HealthDataStore {
   /// `runPacketScores()` + `runPacketInputs()` pair (6 sequential requests → 1).
   func runHomeRefresh() {
     packetScoresComputeInFlight = true
-    packetScoreStatus = "Loading from server..."
-    packetInputStatus = "Loading from server..."
+    let onDevice = Self.computeMode == .local
+    packetScoreStatus = onDevice ? "Computing on device..." : "Loading from server..."
+    packetInputStatus = onDevice ? "Computing on device..." : "Loading from server..."
     Task { [weak self] in
-      let home = await Self.fetchHome()
+      let result = await Self.fetchHomePayload()
       guard let self else { return }
-      self.applyHomeResponse(home)
+      self.applyHomeResponse(result.home, source: result.source)
       self.packetScoresComputeInFlight = false
       self.packetInputIsRunning = false
     }
@@ -40,7 +41,13 @@ extension HealthDataStore {
   func runPacketScores() { runHomeRefresh() }
 
   /// Apply the unified home payload into the existing report maps.
-  private func applyHomeResponse(_ home: [String: Any]) {
+  private func applyHomeResponse(_ home: [String: Any], source: String = "server") {
+    let sourceLabel: String
+    switch source {
+    case "device": sourceLabel = "on device"
+    case "server-fallback": sourceLabel = "from server"
+    default: sourceLabel = "from server"
+    }
     var anyScore = false
     for family in ["recovery", "sleep", "strain", "stress"] {
       if let report = home[family] as? [String: Any], !report.isEmpty {
@@ -60,15 +67,15 @@ extension HealthDataStore {
     if anyScore {
       Self.saveReportsCache(packetScoreReports, name: "scores")
     }
-    packetScoreStatus = anyScore ? "Scores loaded from server" : "No server-computed scores yet"
+    packetScoreStatus = anyScore ? "Scores computed \(sourceLabel)" : "No scores yet — wear the band"
 
     if let inputs = home["inputs"] as? [String: [String: Any]], !inputs.isEmpty {
       packetInputReports = inputs
       Self.saveReportsCache(inputs, name: "inputs")
-      packetInputStatus = "Inputs loaded from server"
+      packetInputStatus = "Inputs computed \(sourceLabel)"
     } else {
       packetInputStatus = packetInputReports.isEmpty
-        ? "No server-computed inputs yet"
+        ? "No inputs yet — wear the band"
         : "Inputs loaded from cache"
     }
     lastHomeFetchedAt = Date()
