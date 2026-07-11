@@ -1250,12 +1250,7 @@ pub fn run_heart_rate_feature_report_for_store(
     let mut candidate_frame_count = 0usize;
     let mut features = Vec::new();
     // R20 PPG accumulator — same logic as the non-store path.
-    let r20_chunk_size = 60usize;
-    let mut r20_chunk: Vec<i32> = Vec::new();
-    let mut r20_chunk_frame_id = String::new();
-    let mut r20_chunk_evidence_id = String::new();
-    let mut r20_chunk_captured_at = String::new();
-    let mut r20_frames_in_chunk = 0usize;
+    let mut r20_chunker = R20PpgChunker::new();
     // See run_motion_feature_report_for_store: historical packets must be
     // windowed by derived physiological sample_time, not by upload/capture time.
     store.for_each_decoded_frame_between("0000", "9999", |row| {
@@ -1265,91 +1260,14 @@ pub fn run_heart_rate_feature_report_for_store(
             &mut candidate_frame_count,
             &mut features,
         )?;
-        // Accumulate R20 optical PPG frames for chunked HR extraction.
-        let parsed: Option<ParsedPayload> =
-            serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
-        if let Some(ParsedPayload::DataPacket {
-            body_summary:
-                Some(DataPacketBodySummary::R20Optical {
-                    green_ppg_samples: ref ppg,
-                    ..
-                }),
-            ..
-        }) = parsed
-        {
-            if r20_frames_in_chunk == 0 {
-                r20_chunk_frame_id = row.frame_id.clone();
-                r20_chunk_evidence_id = row.evidence_id.clone();
-                r20_chunk_captured_at = row.captured_at.clone();
-            }
-            r20_chunk.extend_from_slice(ppg);
-            r20_frames_in_chunk += 1;
-            if r20_frames_in_chunk >= r20_chunk_size {
-                if let Some(hr) = crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm {
-                    if (30.0..=220.0).contains(&hr) {
-                        candidate_frame_count += 1;
-                        features.push(HeartRateFeature {
-                            metric_input_id: format!("{}.r20_ppg_hr", r20_chunk_frame_id),
-                            frame_id: r20_chunk_frame_id.clone(),
-                            evidence_id: r20_chunk_evidence_id.clone(),
-                            captured_at: r20_chunk_captured_at.clone(),
-                            sample_time: r20_chunk_captured_at.clone(),
-                            sample_time_unix_ms: None,
-                            sample_time_source: "captured_at".to_string(),
-                            body_summary_kind: "r20_optical".to_string(),
-                            source_signal: "green_ppg_dsp".to_string(),
-                            heart_rate_bpm: hr,
-                            marker_offset: 0,
-                            marker_value: 0,
-                            device_timestamp_seconds: None,
-                            device_timestamp_subseconds: None,
-                            trusted_metric_input: true,
-                            quality_flags: vec!["r20_ppg_derived".to_string()],
-                            provenance: serde_json::json!({
-                                "source": "r20_ppg_dsp",
-                                "chunk_frames": r20_frames_in_chunk,
-                                "green_samples": r20_chunk.len(),
-                            }),
-                        });
-                    }
-                }
-                r20_chunk.clear();
-                r20_frames_in_chunk = 0;
-            }
+        // Accumulate contiguous R20 optical PPG frames for chunked HR extraction.
+        if let Some(ppg) = r20_green_ppg_samples(&row) {
+            r20_chunker.push(&row, &ppg, &mut candidate_frame_count, &mut features);
         }
         Ok(())
     })?;
-    // Flush any remaining R20 chunk (partial last minute).
-    if r20_frames_in_chunk >= 15 {
-        if let Some(hr) = crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm {
-            if (30.0..=220.0).contains(&hr) {
-                candidate_frame_count += 1;
-                features.push(HeartRateFeature {
-                    metric_input_id: format!("{}.r20_ppg_hr", r20_chunk_frame_id),
-                    frame_id: r20_chunk_frame_id,
-                    evidence_id: r20_chunk_evidence_id,
-                    captured_at: r20_chunk_captured_at.clone(),
-                    sample_time: r20_chunk_captured_at,
-                    sample_time_unix_ms: None,
-                    sample_time_source: "captured_at".to_string(),
-                    body_summary_kind: "r20_optical".to_string(),
-                    source_signal: "green_ppg_dsp".to_string(),
-                    heart_rate_bpm: hr,
-                    marker_offset: 0,
-                    marker_value: 0,
-                    device_timestamp_seconds: None,
-                    device_timestamp_subseconds: None,
-                    trusted_metric_input: true,
-                    quality_flags: vec!["r20_ppg_derived".to_string()],
-                    provenance: serde_json::json!({
-                        "source": "r20_ppg_dsp",
-                        "chunk_frames": r20_frames_in_chunk,
-                        "green_samples": r20_chunk.len(),
-                    }),
-                });
-            }
-        }
-    }
+    // Flush any remaining R20 run (partial last minute).
+    r20_chunker.flush(&mut candidate_frame_count, &mut features);
     features.retain(|feature| sample_time_in_requested_window(&feature.sample_time, start, end));
     Ok(assemble_heart_rate_report(
         features,
@@ -1357,6 +1275,126 @@ pub fn run_heart_rate_feature_report_for_store(
         &correlation,
         options,
     ))
+}
+
+/// Accumulates contiguous R20 optical PPG frames and emits one derived HR
+/// feature per ~minute of continuous waveform. A chunk resets on time gaps:
+/// each frame is one second of signal, and stitching non-adjacent snippets
+/// (a decimated or bursty stream) manufactures discontinuity harmonics that
+/// read back as a plausible-but-wrong heart rate.
+struct R20PpgChunker {
+    chunk: Vec<i32>,
+    frame_id: String,
+    evidence_id: String,
+    captured_at: String,
+    frames: usize,
+    last_frame_unix_ms: Option<i64>,
+}
+
+/// ~60 frames ≈ 60 seconds at 1 frame/sec: one HR sample per minute, matching
+/// resting-HR and metric-window granularity.
+const R20_CHUNK_FRAMES: usize = 60;
+/// Shorter contiguous runs still carry enough beats to estimate HR.
+const R20_CHUNK_MIN_FLUSH_FRAMES: usize = 15;
+/// Consecutive frames further apart than this are not one waveform.
+const R20_CHUNK_MAX_FRAME_GAP_MS: i64 = 2_500;
+
+impl R20PpgChunker {
+    fn new() -> Self {
+        Self {
+            chunk: Vec::new(),
+            frame_id: String::new(),
+            evidence_id: String::new(),
+            captured_at: String::new(),
+            frames: 0,
+            last_frame_unix_ms: None,
+        }
+    }
+
+    fn push(
+        &mut self,
+        row: &DecodedFrameRow,
+        ppg: &[i32],
+        candidate_frame_count: &mut usize,
+        features: &mut Vec<HeartRateFeature>,
+    ) {
+        let frame_unix_ms = parse_rfc3339_utc_unix_ms(&row.captured_at);
+        let contiguity_broken = match (self.last_frame_unix_ms, frame_unix_ms) {
+            (Some(last), Some(current)) => current - last > R20_CHUNK_MAX_FRAME_GAP_MS,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if contiguity_broken {
+            self.flush(candidate_frame_count, features);
+        }
+        if self.frames == 0 {
+            self.frame_id = row.frame_id.clone();
+            self.evidence_id = row.evidence_id.clone();
+            self.captured_at = row.captured_at.clone();
+        }
+        self.chunk.extend_from_slice(ppg);
+        self.frames += 1;
+        self.last_frame_unix_ms = frame_unix_ms;
+        if self.frames >= R20_CHUNK_FRAMES {
+            self.flush(candidate_frame_count, features);
+        }
+    }
+
+    /// Emit an HR feature from the accumulated run when it is long enough to
+    /// carry a rhythm; always reset. Short fragments are dropped rather than
+    /// scored — honest gaps beat fabricated samples.
+    fn flush(
+        &mut self,
+        candidate_frame_count: &mut usize,
+        features: &mut Vec<HeartRateFeature>,
+    ) {
+        if self.frames >= R20_CHUNK_MIN_FLUSH_FRAMES {
+            if let Some(hr) = crate::ppg::extract_hr_from_ppg(&self.chunk, 25.0).mean_hr_bpm {
+                if (30.0..=220.0).contains(&hr) {
+                    *candidate_frame_count += 1;
+                    features.push(HeartRateFeature {
+                        metric_input_id: format!("{}.r20_ppg_hr", self.frame_id),
+                        frame_id: self.frame_id.clone(),
+                        evidence_id: self.evidence_id.clone(),
+                        captured_at: self.captured_at.clone(),
+                        sample_time: self.captured_at.clone(),
+                        sample_time_unix_ms: None,
+                        sample_time_source: "captured_at".to_string(),
+                        body_summary_kind: "r20_optical".to_string(),
+                        source_signal: "green_ppg_dsp".to_string(),
+                        heart_rate_bpm: hr,
+                        marker_offset: 0,
+                        marker_value: 0,
+                        device_timestamp_seconds: None,
+                        device_timestamp_subseconds: None,
+                        trusted_metric_input: true,
+                        quality_flags: vec!["r20_ppg_derived".to_string()],
+                        provenance: serde_json::json!({
+                            "source": "r20_ppg_dsp",
+                            "chunk_frames": self.frames,
+                            "green_samples": self.chunk.len(),
+                        }),
+                    });
+                }
+            }
+        }
+        self.chunk.clear();
+        self.frames = 0;
+        self.last_frame_unix_ms = None;
+    }
+}
+
+/// R20 optical green-PPG samples when this row carries them.
+fn r20_green_ppg_samples(row: &DecodedFrameRow) -> Option<Vec<i32>> {
+    let parsed: Option<ParsedPayload> =
+        serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
+    match parsed {
+        Some(ParsedPayload::DataPacket {
+            body_summary: Some(DataPacketBodySummary::R20Optical { green_ppg_samples, .. }),
+            ..
+        }) => Some(green_ppg_samples),
+        _ => None,
+    }
 }
 
 fn heart_rate_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap<String, bool> {
@@ -1369,6 +1407,30 @@ fn heart_rate_trusted_frames(correlation: &CaptureCorrelationReport) -> BTreeMap
             "v24_history",
         ],
     )
+}
+
+/// Whether the v18 HR marker stream, taken as a whole, is carrying bitfield
+/// noise rather than physiology: most values quantize to N/N+1 pairs where N
+/// is a multiple of 16. Judged over the full stream so that individually
+/// plausible values (a flag byte of 96 reads as "96 bpm") are excluded along
+/// with their siblings, while genuinely varied heart-rate series — which hit
+/// such bytes only occasionally — are untouched.
+fn v18_history_hr_stream_is_flag_noise(features: &[&HeartRateFeature]) -> bool {
+    const MIN_STREAM_SAMPLES: usize = 50;
+    const FLAG_SHAPE_DOMINANCE_FRACTION: f64 = 0.6;
+    let mut total = 0usize;
+    let mut flag_shaped = 0usize;
+    for feature in features {
+        if feature.source_signal != "v18_history_hr" {
+            continue;
+        }
+        total += 1;
+        if (feature.marker_value & 0xFE) % 16 == 0 {
+            flag_shaped += 1;
+        }
+    }
+    total >= MIN_STREAM_SAMPLES
+        && (flag_shaped as f64 / total as f64) >= FLAG_SHAPE_DOMINANCE_FRACTION
 }
 
 fn heart_rate_feature_is_suspicious_v18_sleep_artifact(feature: &HeartRateFeature) -> bool {
@@ -1455,69 +1517,14 @@ pub fn run_heart_rate_feature_report(
         )?;
     }
 
-    // --- R20 optical PPG path: derive per-frame HR from green PPG ---
-    // Process R20 frames in chunks of ~60 seconds (~60 frames) to produce
-    // one HR sample per minute, which matches the granularity of resting-HR
-    // and metric-window calculations.
-    let r20_chunk_size = 60usize; // ~60 frames ≈ 60 seconds at 1 frame/sec
-    let mut r20_chunk: Vec<i32> = Vec::new();
-    let mut r20_chunk_frame_id = String::new();
-    let mut r20_chunk_evidence_id = String::new();
-    let mut r20_chunk_captured_at = String::new();
-    let mut r20_frames_in_chunk = 0usize;
+    // --- R20 optical PPG path: derive HR from contiguous green PPG runs ---
+    let mut r20_chunker = R20PpgChunker::new();
     for row in decoded_rows {
-        let parsed: Option<ParsedPayload> =
-            serde_json::from_str(&row.parsed_payload_json).unwrap_or(None);
-        if let Some(ParsedPayload::DataPacket {
-            body_summary:
-                Some(DataPacketBodySummary::R20Optical {
-                    green_ppg_samples: ref ppg,
-                    ..
-                }),
-            ..
-        }) = parsed
-        {
-            if r20_frames_in_chunk == 0 {
-                r20_chunk_frame_id = row.frame_id.clone();
-                r20_chunk_evidence_id = row.evidence_id.clone();
-                r20_chunk_captured_at = row.captured_at.clone();
-            }
-            r20_chunk.extend_from_slice(ppg);
-            r20_frames_in_chunk += 1;
-            if r20_frames_in_chunk >= r20_chunk_size {
-                if let Some(hr) = crate::ppg::extract_hr_from_ppg(&r20_chunk, 25.0).mean_hr_bpm {
-                    if (30.0..=220.0).contains(&hr) {
-                        candidate_frame_count += 1;
-                        features.push(HeartRateFeature {
-                            metric_input_id: format!("{}.r20_ppg_hr", r20_chunk_frame_id),
-                            frame_id: r20_chunk_frame_id.clone(),
-                            evidence_id: r20_chunk_evidence_id.clone(),
-                            captured_at: r20_chunk_captured_at.clone(),
-                            sample_time: r20_chunk_captured_at.clone(),
-                            sample_time_unix_ms: None,
-                            sample_time_source: "captured_at".to_string(),
-                            body_summary_kind: "r20_optical".to_string(),
-                            source_signal: "green_ppg_dsp".to_string(),
-                            heart_rate_bpm: hr,
-                            marker_offset: 0,
-                            marker_value: 0,
-                            device_timestamp_seconds: None,
-                            device_timestamp_subseconds: None,
-                            trusted_metric_input: true,
-                            quality_flags: vec!["r20_ppg_derived".to_string()],
-                            provenance: serde_json::json!({
-                                "source": "r20_ppg_dsp",
-                                "chunk_frames": r20_frames_in_chunk,
-                                "green_samples": r20_chunk.len(),
-                            }),
-                        });
-                    }
-                }
-                r20_chunk.clear();
-                r20_frames_in_chunk = 0;
-            }
+        if let Some(ppg) = r20_green_ppg_samples(row) {
+            r20_chunker.push(row, &ppg, &mut candidate_frame_count, &mut features);
         }
     }
+    r20_chunker.flush(&mut candidate_frame_count, &mut features);
 
     Ok(assemble_heart_rate_report(
         features,
@@ -2584,10 +2591,20 @@ pub fn run_sleep_feature_score_report_for_store(
     // HR. Keep v18 available for calibrated/test fixtures, but exclude this
     // suspicious production shape from sleep staging so a valid motion-history
     // night is not chopped into false deep/awake fragments.
+    //
+    // Additionally judge the v18 stream as a whole: when its marker values are
+    // dominated by bitfield-shaped pairs (N/N+1 for N a multiple of 16 —
+    // 32/33, 96/97, 112/113…) the channel is carrying flags, not physiology,
+    // and even its individually-plausible values are noise. A real heart-rate
+    // series has no reason to quantize like that.
+    let v18_stream_is_flag_noise = v18_history_hr_stream_is_flag_noise(&heart_rate_features);
     let sleep_heart_rate_features = heart_rate_features
         .iter()
         .copied()
         .filter(|feature| !heart_rate_feature_is_suspicious_v18_sleep_artifact(feature))
+        .filter(|feature| {
+            !(v18_stream_is_flag_noise && feature.source_signal == "v18_history_hr")
+        })
         .collect::<Vec<_>>();
 
     let sleep_window = if issues.is_empty() {

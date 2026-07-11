@@ -635,8 +635,27 @@ fn live_decimation_stream_key(
         return None;
     }
     match parsed_payload {
-        Some(ParsedPayload::DataPacket { packet_k: Some(packet_k), .. }) => {
-            Some(format!("live.data_packet.k{packet_k}"))
+        Some(ParsedPayload::DataPacket {
+            packet_k: Some(packet_k),
+            body_summary,
+            ..
+        }) => {
+            // Only bulk raw-motion streams are decimation candidates.
+            // Physiological sample streams (optical PPG, history records with
+            // heart-rate markers) must arrive whole: heart-rate extraction
+            // stitches consecutive samples, and a thinned stream turns real
+            // pulse waveforms into concatenation artifacts. Minute-level
+            // motion features saturate far below full rate, so raw motion
+            // loses nothing at 1-in-10s.
+            match body_summary {
+                Some(
+                    crate::protocol::DataPacketBodySummary::RawMotionK10 { .. }
+                    | crate::protocol::DataPacketBodySummary::RawMotionK21 { .. },
+                ) => Some(format!("live.data_packet.k{packet_k}")),
+                Some(_) => None,
+                // Unrecognized bulk data packets keep the storage bound.
+                None => Some(format!("live.data_packet.k{packet_k}")),
+            }
         }
         _ => None,
     }

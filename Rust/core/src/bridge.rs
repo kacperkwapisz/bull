@@ -6938,6 +6938,19 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> BullResult<serde_j
         value["nightly_sleep_persisted"] = serde_json::Value::Bool(outcome.persisted());
         value["nightly_sleep_persist_reason"] =
             serde_json::Value::String(outcome.snake_case().to_string());
+        // Self-healing sweep: retract previously persisted packet-derived
+        // nights that no longer pass the plausibility gates. Gates harden over
+        // time (duration, time-in-bed, night band); records admitted by an
+        // older, weaker gate must not survive as history the pipeline would
+        // reject today.
+        let retracted = retract_implausible_nightly_records(
+            &store,
+            args.night_gate_utc_offset_minutes,
+        )?;
+        if retracted > 0 {
+            value["nightly_sleep_retracted"] =
+                serde_json::Value::Number(retracted.into());
+        }
         if let Some(window) = report.sleep_window.as_ref() {
             let mut window_json = nightly_sleep_window_snapshot(window);
             if let NightlySleepPersistReason::ImplausibleMidpointOutsideNightBand {
@@ -7197,6 +7210,39 @@ fn persist_nightly_sleep_record(
         provenance_json: &provenance,
     })?;
     Ok(NightlySleepPersistReason::Persisted)
+}
+
+/// Delete persisted packet-derived main-sleep records that fail the current
+/// nightly plausibility gates. External/imported sleep history is never
+/// touched: retraction applies only to records this pipeline computed and can
+/// recompute.
+fn retract_implausible_nightly_records(
+    store: &BullStore,
+    night_gate_utc_offset_minutes: Option<i64>,
+) -> BullResult<usize> {
+    let mut retracted = 0usize;
+    for row in store.list_daily_sleep_metrics(3650)? {
+        if row.source_kind != "packet_derived_local" || row.sleep_kind != "main" {
+            continue;
+        }
+        let Some(duration_minutes) = row.sleep_duration_minutes else {
+            continue;
+        };
+        if nightly_window_plausibility_reason(
+            row.start_time_unix_ms,
+            row.end_time_unix_ms,
+            duration_minutes,
+            night_gate_utc_offset_minutes,
+            &row.start_time,
+            &row.end_time,
+        )
+        .is_err()
+            && store.delete_daily_sleep_metric(&row.nightly_sleep_id)?
+        {
+            retracted += 1;
+        }
+    }
+    Ok(retracted)
 }
 
 fn sleep_list_nightly_bridge(args: SleepListNightlyArgs) -> BullResult<serde_json::Value> {

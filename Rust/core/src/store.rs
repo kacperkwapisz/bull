@@ -4217,6 +4217,18 @@ impl BullStore {
 
     /// Idempotent EWMA baseline update: record a night's raw recovery metrics for
     /// Delete all rows from `daily_sleep_metrics`. Returns the count deleted.
+    /// Delete one persisted nightly sleep record by id. Used to retract
+    /// records that no longer pass the plausibility gates after a gate or
+    /// detector fix: an honest gap beats a record the pipeline now rejects.
+    pub fn delete_daily_sleep_metric(&self, nightly_sleep_id: &str) -> BullResult<bool> {
+        validate_required("nightly_sleep_id", nightly_sleep_id)?;
+        let changed = self.conn.execute(
+            "DELETE FROM daily_sleep_metrics WHERE nightly_sleep_id = ?1",
+            params![nightly_sleep_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn clear_daily_sleep_metrics(&self) -> BullResult<usize> {
         let deleted = self
             .conn
