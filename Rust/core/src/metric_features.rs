@@ -5655,6 +5655,87 @@ const SLEEP_RESTING_HR_WINDOW_MINUTES: i64 = 5;
 /// (a long HR-coverage gap), since a removed strap streams gravity but no HR
 /// and would otherwise read as still sleep.
 const SLEEP_OFF_WRIST_MAX_FRACTION: f64 = 0.5;
+/// A coverage cluster longer than the longest plausible main sleep cannot be
+/// a sleep window by itself: with continuous live streaming the strap covers
+/// whole days, so cluster geometry no longer separates wear sessions. Clusters
+/// beyond this span are refined to their HR-anchored sleep episode.
+const SLEEP_CLUSTER_REFINE_SPAN_MINUTES: i64 = 840;
+/// Minutes anchor as "confidently asleep" when their HR sits at or below this
+/// fraction of the day-median baseline: sleep holds a clear cardiac dip below
+/// the waking median, while quiet sedentary rest rides near it.
+const SLEEP_ANCHOR_HR_MAX_FRACTION: f64 = 0.95;
+/// Anchor runs separated by less than this merge into one episode: brief
+/// in-night wakes and disturbances do not split a night.
+const SLEEP_ANCHOR_MERGE_GAP_MINUTES: i64 = 45;
+/// A refined episode must hold its cardiac dip for at least this long;
+/// anything shorter is not a scoreable sleep episode anchor.
+const SLEEP_ANCHOR_MIN_RUN_MINUTES: i64 = 60;
+
+/// Refine an implausibly long coverage cluster to the sustained run of
+/// quiet-motion minutes whose HR holds below the waking baseline. Returns
+/// `None` when no sustained cardiac dip exists (caller keeps the raw cluster
+/// and the acceptance gates decide).
+fn hr_anchored_sleep_episode(
+    start_minute: i64,
+    end_minute: i64,
+    timed_features: &[(i64, &MotionFeature)],
+    confirming_heart_rate_features: &[(i64, &HeartRateFeature)],
+    baseline_bpm: f64,
+    disturbance_motion_threshold_0_to_1: f64,
+) -> Option<(i64, i64)> {
+    if baseline_bpm <= 0.0 {
+        return None;
+    }
+    let mut peak_motion_by_minute: BTreeMap<i64, f64> = BTreeMap::new();
+    for (minute, feature) in timed_features {
+        if *minute < start_minute || *minute > end_minute {
+            continue;
+        }
+        let entry = peak_motion_by_minute.entry(*minute).or_insert(0.0);
+        if feature.motion_intensity_0_to_1 > *entry {
+            *entry = feature.motion_intensity_0_to_1;
+        }
+    }
+    let mut anchor_minutes: Vec<i64> = confirming_heart_rate_features
+        .iter()
+        .filter(|(minute, feature)| {
+            *minute >= start_minute
+                && *minute <= end_minute
+                && feature.heart_rate_bpm <= baseline_bpm * SLEEP_ANCHOR_HR_MAX_FRACTION
+                && peak_motion_by_minute
+                    .get(minute)
+                    .copied()
+                    .unwrap_or(0.0)
+                    < disturbance_motion_threshold_0_to_1
+        })
+        .map(|(minute, _)| *minute)
+        .collect();
+    anchor_minutes.sort_unstable();
+    anchor_minutes.dedup();
+    if anchor_minutes.is_empty() {
+        return None;
+    }
+    // Merge anchor minutes into runs bridging brief interruptions, then keep
+    // the longest run: the main sleep episode inside the cluster.
+    let mut best: Option<(i64, i64)> = None;
+    let mut run_start = anchor_minutes[0];
+    let mut run_end = anchor_minutes[0];
+    for minute in anchor_minutes.iter().skip(1) {
+        if minute - run_end <= SLEEP_ANCHOR_MERGE_GAP_MINUTES {
+            run_end = *minute;
+            continue;
+        }
+        if best.is_none_or(|(s, e)| run_end - run_start > e - s) {
+            best = Some((run_start, run_end));
+        }
+        run_start = *minute;
+        run_end = *minute;
+    }
+    if best.is_none_or(|(s, e)| run_end - run_start > e - s) {
+        best = Some((run_start, run_end));
+    }
+    best.filter(|(s, e)| e - s >= SLEEP_ANCHOR_MIN_RUN_MINUTES)
+}
 /// HR-coverage gap (minutes) long enough to count as off-wrist.
 const SLEEP_OFF_WRIST_GAP_MINUTES: i64 = 20;
 
@@ -5785,6 +5866,7 @@ fn select_sleep_cluster(
     timed_features: &[(i64, &MotionFeature)],
     timed_heart_rate_features: &[(i64, &HeartRateFeature)],
     target_midpoint_minutes_since_midnight: f64,
+    disturbance_motion_threshold_0_to_1: f64,
 ) -> Option<SleepClusterSelection> {
     let first_minute = timed_features.first().map(|(minute, _)| *minute)?;
 
@@ -5822,6 +5904,32 @@ fn select_sleep_cluster(
         ))
     };
 
+    // Continuous-coverage refinement: a cluster longer than the longest
+    // plausible main sleep is a wear-coverage artifact (always-on streaming
+    // covers whole days), not a sleep window. Refine such clusters to their
+    // sustained cardiac-dip episode before the candidate gates run.
+    let clusters: Vec<(i64, i64, bool)> = clusters
+        .into_iter()
+        .flat_map(|(start, end)| {
+            if end - start <= SLEEP_CLUSTER_REFINE_SPAN_MINUTES {
+                return vec![(start, end, false)];
+            }
+            match hr_baseline.and_then(|baseline| {
+                hr_anchored_sleep_episode(
+                    start,
+                    end,
+                    timed_features,
+                    &confirming_heart_rate_features,
+                    baseline,
+                    disturbance_motion_threshold_0_to_1,
+                )
+            }) {
+                Some((refined_start, refined_end)) => vec![(refined_start, refined_end, true)],
+                None => vec![(start, end, false)],
+            }
+        })
+        .collect();
+
     // First pass: geometry + physiology per cluster (no morning-stillness yet).
     struct ClusterFacts {
         start: i64,
@@ -5834,9 +5942,10 @@ fn select_sleep_cluster(
         mean_hr: Option<f64>,
         dip_fraction: Option<f64>,
         off_wrist_fraction: f64,
+        refined_to_hr_episode: bool,
     }
     let mut facts: Vec<ClusterFacts> = Vec::new();
-    for (start, end) in clusters {
+    for (start, end, refined_to_hr_episode) in clusters {
         let span = end - start;
         if span < SLEEP_WINDOW_MIN_SPAN_MINUTES {
             continue;
@@ -5888,6 +5997,7 @@ fn select_sleep_cluster(
             mean_hr,
             dip_fraction,
             off_wrist_fraction,
+            refined_to_hr_episode,
         });
     }
 
@@ -5912,6 +6022,9 @@ fn select_sleep_cluster(
     let mut evals: Vec<SleepCandidateEval> = Vec::new();
     for f in &facts {
         let mut flags = Vec::new();
+        if f.refined_to_hr_episode {
+            flags.push("sleep_window_trimmed_to_hr_sleep_episode".to_string());
+        }
         let low_motion_score = (1.0 - f.motion_mean).clamp(0.0, 1.0);
         let timing_score = (1.0 - f.midpoint_deviation / (12.0 * 60.0)).clamp(0.0, 1.0);
         let duration_score = (f.span as f64 / 420.0).clamp(0.0, 1.0);
@@ -6125,6 +6238,7 @@ fn sleep_window_feature(
         &timed_features,
         &timed_heart_rate_features,
         options.target_midpoint_minutes_since_midnight,
+        options.disturbance_motion_threshold_0_to_1,
     )?;
     timed_features.retain(|(minute, _)| {
         *minute >= segmentation.start_minute && *minute <= segmentation.end_minute

@@ -3942,3 +3942,99 @@ fn sleep_score_survives_same_minute_duplicates_with_out_of_order_seconds() {
     assert!(score.errors.is_empty(), "{:?}", score.errors);
     assert!(score.output.is_some(), "a valid night must produce a score");
 }
+
+#[test]
+fn sleep_feature_score_report_refines_all_day_continuous_coverage_to_overnight_episode() {
+    let store = BullStore::open_in_memory().unwrap();
+    // Always-on live streaming covers the whole day in one cluster: a quiet
+    // sedentary evening (HR near the waking median), the real overnight sleep
+    // (clear cardiac dip), and a quiet awake morning. Low motion throughout —
+    // desk rest and gentle daytime wear never cross the disturbance threshold,
+    // so cluster geometry and edge staging alone cannot find the night. The
+    // window must come from the sustained cardiac dip, not coverage bounds.
+    let mut minutes_hr: Vec<(String, u8)> = Vec::new();
+    // Evening 16:00Z..23:00Z — awake at rest, HR ~67 (median-ish, no dip).
+    for slot in 0..42u32 {
+        let minute = slot * 10;
+        minutes_hr.push((
+            format!(
+                "2026-07-10T{:02}:{:02}:00Z",
+                16 + minute / 60,
+                minute % 60
+            ),
+            67,
+        ));
+    }
+    // Night 23:00Z..07:00Z — real sleep, HR ~53 with a brief 03:00 wake spike.
+    for slot in 0..48u32 {
+        let minute = slot * 10;
+        let hour = 23 + minute / 60;
+        let (day, hour) = if hour >= 24 {
+            ("2026-07-11", hour - 24)
+        } else {
+            ("2026-07-10", hour)
+        };
+        let hr = if day == "2026-07-11" && hour == 3 && minute % 60 == 0 { 68 } else { 53 };
+        minutes_hr.push((format!("{day}T{hour:02}:{:02}:00Z", minute % 60), hr));
+    }
+    // Morning 07:00Z..11:00Z — awake, HR ~70.
+    for slot in 0..24u32 {
+        let minute = slot * 10;
+        minutes_hr.push((
+            format!("2026-07-11T{:02}:{:02}:00Z", 7 + minute / 60, minute % 60),
+            70,
+        ));
+    }
+    for (ts, hr) in &minutes_hr {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            ts,
+            1000,
+        );
+        import_history_frame_at(&store, "user-owned-live-notification", *hr, ts);
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-07-10T12:00:00Z",
+        "2026-07-11T12:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            sleep_need_minutes: 420.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    let window = report.sleep_window.expect("overnight sleep window");
+    let start_ok = window.start_time.as_str() >= "2026-07-10T22:30:00Z"
+        && window.start_time.as_str() <= "2026-07-10T23:20:00Z";
+    let end_ok = window.end_time.as_str() >= "2026-07-11T06:30:00Z"
+        && window.end_time.as_str() <= "2026-07-11T07:30:00Z";
+    assert!(
+        start_ok && end_ok,
+        "window should be the real night, got {} .. {}",
+        window.start_time,
+        window.end_time
+    );
+    assert!(
+        window.time_in_bed_minutes <= 540.0,
+        "time in bed should be a plausible night, got {}",
+        window.time_in_bed_minutes
+    );
+    assert!(
+        window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "sleep_window_trimmed_to_hr_sleep_episode"),
+        "{:?}",
+        window.quality_flags
+    );
+}

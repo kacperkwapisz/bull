@@ -6965,6 +6965,11 @@ const MIN_MAIN_SLEEP_MINUTES: f64 = 180.0;
 /// the detector merged daytime/evening low-motion wear into the night, so the
 /// window is rejected rather than recorded as an implausibly long sleep.
 const MAX_MAIN_SLEEP_MINUTES: f64 = 840.0;
+/// Longest plausible time-in-bed for a persisted main-sleep night. Staged
+/// sleep minutes alone cannot bound the record: a window spanning most of a
+/// day is a detection artifact even when its staged total squeaks under the
+/// sleep-duration cap.
+const MAX_MAIN_SLEEP_IN_BED_MINUTES: f64 = 960.0;
 /// Local-clock night band, expressed as the inclusive-exclusive window of the
 /// sleep MIDPOINT in the user's local time. A genuine night's midpoint sits
 /// deep in the night or early morning; a midpoint inside the daytime band
@@ -6985,6 +6990,9 @@ enum NightlySleepPersistReason {
     },
     ImplausibleDurationTooLong {
         sleep_duration_minutes: f64,
+    },
+    ImplausibleTimeInBedTooLong {
+        time_in_bed_minutes: f64,
     },
     ImplausibleMidpointOutsideNightBand {
         local_midpoint_minutes_of_day: i64,
@@ -7007,6 +7015,7 @@ impl NightlySleepPersistReason {
             Self::WindowEndNotAfterStart => "window_end_not_after_start",
             Self::ImplausibleDurationTooShort { .. } => "implausible_window_duration_too_short",
             Self::ImplausibleDurationTooLong { .. } => "implausible_window_duration_too_long",
+            Self::ImplausibleTimeInBedTooLong { .. } => "implausible_time_in_bed_too_long",
             Self::ImplausibleMidpointOutsideNightBand { .. } => {
                 "implausible_window_midpoint_outside_night_band"
             }
@@ -7043,6 +7052,12 @@ fn nightly_window_plausibility_reason(
     if duration_minutes > MAX_MAIN_SLEEP_MINUTES {
         return Err(NightlySleepPersistReason::ImplausibleDurationTooLong {
             sleep_duration_minutes: duration_minutes,
+        });
+    }
+    let time_in_bed_minutes = (end_unix_ms - start_unix_ms) as f64 / 60_000.0;
+    if time_in_bed_minutes > MAX_MAIN_SLEEP_IN_BED_MINUTES {
+        return Err(NightlySleepPersistReason::ImplausibleTimeInBedTooLong {
+            time_in_bed_minutes,
         });
     }
     let Some(offset_minutes) = utc_offset_minutes else {
@@ -10099,6 +10114,24 @@ mod tests {
                 sleep_duration_minutes: 513.0,
                 window_start_rfc3339: day_start.to_string(),
                 window_end_rfc3339: day_end.to_string(),
+            })
+        );
+        // A window spanning most of a day is a detection artifact even when
+        // its staged sleep minutes squeak under the duration cap: staged
+        // minutes bound sleep, time-in-bed bounds the window itself.
+        let long_start = "2026-07-10T14:32:00Z";
+        let long_end = "2026-07-11T11:25:00Z";
+        assert_eq!(
+            nightly_window_plausibility_reason(
+                at(long_start),
+                at(long_end),
+                839.0,
+                tz,
+                long_start,
+                long_end,
+            ),
+            Err(NightlySleepPersistReason::ImplausibleTimeInBedTooLong {
+                time_in_bed_minutes: 1253.0,
             })
         );
     }
