@@ -28,6 +28,16 @@ struct HealthTrendPoint: Identifiable {
   let id = UUID()
   let label: String
   let value: Double
+  /// Real measurement date for daily series. Charts position dated points at
+  /// their true calendar location so a sparse history is never stretched
+  /// across the selected window. Intraday/derived series may leave this nil.
+  let date: Date?
+
+  init(label: String, value: Double, date: Date? = nil) {
+    self.label = label
+    self.value = value
+    self.date = date
+  }
 }
 
 enum MetricSourceKind: String, Codable, CaseIterable, Equatable {

@@ -602,6 +602,17 @@ extension HealthDataStore {
     )
   }
 
+  /// Parse a `yyyy-MM-dd` day key (UTC midday, so the calendar day is stable
+  /// across timezones) into a Date for truthful chart positioning.
+  static func dayKeyDate(_ dayKey: String) -> Date? {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: String(dayKey.prefix(10)))?.addingTimeInterval(12 * 3600)
+  }
+
   static func dailyTrend(
     id: String,
     title: String,
@@ -617,7 +628,7 @@ extension HealthDataStore {
       }
       let date = row["date"] as? String ?? row["date_key"] as? String
       let label = date.map { String($0.suffix(5)) } ?? "D\(index + 1)"
-      return HealthTrendPoint(label: label, value: value)
+      return HealthTrendPoint(label: label, value: value, date: date.flatMap(dayKeyDate))
     }
     let values = points.map(\.value)
     let range = rangeText(values: values, unit: unit, fractionDigits: fractionDigits) ?? "No packet trend"

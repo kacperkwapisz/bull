@@ -388,8 +388,63 @@ struct SleepV2BevelTrendChart: View {
   let anchorDate: Date
   @Binding var selection: SleepV2BevelTrendSelection?
 
+  /// A point placed at its true position within the selected window.
+  private struct DisplayPoint {
+    let value: Double
+    let date: Date?
+    let label: String
+    /// 0…1 horizontal position inside the plot.
+    let fraction: CGFloat
+  }
+
+  private var windowStart: Date {
+    Calendar.current.date(byAdding: .day, value: -rangeDayCount, to: anchorDate) ?? anchorDate
+  }
+
+  /// Daily series carry real measurement dates; those points are filtered to
+  /// the selected window and positioned at their true calendar location, so
+  /// the axis never claims history that was not captured. Intraday (1D) and
+  /// undated series keep even index spacing with their own labels.
+  private var usesCalendarPositions: Bool {
+    selectedRange != "1D"
+      && !snapshot.trend.points.isEmpty
+      && snapshot.trend.points.allSatisfy { $0.date != nil }
+  }
+
+  private var displayPoints: [DisplayPoint] {
+    let points = snapshot.trend.points
+    guard usesCalendarPositions else {
+      let count = max(points.count - 1, 1)
+      return points.enumerated().map { index, point in
+        DisplayPoint(
+          value: point.value,
+          date: point.date,
+          label: point.label,
+          fraction: CGFloat(index) / CGFloat(count)
+        )
+      }
+    }
+    let start = windowStart.timeIntervalSinceReferenceDate
+    let end = anchorDate.timeIntervalSinceReferenceDate
+    let span = max(end - start, 1)
+    // Half-day tolerance so a day-key stamped at UTC midday lands on the edge
+    // ticks instead of being dropped.
+    let tolerance: TimeInterval = 43_200
+    return points
+      .compactMap { point -> DisplayPoint? in
+        guard let date = point.date else { return nil }
+        let instant = date.timeIntervalSinceReferenceDate
+        guard instant >= start - tolerance, instant <= end + tolerance else {
+          return nil
+        }
+        let fraction = CGFloat(min(max((instant - start) / span, 0), 1))
+        return DisplayPoint(value: point.value, date: date, label: point.label, fraction: fraction)
+      }
+      .sorted { $0.fraction < $1.fraction }
+  }
+
   private var values: [Double] {
-    snapshot.trend.points.map(\.value)
+    displayPoints.map(\.value)
   }
 
   var body: some View {
@@ -422,9 +477,6 @@ struct SleepV2BevelTrendChart: View {
           pointMarkers(plot: plot, domain: domain)
         }
         xAxisLabels(plot: plot, domain: domain)
-        if snapshot.sleepV2TrendPresentation == .line {
-          bottomActivityStrip(plot: plot)
-        }
         selectionGuide(plot: plot, domain: domain)
           .zIndex(20)
       }
@@ -548,33 +600,25 @@ struct SleepV2BevelTrendChart: View {
 
   private func xAxisLabels(plot: CGRect, domain: (min: Double, max: Double)) -> some View {
     ZStack {
-      ForEach(xLabels, id: \.index) { label in
+      ForEach(xLabels, id: \.fraction) { label in
         Text(label.text)
           .font(.caption.weight(.semibold))
           .fontDesign(.rounded)
           .foregroundStyle(palette.secondaryText)
           .position(
-            x: plot.minX + plot.width * CGFloat(label.index) / CGFloat(max(values.count - 1, 1)),
+            x: plot.minX + plot.width * label.fraction,
             y: plot.maxY + 34
           )
       }
     }
   }
 
-  private func bottomActivityStrip(plot: CGRect) -> some View {
-    HStack(spacing: 2) {
-      ForEach(0..<36, id: \.self) { index in
-        Rectangle()
-          .fill(index % 9 == 0 ? tint.opacity(0.82) : Color(red: 0.24, green: 0.52, blue: 0.42).opacity(0.72))
-      }
-    }
-    .frame(width: plot.width, height: 7)
-    .position(x: plot.midX, y: plot.maxY + 7)
-  }
-
   private func barMarks(plot: CGRect, domain: (min: Double, max: Double)) -> some View {
     let baselineY = yPosition(for: 0, plot: plot, domain: domain)
-    let barWidth = min(max(plot.width / CGFloat(max(values.count, 1)) * 0.58, 5), 18)
+    // Bar width follows the window's day count when bars sit at calendar
+    // positions, so sparse data yields sparse bars instead of wide filler.
+    let slotCount = usesCalendarPositions ? rangeDayCount + 1 : max(values.count, 1)
+    let barWidth = min(max(plot.width / CGFloat(max(slotCount, 1)) * 0.58, 5), 18)
     return ZStack {
       ForEach(Array(values.enumerated()), id: \.offset) { index, value in
         let point = chartPoint(index: index, value: value, plot: plot, domain: domain)
@@ -608,36 +652,42 @@ struct SleepV2BevelTrendChart: View {
     return (minValue - padding, maxValue + padding)
   }
 
-  private var xLabels: [(index: Int, text: String)] {
-    let count = max(values.count - 1, 1)
+  private var xLabels: [(fraction: CGFloat, text: String)] {
     if selectedRange == "1D" {
-      guard !snapshot.trend.points.isEmpty else {
+      let points = snapshot.trend.points
+      guard !points.isEmpty else {
         return []
       }
-      let lastIndex = snapshot.trend.points.count - 1
-      func hourlyLabel(_ index: Int) -> (Int, String) {
-        let boundedIndex = min(max(index, 0), lastIndex)
-        return (boundedIndex, snapshot.trend.points[boundedIndex].label)
+      let count = max(points.count - 1, 1)
+      let tickIndices = Array(Set([0, count / 2, count])).sorted()
+      return tickIndices.map { index in
+        (CGFloat(index) / CGFloat(count), points[min(index, points.count - 1)].label)
       }
-      let tickIndices = Array(Set([0, count / 2, count].map { min($0, lastIndex) })).sorted()
-      return tickIndices.map(hourlyLabel)
     }
-    let formatter = DateFormatter()
-    formatter.dateFormat = selectedRange == "1Y" ? "MMM" : "d MMM"
-    func label(_ index: Int) -> (Int, String) {
-      (index, formatter.string(from: dateForIndex(index)))
+    if usesCalendarPositions {
+      // Ticks mark real calendar positions of the selected window, whether or
+      // not data reaches them: the axis describes the window, the line
+      // describes the data.
+      let formatter = DateFormatter()
+      formatter.dateFormat = selectedRange == "1Y" ? "MMM" : "d MMM"
+      let fractions: [CGFloat] = selectedRange == "6M" || selectedRange == "1Y"
+        ? [0, 0.25, 0.5, 0.75, 1]
+        : [0, 0.5, 1]
+      return fractions.map { fraction in
+        let offset = Int((Double(rangeDayCount) * Double(fraction)).rounded()) - rangeDayCount
+        let date = Calendar.current.date(byAdding: .day, value: offset, to: anchorDate) ?? anchorDate
+        return (fraction, formatter.string(from: date))
+      }
     }
-
-    switch selectedRange {
-    case "30D":
-      return [label(0), label(count / 2), label(count)]
-    case "3M":
-      return [label(0), label(count / 2), label(count)]
-    case "1Y":
-      return [label(0), label(count / 2), label(count)]
-    default:
-      return [label(0), label(count / 4), label(count / 2), label((count * 3) / 4), label(count)]
+    // Undated series: label the actual points (their own labels), never
+    // synthesized calendar dates.
+    let points = displayPoints
+    guard !points.isEmpty else {
+      return []
     }
+    let last = points.count - 1
+    let tickIndices = Array(Set([0, last / 2, last])).sorted()
+    return tickIndices.map { (points[$0].fraction, points[$0].label) }
   }
 
   private func trendLine(in plot: CGRect, domain: (min: Double, max: Double)) -> Path {
@@ -672,8 +722,11 @@ struct SleepV2BevelTrendChart: View {
   }
 
   private func chartPoint(index: Int, value: Double, plot: CGRect, domain: (min: Double, max: Double)) -> CGPoint {
-    let x = plot.minX + plot.width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
-    return CGPoint(x: x, y: yPosition(for: value, plot: plot, domain: domain))
+    let points = displayPoints
+    let fraction = index >= 0 && index < points.count
+      ? points[index].fraction
+      : CGFloat(index) / CGFloat(max(points.count - 1, 1))
+    return CGPoint(x: plot.minX + plot.width * fraction, y: yPosition(for: value, plot: plot, domain: domain))
   }
 
   private func yPosition(for value: Double, plot: CGRect, domain: (min: Double, max: Double)) -> CGFloat {
@@ -691,12 +744,16 @@ struct SleepV2BevelTrendChart: View {
   }
 
   private func updateSelection(at location: CGPoint, plot: CGRect) {
-    guard !values.isEmpty else { return }
+    let points = displayPoints
+    guard !points.isEmpty else { return }
     let clampedX = min(max(location.x, plot.minX), plot.maxX)
-    let ratio = Double((clampedX - plot.minX) / max(plot.width, 1))
-    let index = min(max(Int((ratio * Double(values.count - 1)).rounded()), 0), values.count - 1)
+    let ratio = CGFloat((clampedX - plot.minX) / max(plot.width, 1))
+    // Nearest point by rendered position: honest for sparse calendar layouts.
+    let index = points.indices.min(by: {
+      abs(points[$0].fraction - ratio) < abs(points[$1].fraction - ratio)
+    }) ?? 0
     guard selection?.index != index else { return }
-    selection = SleepV2BevelTrendSelection(index: index, value: values[index], date: dateForIndex(index))
+    selection = SleepV2BevelTrendSelection(index: index, value: points[index].value, date: dateForIndex(index))
   }
 
   private func dateForIndex(_ index: Int) -> Date {
@@ -704,10 +761,11 @@ struct SleepV2BevelTrendChart: View {
       let start = Calendar.current.startOfDay(for: anchorDate)
       return Calendar.current.date(byAdding: .hour, value: index, to: start) ?? anchorDate
     }
-    let count = max(values.count - 1, 1)
-    let ratio = Double(min(max(index, 0), count)) / Double(count)
-    let offset = -rangeDayCount + Int((Double(rangeDayCount) * ratio).rounded())
-    return Calendar.current.date(byAdding: .day, value: offset, to: anchorDate) ?? anchorDate
+    // Dated points report their real measurement date; undated points cannot
+    // honestly claim a calendar date, so fall back to the window anchor.
+    let points = displayPoints
+    guard index >= 0, index < points.count else { return anchorDate }
+    return points[index].date ?? anchorDate
   }
 
   private var rangeDayCount: Int {
