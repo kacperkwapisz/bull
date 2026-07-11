@@ -605,3 +605,117 @@ fn seed_processed_capture_sqlite_with_hex(path: &Path, rows: &[(&str, i64, &str)
             .unwrap();
     }
 }
+
+// -- Live bulk-stream ingest decimation ------------------------------------
+
+fn bulk_k10_frame_hex() -> String {
+    let mut payload = vec![0u8; 1288];
+    payload[0] = bull_core::protocol::PACKET_TYPE_REALTIME_RAW_DATA;
+    payload[1] = 10;
+    hex::encode(bull_core::protocol::build_v5_payload_frame(&payload))
+}
+
+fn live_frame(id: &str, captured_at: &str, source: &str) -> CapturedFrameInput {
+    CapturedFrameInput {
+        evidence_id: id.to_string(),
+        frame_id: None,
+        source: source.to_string(),
+        captured_at: captured_at.to_string(),
+        device_model: "WHOOP 5.0 Bull".to_string(),
+        frame_hex: bulk_k10_frame_hex(),
+        sensitivity: "user-owned-capture".to_string(),
+        capture_session_id: None,
+        device_type: DeviceType::Bull,
+    }
+}
+
+#[test]
+fn live_bulk_stream_frames_are_decimated_to_the_sampling_interval() {
+    let store = BullStore::open_in_memory().unwrap();
+    let live = "ios.corebluetooth.notification";
+    let report = import_captured_frame_batch(
+        &store,
+        &[
+            live_frame("live-0s", "2026-07-08T00:00:00Z", live),
+            live_frame("live-5s", "2026-07-08T00:00:05Z", live),
+            live_frame("live-12s", "2026-07-08T00:00:12Z", live),
+        ],
+        CapturedFrameBatchOptions {
+            parser_version: "bull-core/test",
+        },
+    )
+    .unwrap();
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.frames_decimated, 1, "the 5s frame is inside the window");
+    assert_eq!(report.raw_inserted, 2, "0s and 12s frames are kept");
+
+    // The watermark persists across batches: 3s after the last kept frame is
+    // still inside the sampling window.
+    let followup = import_captured_frame_batch(
+        &store,
+        &[live_frame("live-15s", "2026-07-08T00:00:15Z", live)],
+        CapturedFrameBatchOptions {
+            parser_version: "bull-core/test",
+        },
+    )
+    .unwrap();
+    assert_eq!(followup.frames_decimated, 1);
+    assert_eq!(followup.raw_inserted, 0);
+
+    // Historical sync transfers are never decimated, even for the same shape.
+    let historical = import_captured_frame_batch(
+        &store,
+        &[
+            live_frame("hist-0s", "2026-07-08T00:00:01Z", "ios.historical_sync"),
+            live_frame("hist-2s", "2026-07-08T00:00:03Z", "ios.historical_sync"),
+        ],
+        CapturedFrameBatchOptions {
+            parser_version: "bull-core/test",
+        },
+    )
+    .unwrap();
+    assert_eq!(historical.frames_decimated, 0);
+    assert_eq!(historical.raw_inserted, 2);
+}
+
+#[test]
+fn finish_stale_capture_sessions_closes_only_orphans_before_cutoff() {
+    let store = BullStore::open_in_memory().unwrap();
+    for (session_id, started_at) in [("orphan-old", 1_000i64), ("fresh", 900_000i64)] {
+        store
+            .start_capture_session(CaptureSessionInput {
+                session_id,
+                source: "test",
+                started_at_unix_ms: started_at,
+                device_model: "WHOOP 5.0 Bull",
+                active_device_id: None,
+                provenance_json: "{}",
+            })
+            .unwrap();
+    }
+    store.finish_capture_session("orphan-old", 2_000, 5).ok();
+    // Re-open a second orphan that stays active.
+    store
+        .start_capture_session(CaptureSessionInput {
+            session_id: "orphan-active",
+            source: "test",
+            started_at_unix_ms: 5_000,
+            device_model: "WHOOP 5.0 Bull",
+            active_device_id: None,
+            provenance_json: "{}",
+        })
+        .unwrap();
+
+    let closed = store.finish_stale_capture_sessions(100_000).unwrap();
+    assert_eq!(closed, 1, "only the active orphan before the cutoff closes");
+
+    let orphan = store.capture_session("orphan-active").unwrap().unwrap();
+    assert_eq!(orphan.status, "finished");
+    assert_eq!(
+        orphan.ended_at_unix_ms,
+        Some(5_000),
+        "orphans close at their start time; they cannot prove later coverage"
+    );
+    let fresh = store.capture_session("fresh").unwrap().unwrap();
+    assert_eq!(fresh.status, "active", "sessions after the cutoff are untouched");
+}

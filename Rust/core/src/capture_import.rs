@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BullError, BullResult,
     fixtures::{CAPTURED_FRAME_BATCH_SCHEMA, FRAME_HEX_SCHEMA, FixtureIndexReport, IndexedFixture},
-    protocol::{DeviceType, decode_hex_with_whitespace, parse_frame},
+    protocol::{DeviceType, ParsedPayload, decode_hex_with_whitespace, parse_frame},
     store::{
         CaptureSessionInput, DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES, DecodedFrameInput,
         BullStore, RawEvidenceInput, RawEvidencePayloadRetentionReport,
@@ -109,6 +109,9 @@ pub struct CapturedFrameBatchImportReport {
     pub raw_existing: usize,
     pub frames_inserted: usize,
     pub frames_existing: usize,
+    /// Live bulk-stream frames sampled out at ingest (not persisted).
+    #[serde(default)]
+    pub frames_decimated: usize,
     pub results: Vec<CapturedFrameImportResult>,
     pub timeline_rows: Vec<PacketTimelineRow>,
     pub raw_payload_retention: RawEvidencePayloadRetentionReport,
@@ -209,6 +212,10 @@ pub struct CapturedFrameImportResult {
     pub imported_raw: bool,
     pub imported_frame: bool,
     pub parse_ok: bool,
+    /// True when a live bulk-stream frame was sampled out at ingest instead of
+    /// being persisted (see the decimation policy constants).
+    #[serde(default)]
+    pub decimated: bool,
     pub packet_type: Option<u8>,
     pub packet_type_name: Option<String>,
     pub sequence: Option<u8>,
@@ -262,6 +269,8 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
     let mut raw_existing = 0;
     let mut frames_inserted = 0;
     let mut frames_existing = 0;
+    let mut frames_decimated = 0;
+    let mut decimation = LiveIngestDecimation::enabled();
     let mut decoded_rows = Vec::new();
 
     if options.parser_version.trim().is_empty() {
@@ -272,9 +281,16 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
     }
 
     for frame in frames {
-        let result =
-            import_captured_frame_timed(store, frame, options.parser_version, &mut timing)?;
-        if result.imported_raw {
+        let result = import_captured_frame_timed(
+            store,
+            frame,
+            options.parser_version,
+            &mut timing,
+            &mut decimation,
+        )?;
+        if result.decimated {
+            frames_decimated += 1;
+        } else if result.imported_raw {
             raw_inserted += 1;
         } else if result
             .issues
@@ -285,7 +301,7 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
         }
         if result.imported_frame {
             frames_inserted += 1;
-        } else if result.parse_ok && result.issues.is_empty() {
+        } else if !result.decimated && result.parse_ok && result.issues.is_empty() {
             frames_existing += 1;
         }
         if !result.issues.is_empty() {
@@ -342,6 +358,7 @@ fn import_captured_frame_batch_with_output_options_in_transaction(
         raw_existing,
         frames_inserted,
         frames_existing,
+        frames_decimated,
         results,
         timeline_rows,
         raw_payload_retention,
@@ -540,7 +557,89 @@ fn import_captured_frame(
     parser_version: &str,
 ) -> BullResult<CapturedFrameImportResult> {
     let mut timing = CapturedFrameBatchTimingAccumulator::default();
-    import_captured_frame_timed(store, frame, parser_version, &mut timing)
+    let mut decimation = LiveIngestDecimation::disabled();
+    import_captured_frame_timed(store, frame, parser_version, &mut timing, &mut decimation)
+}
+
+/// Source string the iOS app stamps on frames captured from live BLE
+/// notifications (as opposed to historical sync transfers or file imports).
+const LIVE_STREAM_SOURCE: &str = "ios.corebluetooth.notification";
+
+/// Live bulk raw streams (large per-notification data packets, e.g. continuous
+/// IMU batches) arrive several times per second around the clock. Persisting
+/// every one of them multiplies on-device storage by orders of magnitude while
+/// adding nothing to the derived metrics: minute-level features saturate well
+/// below this sampling rate. Live frames of a bulk-stream shape are therefore
+/// sampled to at most one per stream per this interval. Small frames (heart
+/// rate, HRV, events, vitals) and historical sync transfers are never
+/// decimated.
+const LIVE_STREAM_DECIMATION_MIN_INTERVAL_MS: i64 = 10_000;
+
+/// Only frames at least this large are considered bulk-stream shaped. The
+/// physiological single-sample frames (heart rate, SpO2, temperature, events)
+/// are far smaller than this; continuous raw sensor batches are far larger.
+const LIVE_STREAM_DECIMATION_MIN_FRAME_BYTES: usize = 512;
+
+/// Sampling state for live-stream ingest decimation. Watermarks persist in the
+/// store so the cadence stays continuous across batches and app restarts.
+pub(crate) struct LiveIngestDecimation {
+    enabled: bool,
+    watermarks: Option<std::collections::HashMap<String, i64>>,
+}
+
+impl LiveIngestDecimation {
+    pub(crate) fn enabled() -> Self {
+        Self { enabled: true, watermarks: None }
+    }
+
+    pub(crate) fn disabled() -> Self {
+        Self { enabled: false, watermarks: None }
+    }
+
+    /// Whether to keep this frame. Keeping advances the stream watermark
+    /// (write-through; the caller runs inside the batch transaction).
+    fn should_keep(
+        &mut self,
+        store: &BullStore,
+        stream_key: &str,
+        captured_unix_ms: i64,
+    ) -> BullResult<bool> {
+        if !self.enabled {
+            return Ok(true);
+        }
+        if self.watermarks.is_none() {
+            self.watermarks = Some(store.live_ingest_decimation_watermarks()?);
+        }
+        let watermarks = self.watermarks.as_mut().expect("loaded above");
+        if let Some(last_kept) = watermarks.get(stream_key)
+            && (captured_unix_ms - last_kept).abs() < LIVE_STREAM_DECIMATION_MIN_INTERVAL_MS
+        {
+            return Ok(false);
+        }
+        watermarks.insert(stream_key.to_string(), captured_unix_ms);
+        store.upsert_live_ingest_decimation_watermark(stream_key, captured_unix_ms)?;
+        Ok(true)
+    }
+}
+
+/// Stream key when this frame is subject to live decimation, `None` otherwise.
+fn live_decimation_stream_key(
+    frame: &CapturedFrameInput,
+    raw_bytes: &[u8],
+    parsed_payload: Option<&ParsedPayload>,
+) -> Option<String> {
+    if frame.source != LIVE_STREAM_SOURCE {
+        return None;
+    }
+    if raw_bytes.len() < LIVE_STREAM_DECIMATION_MIN_FRAME_BYTES {
+        return None;
+    }
+    match parsed_payload {
+        Some(ParsedPayload::DataPacket { packet_k: Some(packet_k), .. }) => {
+            Some(format!("live.data_packet.k{packet_k}"))
+        }
+        _ => None,
+    }
 }
 
 fn import_captured_frame_timed(
@@ -548,6 +647,7 @@ fn import_captured_frame_timed(
     frame: &CapturedFrameInput,
     parser_version: &str,
     timing: &mut CapturedFrameBatchTimingAccumulator,
+    decimation: &mut LiveIngestDecimation,
 ) -> BullResult<CapturedFrameImportResult> {
     let mut issues = Vec::new();
     let frame_id = frame
@@ -568,6 +668,7 @@ fn import_captured_frame_timed(
                 imported_raw: false,
                 imported_frame: false,
                 parse_ok: false,
+                decimated: false,
                 packet_type: None,
                 packet_type_name: None,
                 sequence: None,
@@ -581,6 +682,39 @@ fn import_captured_frame_timed(
     timing.hex_decode_us = timing
         .hex_decode_us
         .saturating_add(elapsed_us_u64(hex_decode_started));
+
+    // Parse before persisting so live bulk-stream frames can be sampled
+    // (decimated) without ever touching the store. Parse failures still
+    // persist the raw evidence below, exactly as before.
+    let frame_parse_started = Instant::now();
+    let parsed_result = parse_frame(frame.device_type, &raw_bytes);
+    timing.frame_parse_us = timing
+        .frame_parse_us
+        .saturating_add(elapsed_us_u64(frame_parse_started));
+
+    if let Ok(parsed) = &parsed_result
+        && let Some(stream_key) =
+            live_decimation_stream_key(frame, &raw_bytes, parsed.parsed_payload.as_ref())
+        && let Some(captured_unix_ms) =
+            crate::bridge::parse_rfc3339_utc_unix_ms(&frame.captured_at)
+        && !decimation.should_keep(store, &stream_key, captured_unix_ms)?
+    {
+        return Ok(CapturedFrameImportResult {
+            evidence_id: frame.evidence_id.clone(),
+            frame_id,
+            imported_raw: false,
+            imported_frame: false,
+            parse_ok: true,
+            decimated: true,
+            packet_type: parsed.packet_type,
+            packet_type_name: parsed.packet_type_name.clone(),
+            sequence: parsed.sequence,
+            command_or_event: parsed.command_or_event,
+            parsed_payload_kind: parsed.parsed_payload.as_ref().map(parsed_payload_kind),
+            next_actions: Vec::new(),
+            issues: Vec::new(),
+        });
+    }
 
     let raw_insert_started = Instant::now();
     let imported_raw = match store.insert_raw_evidence(RawEvidenceInput {
@@ -628,13 +762,9 @@ fn import_captured_frame_timed(
         .raw_insert_us
         .saturating_add(elapsed_us_u64(raw_insert_started));
 
-    let frame_parse_started = Instant::now();
-    let parsed = match parse_frame(frame.device_type, &raw_bytes) {
+    let parsed = match parsed_result {
         Ok(parsed) => parsed,
         Err(error) => {
-            timing.frame_parse_us = timing
-                .frame_parse_us
-                .saturating_add(elapsed_us_u64(frame_parse_started));
             issues.push(error.to_string());
             return Ok(CapturedFrameImportResult {
                 evidence_id: frame.evidence_id.clone(),
@@ -642,6 +772,7 @@ fn import_captured_frame_timed(
                 imported_raw,
                 imported_frame: false,
                 parse_ok: false,
+                decimated: false,
                 packet_type: None,
                 packet_type_name: None,
                 sequence: None,
@@ -652,9 +783,6 @@ fn import_captured_frame_timed(
             });
         }
     };
-    timing.frame_parse_us = timing
-        .frame_parse_us
-        .saturating_add(elapsed_us_u64(frame_parse_started));
 
     let decoded_insert_started = Instant::now();
     let imported_frame = match store.insert_decoded_frame(DecodedFrameInput {
@@ -679,6 +807,7 @@ fn import_captured_frame_timed(
         imported_raw,
         imported_frame,
         parse_ok: issues.is_empty(),
+        decimated: false,
         packet_type: parsed.packet_type,
         packet_type_name: parsed.packet_type_name.clone(),
         sequence: parsed.sequence,

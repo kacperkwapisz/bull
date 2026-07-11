@@ -1274,6 +1274,12 @@ impl BullStore {
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
+            CREATE TABLE IF NOT EXISTS live_ingest_decimation_watermarks (
+                stream_key TEXT PRIMARY KEY,
+                last_kept_unix_ms INTEGER NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
             CREATE TABLE IF NOT EXISTS activity_sessions (
                 session_id TEXT PRIMARY KEY,
                 source TEXT NOT NULL,
@@ -2525,6 +2531,72 @@ impl BullStore {
         )?;
         self.capture_session(session_id)?
             .ok_or_else(|| BullError::message(format!("capture session {session_id} not found")))
+    }
+
+    /// Close every capture session still marked `active` that started before
+    /// the given instant. Session lifecycle state lives in the app process;
+    /// when the process ends without a clean shutdown (crash, watchdog kill,
+    /// forced background termination) its open session row is orphaned and no
+    /// future launch will ever finish it. Each launch closes those orphans so
+    /// session history stays truthful. The end time is pinned to the session's
+    /// own start time rather than "now", so an orphaned session never claims
+    /// coverage it cannot prove.
+    pub fn finish_stale_capture_sessions(
+        &self,
+        started_before_unix_ms: i64,
+    ) -> BullResult<usize> {
+        validate_non_negative("started_before_unix_ms", started_before_unix_ms)?;
+        let updated = self.conn.execute(
+            r#"
+            UPDATE capture_sessions
+            SET ended_at_unix_ms = COALESCE(ended_at_unix_ms, started_at_unix_ms),
+                status = 'finished',
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE status = 'active' AND started_at_unix_ms < ?1
+            "#,
+            params![started_before_unix_ms],
+        )?;
+        Ok(updated)
+    }
+
+    /// Last-kept timestamps for live-stream ingest decimation, keyed by stream.
+    /// See `capture_import` for the policy; the watermark persists across
+    /// batches (and app restarts) so the sampling cadence stays continuous.
+    pub fn live_ingest_decimation_watermarks(
+        &self,
+    ) -> BullResult<std::collections::HashMap<String, i64>> {
+        let mut statement = self.conn.prepare(
+            "SELECT stream_key, last_kept_unix_ms FROM live_ingest_decimation_watermarks",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut map = std::collections::HashMap::new();
+        for row in rows {
+            let (key, value) = row?;
+            map.insert(key, value);
+        }
+        Ok(map)
+    }
+
+    pub fn upsert_live_ingest_decimation_watermark(
+        &self,
+        stream_key: &str,
+        last_kept_unix_ms: i64,
+    ) -> BullResult<()> {
+        validate_required("stream_key", stream_key)?;
+        validate_non_negative("last_kept_unix_ms", last_kept_unix_ms)?;
+        self.conn.execute(
+            r#"
+            INSERT INTO live_ingest_decimation_watermarks (stream_key, last_kept_unix_ms)
+            VALUES (?1, ?2)
+            ON CONFLICT(stream_key) DO UPDATE SET
+                last_kept_unix_ms = excluded.last_kept_unix_ms,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            "#,
+            params![stream_key, last_kept_unix_ms],
+        )?;
+        Ok(())
     }
 
     pub fn capture_session(&self, session_id: &str) -> BullResult<Option<CaptureSessionRow>> {

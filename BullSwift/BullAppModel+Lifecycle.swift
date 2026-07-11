@@ -3,41 +3,62 @@ import UIKit
 
 
 extension BullAppModel {
-  /// Launch-time storage hygiene: remove stale export artifacts, age out
-  /// finished overnight spools, and compact the Rust store's raw payload
-  /// copies (curated metrics are untouched). Runs on the serial Rust startup
-  /// queue so it finishes before other launch work contends for the store.
+  /// The on-device store size above which launch recovery prunes deep
+  /// (24-hour frame window) and forces a VACUUM. A healthy store stays well
+  /// under this; crossing it means ingest outpaced retention and every bridge
+  /// call is paying for it, so the launch pass trades old raw frames (whose
+  /// nights are already summarized) for a responsive store.
+  static let emergencyRecoveryFileBytesThreshold: Int64 = 700_000_000
+
+  /// Launch-time storage hygiene: remove stale export artifacts, close
+  /// capture-session rows orphaned by unclean process exits, prune + compact
+  /// the Rust store (deep when oversized; curated daily summaries are never
+  /// touched). Runs on the serial Rust startup queue so it finishes before
+  /// other launch work contends for the store.
   func performLaunchStorageMaintenance() {
     let databasePath = HealthDataStore.defaultDatabasePath()
+    let launchUnixMs = Int64((Date().timeIntervalSince1970 * 1000).rounded())
     rustStartupQueue.async { [weak self] in
       let cleanup = BullStorageJanitor.cleanUpLaunchArtifacts()
+
+      let fileBytes = (try? FileManager.default.attributesOfItem(atPath: databasePath)[.size] as? Int64)
+        .flatMap { $0 } ?? 0
+      let oversized = fileBytes > Self.emergencyRecoveryFileBytesThreshold
 
       var maintenanceBody: String
       do {
         let rust = BullRustBridge()
-        let report = try rust.request(
-          method: "store.maintain",
-          args: ["database_path": databasePath]
-        )
-        let fileBefore = Self.lifecycleInt64Value(report["file_bytes_before"]) ?? 0
-        let fileAfter = Self.lifecycleInt64Value(report["file_bytes_after"]) ?? 0
-        let vacuumed = (report["vacuumed"] as? Bool) ?? false
-        let rawCompacted = Self.lifecycleInt64Value(
-          (report["raw_evidence"] as? [String: Any])?["compacted_rows"]
-        ) ?? 0
-        let decodedCompacted = Self.lifecycleInt64Value(
-          (report["decoded_frames"] as? [String: Any])?["compacted_rows"]
-        ) ?? 0
+        // No capture session can legitimately be active at launch, so every
+        // still-active row from before this instant is an orphan.
+        var args: [String: Any] = [
+          "database_path": databasePath,
+          "stale_sessions_started_before_unix_ms": launchUnixMs,
+        ]
+        if oversized {
+          // Keep the last 24 hours of raw frames (tonight's scoring inputs);
+          // older nights already live in the persisted daily summaries.
+          let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86_400))
+          args["prune_captured_before"] = cutoff
+          args["vacuum"] = true
+        }
+        let report = try rust.request(method: "store.emergency_recovery", args: args)
+        let staleClosed = Self.lifecycleInt64Value(report["stale_sessions_finished"]) ?? 0
+        let framesRemoved = Self.lifecycleInt64Value(report["frames_removed"]) ?? 0
+        let maintenance = report["maintenance"] as? [String: Any]
+        let fileBefore = Self.lifecycleInt64Value(maintenance?["file_bytes_before"]) ?? 0
+        let fileAfter = Self.lifecycleInt64Value(maintenance?["file_bytes_after"]) ?? 0
+        let vacuumed = (maintenance?["vacuumed"] as? Bool) ?? false
         maintenanceBody = String(
-          format: "db=%.1fMB->%.1fMB vacuumed=%@ raw_compacted=%lld decoded_compacted=%lld",
+          format: "db=%.1fMB->%.1fMB oversized=%@ vacuumed=%@ stale_sessions_closed=%lld frames_removed=%lld",
           Double(fileBefore) / 1_000_000,
           Double(fileAfter) / 1_000_000,
+          oversized ? "true" : "false",
           vacuumed ? "true" : "false",
-          rawCompacted,
-          decodedCompacted
+          staleClosed,
+          framesRemoved
         )
       } catch {
-        maintenanceBody = "store.maintain failed: \(String(describing: error))"
+        maintenanceBody = "store.emergency_recovery failed: \(String(describing: error))"
       }
 
       DispatchQueue.main.async { [weak self] in

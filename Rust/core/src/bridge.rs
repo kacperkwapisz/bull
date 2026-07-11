@@ -323,6 +323,7 @@ pub const BRIDGE_METHODS: &[&str] = &[
     "storage.check",
     "store.advance_sync_watermark",
     "store.drain_frame_bundle",
+    "store.emergency_recovery",
     "store.ewma_baseline_fold_history",
     "store.ewma_baseline_update",
     "store.gravity_rows_between",
@@ -2890,6 +2891,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(prune_derived_samples_before_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "store.emergency_recovery" => request_args::<EmergencyRecoveryArgs>(&request)
+            .and_then(emergency_recovery_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "store.prune_synced_frames" => request_args::<PruneSyncedFramesArgs>(&request)
             .and_then(prune_synced_frames_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4331,6 +4336,64 @@ fn prune_derived_samples_before_bridge(
     let store = open_bridge_store_hot(&args.database_path)?;
     let removed = store.prune_derived_samples_before(&args.created_before)?;
     Ok(json!({ "removed": removed }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct EmergencyRecoveryArgs {
+    database_path: String,
+    /// Capture sessions still `active` that started before this instant are
+    /// closed. At app launch no session can legitimately be active, so callers
+    /// pass the launch time to sweep orphans left by unclean process exits.
+    #[serde(default)]
+    stale_sessions_started_before_unix_ms: Option<i64>,
+    /// RFC3339; when set, raw frames captured before this and derived samples
+    /// created before this are pruned. Deep cutoffs recover an oversized
+    /// store; the persisted daily summaries are never touched.
+    #[serde(default)]
+    prune_captured_before: Option<String>,
+    /// Force a VACUUM regardless of freelist thresholds so the recovered space
+    /// is returned to the filesystem in the same pass.
+    #[serde(default)]
+    vacuum: bool,
+}
+
+/// One-call store recovery for launch time: close orphaned capture sessions,
+/// optionally deep-prune frames and derived samples, then run maintenance
+/// (forced VACUUM when requested). Combining the steps in a single bridge call
+/// keeps the recovery atomic from the caller's point of view and avoids
+/// several long-lived bridge round trips against a store that may be huge.
+fn emergency_recovery_bridge(args: EmergencyRecoveryArgs) -> BullResult<serde_json::Value> {
+    let store = open_bridge_store_hot(&args.database_path)?;
+    let stale_sessions_finished = match args.stale_sessions_started_before_unix_ms {
+        Some(cutoff) => store.finish_stale_capture_sessions(cutoff)?,
+        None => 0,
+    };
+    let (frames_removed, derived_removed) = match args.prune_captured_before.as_deref() {
+        Some(cutoff) => (
+            store.prune_raw_evidence_before(cutoff)?,
+            store.prune_derived_samples_before(cutoff)?,
+        ),
+        None => (0, 0),
+    };
+    let maintenance_options = if args.vacuum {
+        crate::store::StoreMaintenanceOptions {
+            vacuum_min_free_bytes: 0,
+            vacuum_min_free_percent: 0,
+            ..Default::default()
+        }
+    } else {
+        crate::store::StoreMaintenanceOptions::default()
+    };
+    let maintenance = store.maintain(maintenance_options)?;
+    Ok(json!({
+        "schema": "bull.store-emergency-recovery-report.v1",
+        "stale_sessions_finished": stale_sessions_finished,
+        "frames_removed": frames_removed,
+        "derived_samples_removed": derived_removed,
+        "maintenance": serde_json::to_value(&maintenance).map_err(|error| {
+            BullError::message(format!("cannot serialize maintenance report: {error}"))
+        })?,
+    }))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -6561,7 +6624,7 @@ fn rfc3339_minute_of_day(value: &str) -> Option<f64> {
     Some((hour * 60 + minute) as f64)
 }
 
-fn parse_rfc3339_utc_unix_ms(value: &str) -> Option<i64> {
+pub(crate) fn parse_rfc3339_utc_unix_ms(value: &str) -> Option<i64> {
     let value = value.strip_suffix('Z')?;
     let (date, time) = value.split_once('T')?;
     let mut date_parts = date.split('-');

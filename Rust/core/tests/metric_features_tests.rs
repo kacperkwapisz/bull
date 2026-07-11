@@ -3394,7 +3394,7 @@ fn import_motion_frame_with_hex(
         frame_id: Some(format!(
             "app.motion.{sensitivity}.{captured_at}.{sample_value}.{frame_tag}.frame.0"
         )),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: captured_at.to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
@@ -3426,7 +3426,7 @@ fn import_historical_k21_motion_frame_at_with_device_timestamp(
         frame_id: Some(format!(
             "app.k21-history.{sensitivity}.{captured_at}.{frame_tag}.frame.0"
         )),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: captured_at.to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
@@ -3493,7 +3493,7 @@ fn import_history_frame_with_hex(
         frame_id: Some(format!(
             "app.history.{sensitivity}.{marker_value}.{captured_at}.{frame_tag}.frame.0"
         )),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: captured_at.to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
@@ -3526,7 +3526,7 @@ fn import_r17_frame_at(
     let frames = vec![CapturedFrameInput {
         evidence_id: frame_stem.clone(),
         frame_id: Some(format!("{frame_stem}.frame.0")),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: captured_at.to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: r17_frame_hex(rr_candidates),
@@ -3552,7 +3552,7 @@ fn import_temperature_event(store: &BullStore, sensitivity: &str, body: &[u8]) {
             "app.temperature.{sensitivity}.{}.frame.0",
             hex::encode(body)
         )),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: "2026-05-27T00:10:00Z".to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex: temperature_event_frame_hex(body),
@@ -3664,7 +3664,7 @@ fn import_v24_history_frame_at(
         frame_id: Some(format!(
             "app.v24.{sensitivity}.{hr}.{captured_at}.{frame_tag}.frame.0"
         )),
-        source: "ios.corebluetooth.notification".to_string(),
+        source: "test.metric-features.import".to_string(),
         captured_at: captured_at.to_string(),
         device_model: "WHOOP 5.0 Bull".to_string(),
         frame_hex,
