@@ -51,6 +51,59 @@ export function adminRoutes(env: Env) {
       return ok({ deleted: existed, path: storePath, requeued })
     })
 
+  // Full purge of a user's cloud-held health data: raw upload bundles, sync
+  // runs, every derived score/vitals/input row, and the server-side compute
+  // store. Account, profile, journal entries, and push registrations are kept.
+  // Local-first makes the cloud copy optional; when the user does not want it,
+  // nothing physiological should remain server-side.
+  const purgeUserData = route
+    .delete("/admin/purge-user-data/:userId")
+    .handle(async ({ params, req }) => {
+      const auth = req.headers.get("authorization")
+      if (auth !== `Bearer ${secret}`) {
+        return json(401, { error: "unauthorized" })
+      }
+      const userId = (params as { userId?: string }).userId
+      if (!userId || userId.length < 10) {
+        return json(400, { error: "invalid userId" })
+      }
+
+      const db = getDb(env)
+      if (!db) return json(503, { error: "persistence_unavailable" })
+
+      const tables = [
+        "upload_bundles",
+        "sync_runs",
+        "daily_recovery",
+        "daily_sleep",
+        "daily_strain",
+        "daily_stress",
+        "daily_energy",
+        "vitals_daily",
+        "spo2_samples",
+        "input_reports",
+      ]
+      const deleted: Record<string, number> = {}
+      for (const table of tables) {
+        const result = await db.execute(
+          sql`DELETE FROM ${sql.identifier(table)} WHERE user_id = ${userId}`,
+        )
+        deleted[table] = (result as any).rowCount ?? 0
+      }
+
+      let storeDeleted = false
+      const dataDir = env.BULL_CORE_DATA_DIR
+      if (dataDir) {
+        const storePath = deviceStorePath(dataDir, userId)
+        if (existsSync(storePath)) {
+          unlinkSync(storePath)
+          storeDeleted = true
+        }
+      }
+
+      return ok({ deleted, store_deleted: storeDeleted })
+    })
+
   const drain = route.post("/admin/drain").handle(async ({ req }) => {
     const auth = req.headers.get("authorization")
     if (auth !== `Bearer ${secret}`) {
@@ -136,5 +189,5 @@ export function adminRoutes(env: Env) {
     }
   })
 
-  return new Hyper({ prefix: "" }).use([resetStore, drain, debug, debugSleep])
+  return new Hyper({ prefix: "" }).use([resetStore, purgeUserData, drain, debug, debugSleep])
 }
