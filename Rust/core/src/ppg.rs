@@ -90,8 +90,21 @@ pub fn extract_hr_from_ppg(samples: &[i32], sample_rate_hz: f64) -> PpgHeartRate
     let filtered = butterworth_bandpass(&ac, 0.7, 3.5, sample_rate_hz);
 
     // 3. Peak detection: find local maxima above a dynamic threshold.
-    //    Minimum peak spacing = sample_rate / 4 Hz (max 240 BPM).
-    let min_spacing = (sample_rate_hz / 4.0).max(2.0) as usize;
+    //
+    // Minimum peak spacing comes from the signal's own autocorrelation
+    // fundamental when one is detectable. A resting pulse waveform carries a
+    // prominent dicrotic (secondary) peak per cardiac cycle; with a fixed
+    // 240-BPM spacing the detector counts it as a beat and reports a clean,
+    // consistent 2x heart rate that interval filters cannot see. Spacing tied
+    // to the autocorrelation period suppresses intra-cycle peaks generically.
+    let fallback_spacing = (sample_rate_hz / 4.0).max(2.0) as usize;
+    let min_spacing = match autocorrelation_period_samples(&filtered, sample_rate_hz) {
+        Some(period_samples) => ((period_samples * 0.7) as usize).max(fallback_spacing),
+        None => {
+            quality_flags.push("autocorrelation_period_unavailable".into());
+            fallback_spacing
+        }
+    };
     let peaks = detect_peaks(&filtered, min_spacing);
 
     if peaks.len() < 2 {
@@ -179,6 +192,65 @@ pub fn extract_hr_from_ppg(samples: &[i32], sample_rate_hz: f64) -> PpgHeartRate
         beat_count: peaks.len(),
         quality_flags,
     }
+}
+
+/// Cardiac fundamental period (in samples) from normalized autocorrelation.
+///
+/// Scans lags spanning 40–200 BPM and returns the strongest lag, preferring a
+/// subharmonic (double lag) when it correlates nearly as well: peak-picking
+/// errors report harmonics of the true pulse rate, never subharmonics, so when
+/// both lag and 2×lag fit the waveform the longer period is the fundamental.
+/// Returns `None` when no lag correlates convincingly (motion artifact, poor
+/// perfusion) — the caller falls back to conservative spacing.
+fn autocorrelation_period_samples(signal: &[f64], sample_rate_hz: f64) -> Option<f64> {
+    let lag_min = (sample_rate_hz * 60.0 / 200.0).round() as usize; // 200 BPM
+    let lag_max = (sample_rate_hz * 60.0 / 40.0).round() as usize; // 40 BPM
+    if signal.len() < lag_max * 2 || lag_min < 2 {
+        return None;
+    }
+    let normalized_autocorr = |lag: usize| -> f64 {
+        let n = signal.len() - lag;
+        let mut cross = 0.0;
+        let mut energy_a = 0.0;
+        let mut energy_b = 0.0;
+        for i in 0..n {
+            cross += signal[i] * signal[i + lag];
+            energy_a += signal[i] * signal[i];
+            energy_b += signal[i + lag] * signal[i + lag];
+        }
+        let denom = (energy_a * energy_b).sqrt();
+        if denom <= f64::EPSILON { 0.0 } else { cross / denom }
+    };
+    let mut best_lag = 0usize;
+    let mut best_r = f64::MIN;
+    for lag in lag_min..=lag_max {
+        let r = normalized_autocorr(lag);
+        if r > best_r {
+            best_r = r;
+            best_lag = lag;
+        }
+    }
+    // A weak best correlation is not a cardiac rhythm.
+    const MIN_FUNDAMENTAL_CORRELATION: f64 = 0.30;
+    if best_r < MIN_FUNDAMENTAL_CORRELATION {
+        return None;
+    }
+    // Subharmonic preference (run twice: catches 2x and 4x harmonic picks).
+    const SUBHARMONIC_ACCEPT_FRACTION: f64 = 0.75;
+    for _ in 0..2 {
+        let double = best_lag * 2;
+        if double > lag_max || signal.len() < double * 2 {
+            break;
+        }
+        let r_double = normalized_autocorr(double);
+        if r_double >= best_r * SUBHARMONIC_ACCEPT_FRACTION {
+            best_lag = double;
+            best_r = r_double;
+        } else {
+            break;
+        }
+    }
+    Some(best_lag as f64)
 }
 
 /// 4th-order Butterworth bandpass implemented as two cascaded biquad sections.
@@ -420,6 +492,37 @@ mod tests {
         // RMSSD should be non-trivial with varying RR.
         let rmssd = result.rmssd_ms.expect("should have RMSSD");
         assert!(rmssd > 10.0, "expected measurable RMSSD, got {rmssd:.1}");
+    }
+
+    #[test]
+    fn dicrotic_notch_does_not_double_resting_heart_rate() {
+        // Resting pulse at 54 BPM with a prominent dicrotic (secondary) peak
+        // per cycle: the classic sleep-time waveform. Naive peak spacing counts
+        // the dicrotic wave as a beat and reports ~108 BPM with clean,
+        // consistent intervals that interval filters cannot reject; the
+        // autocorrelation fundamental must pin the true rate.
+        let sample_rate = 25.0;
+        let beat_hz = 0.9; // 54 BPM
+        let total_seconds = 60.0;
+        let n = (total_seconds * sample_rate) as usize;
+        let mut samples = Vec::with_capacity(n);
+        for i in 0..n {
+            let t = i as f64 / sample_rate;
+            let phase = 2.0 * std::f64::consts::PI * beat_hz * t;
+            // Systolic peak + strong dicrotic wave (second harmonic, offset
+            // phase) riding on a DC level, like AC-coupled reflectance PPG.
+            let v = 200_000.0
+                + 4_000.0 * phase.sin()
+                + 2_600.0 * (2.0 * phase + 0.9).sin();
+            samples.push(v as i32);
+        }
+
+        let result = extract_hr_from_ppg(&samples, sample_rate);
+        let hr = result.mean_hr_bpm.expect("should have HR");
+        assert!(
+            (44.0..=64.0).contains(&hr),
+            "expected ~54 BPM fundamental, got {hr:.1} (harmonic doubling?)"
+        );
     }
 
     #[test]
