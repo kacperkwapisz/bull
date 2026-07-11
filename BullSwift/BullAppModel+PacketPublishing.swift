@@ -357,16 +357,51 @@ extension BullAppModel {
     }
   }
 
+  /// Heart rate embedded in a parsed data-packet frame. The strap surfaces HR
+  /// through several live frame shapes (raw k10 motion streams, v18/v24
+  /// history frames, and history frames with an HR marker); the extraction
+  /// mirrors the Rust core's generic heart-rate feature so the live display
+  /// and the on-device scoring read the same signal. Values outside the
+  /// plausible wearable range are dropped, matching the core's marker bounds.
   static func extractHeartRate(from parsed: [String: Any]) -> Int? {
     guard
       let payload = parsed["parsed_payload"] as? [String: Any],
-      payload["kind"] as? String == "data_packet",
-      let body = payload["body_summary"] as? [String: Any],
-      body["kind"] as? String == "raw_motion_k10"
+      payload["kind"] as? String == "data_packet"
     else {
       return nil
     }
-    return intValue(body["heart_rate"])
+    if let body = payload["body_summary"] as? [String: Any] {
+      switch body["kind"] as? String {
+      case "raw_motion_k10":
+        if let bpm = plausibleHeartRateBPM(intValue(body["heart_rate"])) {
+          return bpm
+        }
+      case "v18_history", "v24_history":
+        if let bpm = plausibleHeartRateBPM(intValue(body["hr"])) {
+          return bpm
+        }
+      case "normal_history":
+        if let bpm = plausibleHeartRateBPM(intValue(body["marker_value"])) {
+          return bpm
+        }
+      default:
+        break
+      }
+    }
+    // History frames also expose the HR marker at the payload level.
+    if payload["domain"] as? String == "normal_history_with_hr_marker" {
+      return plausibleHeartRateBPM(intValue(payload["hr_present_marker"]))
+    }
+    return nil
+  }
+
+  /// Plausible wearable heart-rate range, matching the Rust core's marker
+  /// bounds (`HEART_RATE_MARKER_PLAUSIBLE_BPM`).
+  static func plausibleHeartRateBPM(_ bpm: Int?) -> Int? {
+    guard let bpm, (30...240).contains(bpm) else {
+      return nil
+    }
+    return bpm
   }
 
   static func extractMovementPacket(

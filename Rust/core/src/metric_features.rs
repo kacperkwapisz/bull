@@ -6182,8 +6182,8 @@ fn sleep_window_feature(
     }
 
     let mut disturbance_count = 0u32;
-    let first = timed_features.first()?;
-    let last = timed_features.last()?;
+    let first = *timed_features.first()?;
+    let last = *timed_features.last()?;
     // Wake-reference HR: the median heart rate across this window's
     // high-motion (confidently awake) epochs. Sleep staging compares each
     // quiet epoch against this reference instead of the window's own min/max,
@@ -6244,10 +6244,35 @@ fn sleep_window_feature(
     let mut largest_motion_gap_minutes = 0i64;
     let mut non_increasing_motion_interval_count = 0usize;
     for pair in timed_features.windows(2) {
-        let interval_minutes = pair[1].0 - pair[0].0;
-        if interval_minutes <= 0 {
+        if pair[1].0 <= pair[0].0 {
             non_increasing_motion_interval_count += 1;
             quality_flags.insert("non_increasing_motion_timestamps".to_string());
+        }
+    }
+    // Collapse to one motion feature per minute (the minute's peak intensity)
+    // before building stage segments. Stage segments are minute-resolution;
+    // duplicate same-minute samples whose sub-minute timestamps arrive out of
+    // order would otherwise produce stage segments whose boundaries overlap by
+    // a few seconds, which the score validator rightly rejects. One feature
+    // per minute makes segment boundaries strictly increasing by construction.
+    // The coverage counts and quality flags above are measured on the raw
+    // input, so duplicates stay visible in provenance.
+    timed_features.dedup_by(|current, previous| {
+        if current.0 == previous.0 {
+            if current.1.motion_intensity_0_to_1 > previous.1.motion_intensity_0_to_1 {
+                previous.1 = current.1;
+            }
+            true
+        } else {
+            false
+        }
+    });
+    if timed_features.len() < 2 {
+        return None;
+    }
+    for pair in timed_features.windows(2) {
+        let interval_minutes = pair[1].0 - pair[0].0;
+        if interval_minutes <= 0 {
             continue;
         }
         if interval_minutes > 90 {

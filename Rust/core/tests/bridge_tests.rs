@@ -8897,3 +8897,87 @@ fn event_packet_timestamp_bypasses_stale_clock_snap() {
         result
     );
 }
+
+#[test]
+fn bridge_sleep_score_survives_same_minute_duplicate_motion_with_inverted_seconds() {
+    // Historical transfers are not decimated at ingest, so two motion frames
+    // can land in the same minute with sub-minute timestamps that sort against
+    // their input-id order. Stage segments are minute-resolution: the window
+    // builder must not emit boundaries that overlap by seconds, or the score
+    // validator rejects the whole night and no sleep score reaches the app.
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("bull.sqlite");
+    let db_path = db.display().to_string();
+
+    let frame = |id: &str, captured_at: &str, motion: i16, hr: u8| {
+        serde_json::json!({
+            "evidence_id": id,
+            "frame_id": format!("{id}.frame.0"),
+            "source": "ios.historical_sync",
+            "captured_at": captured_at,
+            "device_model": "WHOOP 5.0 Bull",
+            "frame_hex": k10_motion_frame_hex_with_value_and_heart_rate(motion, hr),
+            "sensitivity": "user-owned-capture",
+            "device_type": "BULL"
+        })
+    };
+    let import = request(serde_json::json!({
+        "schema": "bull.bridge.request.v1",
+        "request_id": "sleep-dup-import",
+        "method": "capture.import_frame_batch",
+        "args": {
+            "database_path": db_path,
+            "parser_version": "bull-core/bridge-test",
+            "frames": [
+                frame("bridge-dup-sleep-1", "2026-05-27T22:00:00Z", 1000, 50),
+                // Same minute; id sort order ("…dup-a" < "…dup-b") runs against
+                // the sub-minute capture order (:50 before :10).
+                frame("bridge-dup-sleep-2-dup-a", "2026-05-27T23:00:50Z", 1000, 50),
+                frame("bridge-dup-sleep-2-dup-b", "2026-05-27T23:00:10Z", 10000, 80),
+                frame("bridge-dup-sleep-3", "2026-05-28T00:00:00Z", 1000, 50),
+                frame("bridge-dup-sleep-4", "2026-05-28T01:00:00Z", 1000, 50),
+                frame("bridge-dup-sleep-5", "2026-05-28T02:00:00Z", 1000, 50),
+            ]
+        }
+    }));
+    assert!(import.ok, "{:?}", import.error);
+
+    let response = request(serde_json::json!({
+        "schema": "bull.bridge.request.v1",
+        "request_id": "sleep-dup-score",
+        "method": "metrics.sleep_score_from_features",
+        "args": {
+            "database_path": db_path,
+            "start": "2026-05-27T22:00:00Z",
+            "end": "2026-05-28T03:00:00Z",
+            "min_owned_captures": 1,
+            "require_trusted_evidence": true,
+            "sleep_need_minutes": 240.0,
+            "low_motion_threshold_0_to_1": 0.05,
+            "disturbance_motion_threshold_0_to_1": 0.20,
+            "target_midpoint_minutes_since_midnight": 0.0,
+            "algorithm_id": "bull.sleep.v1"
+        }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    let report = response.result.unwrap();
+    assert_eq!(report["pass"], true, "issues: {}", report["issues"]);
+    let flags = report["sleep_window"]["quality_flags"].to_string();
+    assert!(
+        flags.contains("duplicate_motion_timestamps"),
+        "duplicates must stay visible in provenance: {flags}"
+    );
+    let errors = report["score_result"]["errors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        errors.is_empty(),
+        "stage segments must validate cleanly: {errors:?}"
+    );
+    assert!(
+        report["score_result"]["output"]["score_0_to_100"].is_number(),
+        "a valid night must produce a score: {}",
+        report["score_result"]
+    );
+}

@@ -648,11 +648,11 @@ extension BullAppModel {
     }
 
     if let bpm = interpretation.heartRateBPM {
-      ble.recordLiveHeartRate(bpm, source: "rust.k10", at: event.capturedAt)
+      ble.recordLiveHeartRate(bpm, source: "rust.frame_hr", at: event.capturedAt)
       recordDeviceSignalPoint(
         family: "HR",
         value: "\(bpm) bpm",
-        detail: "raw_motion_k10 embedded heart-rate byte",
+        detail: "heart rate embedded in a parsed data-packet frame",
         capturedAt: event.capturedAt,
         minimumInterval: 1
       )

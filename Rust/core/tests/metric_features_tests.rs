@@ -3872,3 +3872,73 @@ fn assert_close(actual: f64, expected: f64) {
         "expected {expected}, got {actual}"
     );
 }
+
+#[test]
+fn sleep_score_survives_same_minute_duplicates_with_out_of_order_seconds() {
+    // Two motion features land in the same minute with sub-minute timestamps
+    // that sort against their input-id order (live streams can interleave
+    // like this). Stage segments are minute-resolution: the builder must not
+    // emit boundaries that overlap by seconds, or score validation rejects
+    // the whole night and the app has no sleep score to show.
+    let store = BullStore::open_in_memory().unwrap();
+    // Quiet night with a genuine awake island mid-window (distinct stages
+    // cannot be merged away). The island minute carries two samples whose
+    // sub-minute seconds sort against their input-id order (sensitivity is
+    // the leading id component), reproducing interleaved live streams.
+    for (sensitivity, captured_at, sample_value) in [
+        ("user-owned-a", "2026-05-27T22:00:00Z", 1000),
+        ("user-owned-a", "2026-05-27T22:30:50Z", 1000),
+        ("user-owned-b", "2026-05-27T22:30:10Z", 10000),
+        ("user-owned-a", "2026-05-27T22:34:00Z", 1000),
+        ("user-owned-a", "2026-05-27T23:05:00Z", 1000),
+    ] {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            sensitivity,
+            captured_at,
+            sample_value,
+        );
+    }
+    for (captured_at, marker_value) in [
+        ("2026-05-27T22:05:00Z", 55),
+        ("2026-05-27T22:31:00Z", 70),
+        ("2026-05-27T22:35:00Z", 55),
+    ] {
+        import_history_frame_at(&store, "user-owned-a", marker_value, captured_at);
+    }
+
+    let report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T22:00:00Z",
+        "2026-05-27T23:10:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: false,
+            sleep_need_minutes: 65.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 1350.0,
+            as_of_unix_ms: None,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    let window = report.sleep_window.as_ref().unwrap();
+    assert!(
+        window
+            .quality_flags
+            .contains(&"duplicate_motion_timestamps".to_string()),
+        "duplicates must stay visible in provenance: {:?}",
+        window.quality_flags
+    );
+    let score = report.score_result.expect("score result");
+    assert!(
+        score.errors.iter().all(|error| !error.contains("overlaps_previous_segment")),
+        "stage segments must not overlap: {:?}",
+        score.errors
+    );
+    assert!(score.errors.is_empty(), "{:?}", score.errors);
+    assert!(score.output.is_some(), "a valid night must produce a score");
+}
