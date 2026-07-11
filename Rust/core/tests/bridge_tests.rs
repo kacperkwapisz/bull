@@ -8981,3 +8981,28 @@ fn bridge_sleep_score_survives_same_minute_duplicate_motion_with_inverted_second
         report["score_result"]
     );
 }
+
+#[test]
+fn bridge_db_overview_reports_storage_freelist_pressure() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("overview.sqlite");
+    // Opening once creates the schema so the overview has a real store file.
+    drop(BullStore::open(&db).unwrap());
+
+    let response = request(serde_json::json!({
+        "schema": "bull.bridge.request.v1",
+        "request_id": "db-overview-storage-1",
+        "method": "debug.db_overview",
+        "args": { "database_path": db.to_str().unwrap() }
+    }));
+
+    assert!(response.ok, "{:?}", response.error);
+    let result = response.result.unwrap();
+    let storage = &result["storage"];
+    assert!(storage.is_object(), "storage stats missing: {result}");
+    assert!(storage["page_size"].as_i64().unwrap() > 0);
+    assert!(storage["page_count"].as_i64().unwrap() > 0);
+    assert!(storage["freelist_count"].as_i64().unwrap() >= 0);
+    assert!(storage["vacuum_min_free_bytes"].as_i64().unwrap() > 0);
+    assert!(storage["vacuum_due"].is_boolean());
+}

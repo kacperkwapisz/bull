@@ -7343,9 +7343,35 @@ fn debug_db_overview_bridge(args: DebugDbOverviewArgs) -> BullResult<serde_json:
         }))
         .collect();
 
+    // Freelist pressure relative to the maintenance VACUUM thresholds, so the
+    // diag shows whether the periodic compact (store.maintain on every drain)
+    // is due, or how far the store is from triggering it.
+    let storage = store.storage_stats().ok().map(|stats| {
+        let free_bytes = stats.freelist_count.saturating_mul(stats.page_size);
+        let file_bytes = stats.page_count.saturating_mul(stats.page_size);
+        let free_percent = if file_bytes > 0 {
+            free_bytes.saturating_mul(100) / file_bytes
+        } else {
+            0
+        };
+        let defaults = crate::store::StoreMaintenanceOptions::default();
+        json!({
+            "page_size": stats.page_size,
+            "page_count": stats.page_count,
+            "freelist_count": stats.freelist_count,
+            "free_bytes": free_bytes,
+            "free_percent": free_percent,
+            "vacuum_min_free_bytes": defaults.vacuum_min_free_bytes,
+            "vacuum_min_free_percent": defaults.vacuum_min_free_percent,
+            "vacuum_due": free_bytes >= defaults.vacuum_min_free_bytes
+                && free_percent >= defaults.vacuum_min_free_percent,
+        })
+    });
+
     Ok(json!({
         "schema": "bull.debug-db-overview.v1",
         "database_bytes": database_bytes,
+        "storage": storage,
         "table_counts": table_counts,
         "decoded_frame_count": decoded.len(),
         "decoded_packet_type_histogram": packet_type_histogram,

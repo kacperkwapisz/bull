@@ -7677,6 +7677,34 @@ impl BullStore {
             .query_row("PRAGMA page_size", [], |row| row.get(0))?;
         Ok(page_count * page_size)
     }
+
+    /// Page-level storage stats for diagnostics: how much of the file is
+    /// reusable free space that the maintenance VACUUM (see `maintain`) would
+    /// return to the filesystem once its thresholds are met.
+    pub fn storage_stats(&self) -> BullResult<StoreStorageStats> {
+        let page_size: i64 = self
+            .conn
+            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let page_count: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let freelist_count: i64 = self
+            .conn
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(StoreStorageStats {
+            page_size,
+            page_count,
+            freelist_count,
+        })
+    }
+}
+
+/// See [`BullStore::storage_stats`].
+#[derive(Debug, Clone, Copy)]
+pub struct StoreStorageStats {
+    pub page_size: i64,
+    pub page_count: i64,
+    pub freelist_count: i64,
 }
 
 impl BullStore {
