@@ -88,7 +88,8 @@ export function adminRoutes(env: Env) {
         const result = await db.execute(
           sql`DELETE FROM ${sql.identifier(table)} WHERE user_id = ${userId}`,
         )
-        deleted[table] = (result as any).rowCount ?? 0
+        // postgres.js reports affected rows as `count`; node-pg uses `rowCount`.
+        deleted[table] = (result as any).count ?? (result as any).rowCount ?? 0
       }
 
       let storeDeleted = false
